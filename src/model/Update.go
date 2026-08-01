@@ -123,6 +123,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.lastError = msg.Err.Error()
 		}
+
+	case cmds.CreateTaskMsg:
+		// Add-input created a task; refresh immediately and move selection to it.
+		if m.activeListID != "" {
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.SetSelection(msg.NewID, msg.Depth))
+		}
 	}
 
 	// Forward the message to every zone. Each component answers to a

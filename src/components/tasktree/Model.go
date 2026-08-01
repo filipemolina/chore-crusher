@@ -79,12 +79,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.activeList = msg.ListID != ""
 		m.applyRows(msg.Rows)
+		// Broadcast the current selection's depth to add-input
+		if row := m.findRow(m.selectedID); row != nil {
+			return m, cmds.SetSelection(row.Task.ID, row.Depth)
+		}
 
 	case tea.KeyPressMsg:
 		if !m.focused || len(m.rows) == 0 {
 			return m, nil
 		}
 
+		oldSelection := m.selectedID
 		switch {
 		case key.Matches(msg, keys.Tree.Navigate):
 			// Determine direction based on key
@@ -99,6 +104,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleCollapse(true)
 		case key.Matches(msg, keys.Tree.Toggle):
 			return m, m.toggleComplete()
+		}
+
+		// If selection changed, broadcast it to add-input
+		if m.selectedID != oldSelection {
+			if row := m.findRow(m.selectedID); row != nil {
+				return m, cmds.SetSelection(row.Task.ID, row.Depth)
+			}
 		}
 	}
 
