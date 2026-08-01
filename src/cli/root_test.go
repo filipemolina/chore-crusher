@@ -1,0 +1,159 @@
+package cli
+
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"strings"
+	"testing"
+)
+
+// runCLI executes the root command with args against a store rooted at
+// dataDir (one temp dir per test gives one shared database across the calls
+// of a sequence, like the plan's manual verification) and returns the exit
+// code and captured stdout/stderr. XDG_DATA_HOME is pinned to dataDir so the
+// commands resolve the store exactly where the test put it (docs/DESIGN.md
+// §8); stdout/stderr are redirected through pipes so a test asserts on the
+// exact bytes a real caller would see.
+func runCLI(t *testing.T, dataDir string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	oldOut, oldErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	code = Execute(args)
+	os.Stdout, os.Stderr = oldOut, oldErr
+	outW.Close()
+	errW.Close()
+
+	out, err := io.ReadAll(outR)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	er, err := io.ReadAll(errR)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	return code, string(out), string(er)
+}
+
+// mustCLI runs the command, failing the test unless it exits 0, and returns
+// stdout. Write commands that print an id are the common caller.
+func mustCLI(t *testing.T, dataDir string, args ...string) string {
+	t.Helper()
+	code, out, errOut := runCLI(t, dataDir, args...)
+	if code != 0 {
+		t.Fatalf("%v: exit %d, stderr %q", args, code, errOut)
+	}
+	return out
+}
+
+// mustJSONCLI runs the command in --json mode, fails unless it exits 0, and
+// returns the parsed payload.
+func mustJSONCLI(t *testing.T, dataDir string, payload any, args ...string) {
+	t.Helper()
+	code, out, errOut := runCLI(t, dataDir, args...)
+	if code != 0 {
+		t.Fatalf("%v: exit %d, stderr %q", args, code, errOut)
+	}
+	if err := json.Unmarshal([]byte(out), payload); err != nil {
+		t.Fatalf("%v: stdout %q is not the expected JSON: %v", args, out, err)
+	}
+}
+
+// TestExecuteExitCodes pins the whole exit-code contract (docs/DESIGN.md
+// §9): 0 success, 1 domain failure, 2 usage error. Cobra's own flag/arg
+// errors and an unknown subcommand must fall through to 2, not be remapped.
+func TestExecuteExitCodes(t *testing.T) {
+	data := t.TempDir()
+
+	if code, _, _ := runCLI(t, data, "--version"); code != 0 {
+		t.Errorf("--version: exit %d, want 0", code)
+	}
+	if _, out, _ := runCLI(t, data, "--version"); !strings.HasPrefix(out, "complete ") {
+		t.Errorf("--version: stdout %q, want a 'complete <version>' line", out)
+	}
+	if code, _, _ := runCLI(t, data, "--help"); code != 0 {
+		t.Errorf("--help: exit %d, want 0", code)
+	}
+	if code, _, _ := runCLI(t, data); code != 0 {
+		t.Errorf("no subcommand: exit %d, want 0 (TUI placeholder)", code)
+	}
+
+	// Usage errors: missing argument, unknown flag, unknown subcommand.
+	if code, _, _ := runCLI(t, data, "tasks"); code != 2 {
+		t.Errorf("tasks (no args): exit %d, want 2", code)
+	}
+	if code, _, _ := runCLI(t, data, "--bogus-flag"); code != 2 {
+		t.Errorf("unknown flag: exit %d, want 2", code)
+	}
+	if code, _, _ := runCLI(t, data, "frobnicate"); code != 2 {
+		t.Errorf("unknown subcommand: exit %d, want 2", code)
+	}
+	if code, _, _ := runCLI(t, data, "progress", "01ARZ"); code != 2 {
+		t.Errorf("progress without --mode: exit %d, want 2 (missing required flag)", code)
+	}
+
+	// Domain failure: an id that does not resolve.
+	if code, _, _ := runCLI(t, data, "show", "01ARZ"); code != 1 {
+		t.Errorf("show of missing task: exit %d, want 1", code)
+	}
+	if code, _, _ := runCLI(t, data, "tasks", "01ARZ"); code != 1 {
+		t.Errorf("tasks of missing list: exit %d, want 1", code)
+	}
+}
+
+// TestJSONErrorShape pins the §9 error contract: in --json mode a failure is
+// exactly one JSON value on stdout — {"error": "..."} — with the message off
+// stdout's only stream, so a caller parses one stream and reads the exit
+// code to know which shape it got.
+func TestJSONErrorShape(t *testing.T) {
+	data := t.TempDir()
+	code, out, errOut := runCLI(t, data, "show", "nope", "--json")
+	if code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if errOut != "" {
+		t.Errorf("stderr must stay empty in --json mode, got %q", errOut)
+	}
+	var parsed struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("stdout %q is not one JSON value: %v", out, err)
+	}
+	if !strings.Contains(parsed.Error, "task") {
+		t.Errorf("error %q should name the failing lookup", parsed.Error)
+	}
+}
+
+// TestHumanErrorGoesToStderr pins the human-mode failure shape: one
+// "complete: ..." line on stderr, nothing on stdout, exit 1.
+func TestHumanErrorGoesToStderr(t *testing.T) {
+	data := t.TempDir()
+	code, out, errOut := runCLI(t, data, "show", "nope")
+	if code != 1 || out != "" {
+		t.Errorf("exit %d stdout %q, want exit 1 with empty stdout", code, out)
+	}
+	if !strings.HasPrefix(errOut, "complete: ") {
+		t.Errorf("stderr %q, want a 'complete: ' prefix", errOut)
+	}
+}
+
+// TestVersionMatchesPhaseZero keeps the phase-0 output shape ("complete
+// <version>") now that Cobra owns the flag — docs/plans/phase-2-cli.md step 6.
+func TestVersionMatchesPhaseZero(t *testing.T) {
+	data := t.TempDir()
+	_, out, _ := runCLI(t, data, "--version")
+	if !strings.HasPrefix(out, "complete ") || strings.Contains(out, "version") {
+		t.Errorf("--version output %q should be 'complete <version>' (phase-0 shape)", out)
+	}
+}

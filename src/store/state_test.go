@@ -103,6 +103,36 @@ func TestCompleteDoesNotPromoteSubtasksParentWithPendingSiblings(t *testing.T) {
 // TestSetProgressSubtasksZeroChildrenIsSimple — "setting progress_kind =
 // subtasks on a task with zero children succeeds, and DerivedProgress reports
 // displayAsSimple = true for it."
+// TestToggleFlipsCompleteAndPending — "toggle = whichever applies": a
+// pending task toggles to complete with the cascade, a complete task toggles
+// back to pending without cascading (reopen is lossy, docs/DESIGN.md §3).
+func TestToggleFlipsCompleteAndPending(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	root := mustTask(t, s, lid, "root", nil)
+	child := mustTask(t, s, lid, "child", &root)
+
+	if err := s.Toggle(root); err != nil {
+		t.Fatalf("Toggle(pending): %v", err)
+	}
+	if got := mustGet(t, s, root).Status; got != StatusComplete {
+		t.Errorf("root after first toggle: got %q, want complete", got)
+	}
+	if got := mustGet(t, s, child).Status; got != StatusComplete {
+		t.Errorf("child after cascade: got %q, want complete", got)
+	}
+
+	if err := s.Toggle(root); err != nil {
+		t.Fatalf("Toggle(complete): %v", err)
+	}
+	if got := mustGet(t, s, root).Status; got != StatusPending {
+		t.Errorf("root after second toggle: got %q, want pending", got)
+	}
+	if got := mustGet(t, s, child).Status; got != StatusComplete {
+		t.Errorf("child after reopen must stay complete, got %q", got)
+	}
+}
+
 func TestSetProgressSubtasksZeroChildrenIsSimple(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")

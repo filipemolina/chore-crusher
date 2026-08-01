@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,9 +82,11 @@ type Store struct {
 }
 
 // Open opens (creating the file if needed) the SQLite database at path,
-// applies any pending migrations, and returns a Store for it. Calling Open
-// twice against the same path is a no-op on the schema: migrations that are
-// already recorded are skipped.
+// applies any pending migrations, and returns a Store for it. The parent
+// directory is created when missing — the CLI's default path lives under
+// $XDG_DATA_HOME/complete (docs/DESIGN.md §8), which exists on no fresh
+// machine. Calling Open twice against the same path is a no-op on the
+// schema: migrations that are already recorded are skipped.
 //
 // The DSN carries the connection-level settings the driver parses directly
 // off the query string rather than as separate PRAGMA statements — WAL
@@ -93,6 +97,9 @@ type Store struct {
 // parameter names are verified against modernc.org/sqlite v1.55.0's DSN
 // parsing in driver.go.
 func Open(path string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create data directory for %s: %w", path, err)
+	}
 	dsn := "file:" + path + "?_journal_mode=WAL&_foreign_keys=1&_busy_timeout=5000"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

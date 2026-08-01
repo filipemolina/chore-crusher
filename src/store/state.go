@@ -52,6 +52,23 @@ func (s *Store) Reopen(taskID string) error {
 	return requireAffected(res, "task", taskID)
 }
 
+// Toggle flips a task between complete and pending, "whichever applies":
+// complete → reopen (that task only, no cascade), anything else → complete
+// (cascading to every descendant). One implementation here so the CLI's
+// toggle and the TUI's space key (docs/DESIGN.md §9, §5) never each decide
+// which direction a toggle goes — that decision is a store transition, not
+// front-end logic.
+func (s *Store) Toggle(taskID string) error {
+	t, err := getTask(s.db, taskID)
+	if err != nil {
+		return err
+	}
+	if t.Status == StatusComplete {
+		return s.Reopen(taskID)
+	}
+	return s.Complete(taskID)
+}
+
 // SetProgress sets a task's progress kind (and, for percentage, its percent),
 // starting the task as a side effect: setting any progress implies it has
 // started, so a pending task becomes in_progress (docs/DESIGN.md §3).

@@ -444,6 +444,65 @@ complete search <query> [--list <list-id>]        fuzzy search across titles (+ 
 complete --version
 ```
 
+**Output shapes, pinned.** The subcommand list above fixes *which* commands
+and flags exist; this fixes *what each prints*. The shapes below were
+settled in phase 2 (docs/plans/phase-2-cli.md) and are part of the contract,
+so an agent that has read one command's `--help` predicts the shape of the
+rest; the tests in `src/cli` (lists_test.go, tasks_test.go, search_test.go)
+pin them. Two contested calls, and the alternatives rejected: **`tasks` and
+`show` JSON rows are a flat preorder array with `depth` and `parent_id`, not
+a nested tree** — a caller walks one shape whether or not it passed `--flat`,
+and reassembles the tree from the two fields; a nested tree would mean two
+shapes to walk and a `--flat` mode that diverges from the default. **Writes
+that have no id of their own print `{"ok": true}` in JSON mode, not
+nothing** — §9 requires exactly one JSON value on stdout even when there is
+nothing interesting to say, so the smallest change (print nothing) breaks
+the one-value rule.
+
+- **Writes, human mode:** `lists add` and `add` print only the new id; the
+  remaining writes print nothing on success. **Writes, `--json` mode:** the
+  two add commands print `{"id": "…"}`; the remaining writes print
+  `{"ok": true}`.
+- **`lists`, human mode:** a `tabwriter` table with the header
+  `ID NAME PENDING COMPLETE`, one row per list; an empty result prints
+  nothing. **`lists`, JSON:** `[{"id", "name", "pending", "complete",
+  "created_at"}]`.
+- **`tasks`, human mode (tree, the default):** the §6 sections, headers
+  `Pending (N)` / `Complete (N)` where N is the section's row count — a
+  section header appears only when the section has rows, and a list with no
+  tasks prints nothing at all. Rows follow §12's fixed layout (indent,
+  expand glyph, checkbox, title, and the trailing ` (NN%)` progress suffix
+  whenever `store.DerivedProgress` reports a percentage). `--flat` prints
+  `<id>\t<status>\t<title>` per line instead — the greppable view, no
+  headers. **`tasks`, JSON:** the same preorder array in both modes —
+  `[{"id", "parent_id", "title", "status", "progress", "depth"}]` —
+  `--flat` changes only the human rendering. Depth starts at 0 for a root;
+  `parent_id` + `depth` let a caller reassemble the tree.
+- **`show`, human mode:** labeled lines (`Title:`, `ID:`, `List:`, `Status:`,
+  `Progress:`, `Notes:` with each line indented two spaces, then
+  `Children (N):` and the §12 tree when there are any). The `Progress:` line
+  spells out a subtasks task with no children as `subtasks (simple)` rather
+  than a misleading `(0%)` (§3). **`show`, JSON:** the task's fields
+  (`id`, `list_id`, `title`, `notes`, `status`, `created_at`, `updated_at`,
+  `completed_at` as unix seconds), its `progress`, and `children` as the
+  same row array `tasks` emits, depth relative to the shown task.
+- **`progress` JSON:** `{"kind", "percent", "display_as_simple"}`.
+  `kind` is the stored `progress_kind`; `percent` is the displayed value —
+  the stored percent for `percentage`, the derived ratio for `subtasks` —
+  and is `null` whenever the kind has nothing to display; `display_as_simple`
+  reports the §3 zero-children subtasks fallback.
+- **`search`, human mode:** a `tabwriter` table with the header
+  `ID LIST TITLE`. **Ranking:** `store.SearchTasks` returns LIKE candidates;
+  title matches are ranked by `sahilm/fuzzy` score, then candidates that
+  matched only on notes follow in store order — a notes hit is a real hit,
+  just weaker than a title one. **`search`, JSON:**
+  `[{"id", "list_id", "list_name", "title", "status", "progress"}]`.
+- **Empty results, human mode:** a read command whose result is empty prints
+  nothing (exit 0); JSON mode prints `[]`. A caller that needs to
+distinguish "no data" from "failed" reads the exit code, never the bytes.
+- **Human output is plain text — no ANSI escapes** — so a script can capture
+  any read command's stdout without stripping styling.
+
 `complete mv <task-id> --parent <task-id-or-empty>` (re-parent a task,
 without the ±1-level restriction §4 puts on the TUI's *add* flow — a CLI
 re-parent is a deliberate restructure, not the inline-add gesture that rule
