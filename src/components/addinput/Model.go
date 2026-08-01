@@ -100,6 +100,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Intercept enter: create task if text is non-empty
+		if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
+			title := m.textinput.Value()
+			if title == "" {
+				return m, nil // no-op on empty input
+			}
+			return m, m.createTaskCmd()
+		}
+
 		// Intercept esc: clear if text present, otherwise fall through to esc ladder
 		if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
 			if m.textinput.Value() != "" {
@@ -121,6 +130,91 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.textinput, cmd = m.textinput.Update(msg)
 	return m, cmd
+}
+
+// createTaskCmd creates a command that creates a new task based on levelOffset
+// and the selected task, then refreshes the tree and moves selection to the new task.
+func (m *Model) createTaskCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.store == nil || m.activeListID == "" {
+			return nil // can't create without store or list
+		}
+
+		title := m.textinput.Value()
+		if title == "" {
+			return nil
+		}
+
+		// Resolve the parent ID based on levelOffset and selectedID
+		parentID, afterID, err := m.resolveParentAndAfter()
+		if err != nil {
+			// TODO: surface error to user
+			return nil
+		}
+
+		// Create the task
+		newID, err := m.store.CreateTaskAfter(m.activeListID, title, parentID, "", afterID)
+		if err != nil {
+			// TODO: surface error to user
+			return nil
+		}
+
+		// Clear the input and reset level
+		m.textinput.Reset()
+		m.levelOffset = 0
+
+		// Return a batch of commands: refresh and set selection
+		return cmds.CreateTaskMsg{
+			NewID: newID,
+			Depth: m.selectedDepth + m.levelOffset,
+		}
+	}
+}
+
+// resolveParentAndAfter computes the parentID and afterID based on levelOffset
+// and the current selected task (docs/plans/phase-5-add-input.md §3).
+func (m *Model) resolveParentAndAfter() (*string, string, error) {
+	if m.selectedID == "" {
+		// No task selected; create at root level
+		return nil, "", nil
+	}
+
+	selectedTask, err := m.store.GetTask(m.selectedID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	switch m.levelOffset {
+	case 0:
+		// Default: sibling of selected task
+		// New task's parent = selected task's parent
+		// Insert immediately after selected task
+		return selectedTask.ParentID, m.selectedID, nil
+
+	case 1:
+		// Child of selected task
+		// New task's parent = selected task's id
+		// Insert as last child (empty afterID means append)
+		return &selectedTask.ID, "", nil
+
+	case -1:
+		// Sibling of selected task's parent
+		// Get the grandparent (parent of parent)
+		var grandparentID *string
+		var afterID string
+		if selectedTask.ParentID != nil {
+			parentTask, err := m.store.GetTask(*selectedTask.ParentID)
+			if err != nil {
+				return nil, "", err
+			}
+			grandparentID = parentTask.ParentID
+			afterID = *selectedTask.ParentID
+		}
+		// Insert immediately after the selected task's parent
+		return grandparentID, afterID, nil
+	}
+
+	return nil, "", nil
 }
 
 // View renders the input with glyph, indentation, and textinput.
