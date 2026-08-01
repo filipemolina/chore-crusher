@@ -6,7 +6,9 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-completer/src/cmds"
+	"github.com/filipemolina/chore-completer/src/components/confirmmodal"
 	"github.com/filipemolina/chore-completer/src/components/helpoverlay"
+	"github.com/filipemolina/chore-completer/src/components/listnamemodal"
 	"github.com/filipemolina/chore-completer/src/components/themepickermodal"
 	"github.com/filipemolina/chore-completer/src/config"
 	"github.com/filipemolina/chore-completer/src/constants"
@@ -66,6 +68,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// focus stays where it is until tab moves it.
 			if !m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL {
 				finalCmds = append(finalCmds, m.ChangeFocus(1))
+			}
+
+		// List CRUD keys: only active when lists panel is visible and focused
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.New):
+			m.activeModal = listnamemodal.New(listnamemodal.ModeNew, "", m.store)
+
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Rename):
+			if m.activeListID != "" {
+				m.activeModal = listnamemodal.New(listnamemodal.ModeRename, m.activeListID, m.store)
+			}
+
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Delete):
+			if m.activeListID != "" {
+				m.activeModal = confirmmodal.New("Delete list", "Are you sure? This will delete every task in the list.", m.activeListID, m.store)
 			}
 		}
 
