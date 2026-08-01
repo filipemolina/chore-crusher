@@ -208,7 +208,7 @@ func (m AppModel) focusableZones() []int {
 // shift+tab -1) and returns the SetFocusMsg that tells the zones which one
 // is focused. A request for a zone that is not currently focusable is
 // ignored by the zones themselves (they compare against their own id).
-func (m AppModel) ChangeFocus(delta int) tea.Cmd {
+func (m *AppModel) ChangeFocus(delta int) tea.Cmd {
 	zones := m.focusableZones()
 	cur := slices.Index(zones, m.focusedZone)
 	if cur < 0 {

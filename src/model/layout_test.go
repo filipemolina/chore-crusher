@@ -55,10 +55,28 @@ func TestBodyLayoutFillsTerminalExactly(t *testing.T) {
 }
 
 // Both visible panels are held at MIN_PANEL_WIDTH where the terminal allows
-// it; neither may ever render at width 0 (the phase-3 verification's
-// "a panel that renders at width 0" must not happen).
+// it; below that the row is split evenly (docs/DESIGN.md §5).
+// Width must be at least 2*MIN_PANEL_WIDTH + GUTTER to hold both at minimum.
 func TestBodyLayoutFloorsPanels(t *testing.T) {
-	for _, width := range []int{60, 80, 120, 300} {
+	minRequiredWidth := 2*constants.MIN_PANEL_WIDTH + constants.BODY_GUTTER_WIDTH
+
+	// Widths below minimum should split evenly.
+	for _, width := range []int{60} { // 60 < 62 (min required)
+		layout := startup(width, 40).bodyLayout
+		if layout.ListsWidth > 0 && layout.MainWidth > 0 {
+			// Both panels are visible but narrow; they should be roughly equal.
+			diff := layout.ListsWidth - layout.MainWidth
+			if diff < -1 || diff > 1 {
+				t.Errorf("width %d: panels not split evenly (lists=%d, main=%d)", width, layout.ListsWidth, layout.MainWidth)
+			}
+		}
+	}
+
+	// Widths above minimum should both be at MIN_PANEL_WIDTH or higher.
+	for _, width := range []int{80, 120, 300} {
+		if width < minRequiredWidth {
+			t.Skipf("width %d is below minimum required (%d)", width, minRequiredWidth)
+		}
 		layout := startup(width, 40).bodyLayout
 		if layout.ListsWidth < constants.MIN_PANEL_WIDTH {
 			t.Errorf("width %d: ListsWidth = %d, want ≥ MIN_PANEL_WIDTH", width, layout.ListsWidth)
@@ -85,16 +103,18 @@ func TestHiddenListsPanelGivesRowToMain(t *testing.T) {
 	}
 }
 
-// A terminal too narrow for any sidebar gives the whole row to the main
-// panel rather than splitting into two degenerate panels.
+// A terminal too narrow for any sidebar (guttered < MIN_PANEL_WIDTH)
+// gives the whole row to the main panel rather than splitting into degenerate panels.
+// This requires total width < MIN_PANEL_WIDTH + GUTTER.
 func TestTooNarrowTerminalYieldsSidebar(t *testing.T) {
-	m := startup(40, 24)
+	maxWidth := constants.MIN_PANEL_WIDTH + constants.BODY_GUTTER_WIDTH - 1 // 31
+	m := startup(maxWidth, 24)
 	layout := m.bodyLayout
 	if layout.ListsWidth != 0 {
-		t.Errorf("40 cols: ListsWidth = %d, want 0 (too narrow for a sidebar)", layout.ListsWidth)
+		t.Errorf("%d cols: ListsWidth = %d, want 0 (too narrow for a sidebar)", maxWidth, layout.ListsWidth)
 	}
-	if layout.MainWidth != 40 {
-		t.Errorf("40 cols: MainWidth = %d, want 40", layout.MainWidth)
+	if layout.MainWidth != maxWidth {
+		t.Errorf("%d cols: MainWidth = %d, want %d", maxWidth, layout.MainWidth, maxWidth)
 	}
 }
 

@@ -1,8 +1,8 @@
 package model
 
 import (
-	"charm.land/lipgloss/v2"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/chore-completer/src/appstyles"
 	"github.com/filipemolina/chore-completer/src/constants"
 )

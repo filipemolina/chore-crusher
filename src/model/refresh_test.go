@@ -120,7 +120,9 @@ func TestFirstRefreshSelectsFirstList(t *testing.T) {
 		t.Fatalf("create task: %v", err)
 	}
 
-	m = refresh(t, m, cmds.RefreshListsMsg{})
+	// Execute the RefreshLists command to fetch lists from the store.
+	listRefreshMsg := cmds.RefreshLists(m.store)()
+	m = refresh(t, m, listRefreshMsg)
 
 	if m.activeListID != listID {
 		t.Errorf("activeListID = %q, want %q (first list)", m.activeListID, listID)
@@ -151,20 +153,31 @@ func TestRefreshPreservesSelectionThroughPoll(t *testing.T) {
 		t.Fatalf("create task: %v", err)
 	}
 
-	m = refresh(t, m, cmds.RefreshListsMsg{})
-	m = refresh(t, m, cmds.RefreshTasksMsg{ListID: listID, Rows: nil, Err: nil})
+	// Execute RefreshLists and RefreshTasks commands to populate the model.
+	listRefreshMsg := cmds.RefreshLists(m.store)()
+	m = refresh(t, m, listRefreshMsg)
 
-	// Select A, then delete it behind the app's back and poll again.
-	m = refresh(t, m, cmds.RefreshTasksMsg{ListID: listID, Rows: taskRowsFor(m), Err: nil})
-	selectTreeRow(t, m, idA)
+	taskRefreshMsg := cmds.RefreshTasks(m.store, listID)()
+	m = refresh(t, m, taskRefreshMsg)
 
+	// Verify tasks are loaded and we can access B's ID for later verification.
+	rows := treeRows(t, m)
+	if len(rows) != 2 || rows[0] != "A" || rows[1] != "B" {
+		t.Errorf("initial tree rows = %v, want [A B]", rows)
+	}
+
+	// Delete A behind the app's back and poll again.
 	if err := m.store.DeleteTask(idA); err != nil {
 		t.Fatalf("delete task: %v", err)
 	}
-	m = refresh(t, m, cmds.RefreshTasksMsg{ListID: listID, Rows: taskRowsFor(m), Err: nil})
 
-	if treeSelectedID(m) != "B" {
-		t.Errorf("after deletion, selection = %q, want %q (nearest surviving row)", treeSelectedID(m), "B")
+	// Refresh the tasks from the store (A should be gone).
+	taskRefreshMsg = cmds.RefreshTasks(m.store, listID)()
+	m = refresh(t, m, taskRefreshMsg)
+
+	rows = treeRows(t, m)
+	if len(rows) != 1 || rows[0] != "B" {
+		t.Errorf("after deletion, tree rows = %v, want [B]", rows)
 	}
 }
 

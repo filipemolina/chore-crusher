@@ -1,10 +1,6 @@
 package apptypes
 
-import (
-	"testing"
-
-	"github.com/filipemolina/chore-completer/src/store"
-)
+import "testing"
 
 func strptr(s string) *string { return &s }
 
@@ -15,13 +11,13 @@ func strptr(s string) *string { return &s }
 // walk, not from input order; within a sibling set the input order is
 // preserved (that is ListTasks's position order for real data).
 func TestFlattenPreorderWithDepth(t *testing.T) {
-	rootA := store.Task{ID: "a", Title: "root a"}
-	child := store.Task{ID: "a1", Title: "child", ParentID: strptr("a")}
-	grand := store.Task{ID: "a1a", Title: "grand", ParentID: strptr("a1")}
-	leaf := store.Task{ID: "a2", Title: "leaf", ParentID: strptr("a")}
-	rootB := store.Task{ID: "b", Title: "root b"}
+	rootA := Task{ID: "a", Title: "root a"}
+	child := Task{ID: "a1", Title: "child", ParentID: strptr("a")}
+	grand := Task{ID: "a1a", Title: "grand", ParentID: strptr("a1")}
+	leaf := Task{ID: "a2", Title: "leaf", ParentID: strptr("a")}
+	rootB := Task{ID: "b", Title: "root b"}
 
-	rows := Flatten([]store.Task{rootB, child, rootA, grand, leaf})
+	rows := Flatten([]Task{rootB, child, rootA, grand, leaf})
 
 	want := []struct {
 		id          string

@@ -165,11 +165,14 @@ func validStatusFilter(s string) bool {
 // root status (docs/DESIGN.md §6: a root's own status decides its section,
 // so a pending root's complete children stay in Pending), applying the
 // --status filter at the root — a root's whole subtree is included or not as
-// a unit.
+// a unit. The store rows are converted to apptypes at the boundary, so the
+// shared Flatten (and its Row type) never sees store.Task
+// (docs/plans/phase-3-tui-shell.md step 3).
 func sectionRows(tasks []store.Task, status string) (pending, complete []apptypes.Row) {
-	rows := apptypes.Flatten(tasks)
-	byID := make(map[string]store.Task, len(tasks))
-	for _, t := range tasks {
+	converted := apptypes.FromStoreTasks(tasks)
+	rows := apptypes.Flatten(converted)
+	byID := make(map[string]apptypes.Task, len(converted))
+	for _, t := range converted {
 		byID[t.ID] = t
 	}
 	for _, r := range rows {
@@ -178,13 +181,13 @@ func sectionRows(tasks []store.Task, status string) (pending, complete []apptype
 			root = byID[*root.ParentID]
 		}
 		switch {
-		case root.Status == store.StatusComplete:
+		case root.Status == apptypes.StatusComplete:
 			if status == "all" || status == "complete" {
 				complete = append(complete, r)
 			}
 		case status == "all" ||
-			(status == "pending" && root.Status == store.StatusPending) ||
-			(status == "in_progress" && root.Status == store.StatusInProgress):
+			(status == "pending" && root.Status == apptypes.StatusPending) ||
+			(status == "in_progress" && root.Status == apptypes.StatusInProgress):
 			pending = append(pending, r)
 		}
 	}
@@ -287,9 +290,9 @@ func renderRow(v taskView) {
 	}
 	fmt.Fprint(os.Stdout, " ")
 	switch t.Status {
-	case store.StatusComplete:
+	case apptypes.StatusComplete:
 		fmt.Fprint(os.Stdout, "[x]")
-	case store.StatusInProgress:
+	case apptypes.StatusInProgress:
 		fmt.Fprint(os.Stdout, "[~]")
 	default:
 		fmt.Fprint(os.Stdout, "[ ]")
@@ -391,7 +394,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		childViews, err := viewsOf(s, apptypes.Flatten(descendantsOf(all, id)))
+		childViews, err := viewsOf(s, apptypes.Flatten(apptypes.FromStoreTasks(descendantsOf(all, id))))
 		if err != nil {
 			return err
 		}
