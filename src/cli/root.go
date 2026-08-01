@@ -7,12 +7,13 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/filipemolina/chore-completer/src/config"
 	"github.com/filipemolina/chore-completer/src/constants"
+	"github.com/filipemolina/chore-completer/src/model"
 	"github.com/filipemolina/chore-completer/src/store"
 )
 
@@ -64,11 +65,23 @@ other within a second (docs/DESIGN.md §7).
 
 With no subcommand it launches the TUI.`,
 		Version: constants.Version(),
-		// No subcommand: launch the TUI. Phase 3 replaces this placeholder
-		// with the real AppModel; until then the phase-0 behavior (say so,
-		// exit 0) is preserved so nothing downstream notices the swap.
+		// No subcommand: launch the TUI.
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("complete: not yet implemented — see docs/ROADMAP.md")
+			s, err := store.Open(config.DBPath())
+			if err != nil {
+				return domainError(err)
+			}
+			defer s.Close()
+
+			cfg, err := config.LoadConfig()
+			if err != nil {
+				return domainError(err)
+			}
+			m := model.GetInitialModel(s, cfg)
+			p := tea.NewProgram(m)
+			if _, err := p.Run(); err != nil {
+				return domainError(err)
+			}
 			return nil
 		},
 	}

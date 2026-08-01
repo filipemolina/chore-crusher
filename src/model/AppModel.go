@@ -39,15 +39,16 @@ type AppModel struct {
 	}
 }
 
-// GetInitialModel builds the app model. The lists panel starts visible and
-// the task tree starts focused — the app's premise is "spend your time in
-// one list" (docs/DESIGN.md §5), so the tree is where the cursor lands.
+// GetInitialModel builds the app model. The lists panel starts hidden
+// (toggled by L), and the task tree starts focused — the app's premise is
+// "spend your time in one list" (docs/DESIGN.md §5), so the tree is where
+// the cursor lands.
 func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 	m := AppModel{
 		store:             s,
 		cfg:               cfg,
 		focusedZone:       constants.COMPONENT_TASK_TREE,
-		listsPanelVisible: true,
+		listsPanelVisible: false,
 	}
 	m.components.ListsPanel = listspanel.New()
 	m.components.TaskTree = tasktree.New()

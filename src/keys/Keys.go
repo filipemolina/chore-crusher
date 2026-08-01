@@ -11,6 +11,7 @@ package keys
 
 import (
 	"charm.land/bubbles/v2/key"
+	"github.com/filipemolina/chore-completer/src/constants"
 )
 
 // GlobalKeys work anywhere that no overlay owns the keyboard.
@@ -107,6 +108,13 @@ var Tree = TaskTreeKeys{
 	OpenDetails: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
 }
 
+var Lists = ListsPanelKeys{
+	Navigate: key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "navigate")),
+	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
+	Rename:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
+	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete list")),
+}
+
 var Overlay = OverlayKeys{
 	Submit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 	Cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -135,10 +143,19 @@ type Context struct {
 }
 
 // Active returns the bindings the user can press right now, in the order they
-// should be shown. The contextual groups are still empty in phase 3 — phases
-// 4-6 fill them in — so for now every zone offers the same movement keys.
+// should be shown.
 func Active(ctx Context) []key.Binding {
-	return []key.Binding{Global.NextPanel}
+	bindings := []key.Binding{Global.NextPanel}
+
+	if ctx.ListsPanelVisible && ctx.Focused == constants.COMPONENT_LISTS_PANEL {
+		bindings = append(bindings, Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete)
+	}
+
+	if ctx.Focused == constants.COMPONENT_TASK_TREE {
+		bindings = append(bindings, Tree.Navigate, Tree.Expand, Tree.Collapse, Tree.Toggle, Tree.OpenDetails)
+	}
+
+	return bindings
 }
 
 // Globals are the always-available keys, pinned away from the
@@ -182,6 +199,18 @@ func Catalog(ctx Context) []Scope {
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
 				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
 				Global.Theme,
+			),
+		},
+		{
+			Title: "Lists",
+			Entries: entries(
+				Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete,
+			),
+		},
+		{
+			Title: "Task Tree",
+			Entries: entries(
+				Tree.Navigate, Tree.Expand, Tree.Collapse, Tree.Toggle, Tree.OpenDetails,
 			),
 		},
 	}

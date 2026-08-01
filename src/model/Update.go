@@ -95,7 +95,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// First load (or a store emptied since): adopt the first list so
 		// the task tree has something to poll.
 		if m.activeListID == "" && len(msg.Lists) > 0 {
-			m.activeListID = msg.Lists[0].ID
+			m.activeListID = msg.Lists[0].List.ID
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
 
@@ -129,6 +129,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeListID != "" {
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 			finalCmds = append(finalCmds, cmds.SetSelection(msg.NewID, msg.Depth))
+		}
+
+	case cmds.SelectListMsg:
+		// Lists panel selected a different list; switch to it immediately
+		// rather than waiting for the next poll tick.
+		if m.activeListID != msg.ListID {
+			m.activeListID = msg.ListID
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
 	}
 

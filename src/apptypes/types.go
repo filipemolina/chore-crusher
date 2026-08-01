@@ -62,10 +62,13 @@ type List struct {
 // PendingCount counts every task whose status is not complete (pending and
 // in-progress alike); CompleteCount counts status = complete.
 type ListSummary struct {
-	List
+	List          List
 	PendingCount  int
 	CompleteCount int
 }
+
+// FilterValue satisfies list.Item.
+func (l ListSummary) FilterValue() string { return l.List.Name }
 
 // FromStore converts one store.Task into the component-facing shape. The
 // conversion is a function, not a type alias, so a field added to one side

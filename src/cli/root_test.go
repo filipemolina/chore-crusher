@@ -84,8 +84,11 @@ func TestExecuteExitCodes(t *testing.T) {
 	if code, _, _ := runCLI(t, data, "--help"); code != 0 {
 		t.Errorf("--help: exit %d, want 0", code)
 	}
-	if code, _, _ := runCLI(t, data); code != 0 {
-		t.Errorf("no subcommand: exit %d, want 0 (TUI placeholder)", code)
+	// TUI requires a TTY; in a test environment it will fail to launch.
+	// This is expected behavior — the CLI is the interface for automation.
+	code, _, _ := runCLI(t, data)
+	if code != 1 {
+		t.Errorf("no subcommand: exit %d, want 1 (TUI requires TTY)", code)
 	}
 
 	// Usage errors: missing argument, unknown flag, unknown subcommand.

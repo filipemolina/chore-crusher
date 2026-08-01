@@ -32,8 +32,9 @@ func startup(width, height int) AppModel {
 func config0() config.Config { return config.Config{} }
 
 // The three-zone layout (docs/DESIGN.md §5) must always add up to the
-// terminal width exactly — ListsWidth + gutter + MainWidth == width — and
-// the main panel's vertical split must add up to the height.
+// terminal width exactly — ListsWidth + gutter + MainWidth == width (when
+// lists panel is visible) — and the main panel's vertical split must add up
+// to the height.
 func TestBodyLayoutFillsTerminalExactly(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{120, 40},
@@ -44,7 +45,10 @@ func TestBodyLayoutFillsTerminalExactly(t *testing.T) {
 	}
 
 	for _, size := range sizes {
-		layout := startup(size.width, size.height).bodyLayout
+		m := startup(size.width, size.height)
+		m.listsPanelVisible = true
+		m.bodyLayout = m.calculateBodyLayout()
+		layout := m.bodyLayout
 		if got := layout.ListsWidth + constants.BODY_GUTTER_WIDTH + layout.MainWidth; got != size.width {
 			t.Errorf("%dx%d: ListsWidth+gutter+MainWidth = %d, want %d", size.width, size.height, got, size.width)
 		}
@@ -60,9 +64,12 @@ func TestBodyLayoutFillsTerminalExactly(t *testing.T) {
 func TestBodyLayoutFloorsPanels(t *testing.T) {
 	minRequiredWidth := 2*constants.MIN_PANEL_WIDTH + constants.BODY_GUTTER_WIDTH
 
-	// Widths below minimum should split evenly.
+	// Widths below minimum should split evenly (when lists panel is visible).
 	for _, width := range []int{60} { // 60 < 62 (min required)
-		layout := startup(width, 40).bodyLayout
+		m := startup(width, 40)
+		m.listsPanelVisible = true
+		m.bodyLayout = m.calculateBodyLayout()
+		layout := m.bodyLayout
 		if layout.ListsWidth > 0 && layout.MainWidth > 0 {
 			// Both panels are visible but narrow; they should be roughly equal.
 			diff := layout.ListsWidth - layout.MainWidth
@@ -77,7 +84,10 @@ func TestBodyLayoutFloorsPanels(t *testing.T) {
 		if width < minRequiredWidth {
 			t.Skipf("width %d is below minimum required (%d)", width, minRequiredWidth)
 		}
-		layout := startup(width, 40).bodyLayout
+		m := startup(width, 40)
+		m.listsPanelVisible = true
+		m.bodyLayout = m.calculateBodyLayout()
+		layout := m.bodyLayout
 		if layout.ListsWidth < constants.MIN_PANEL_WIDTH {
 			t.Errorf("width %d: ListsWidth = %d, want ≥ MIN_PANEL_WIDTH", width, layout.ListsWidth)
 		}
@@ -160,7 +170,19 @@ func TestTaskTreeStartsFocused(t *testing.T) {
 func TestChangeFocusFollowsComputedCycle(t *testing.T) {
 	m := startup(120, 40)
 
-	// tree -> lists -> add input -> tree
+	// With the lists panel hidden (default), the cycle is tree -> add input.
+	m.focusedZone = constants.COMPONENT_TASK_TREE
+	m.ChangeFocus(1)
+	if m.focusedZone != constants.COMPONENT_ADD_INPUT {
+		t.Errorf("tab from tree (hidden lists): got zone %d, want add input", m.focusedZone)
+	}
+	m.ChangeFocus(1)
+	if m.focusedZone != constants.COMPONENT_TASK_TREE {
+		t.Errorf("tab from add input (hidden lists): got zone %d, want tree", m.focusedZone)
+	}
+
+	// Make the lists panel visible: cycle becomes tree -> lists -> add input.
+	m.listsPanelVisible = true
 	m.focusedZone = constants.COMPONENT_TASK_TREE
 	m.ChangeFocus(1)
 	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
@@ -173,12 +195,5 @@ func TestChangeFocusFollowsComputedCycle(t *testing.T) {
 	m.ChangeFocus(1)
 	if m.focusedZone != constants.COMPONENT_TASK_TREE {
 		t.Errorf("tab from add input: got zone %d, want tree", m.focusedZone)
-	}
-
-	// With the lists panel hidden the cycle is tree -> add input.
-	m.listsPanelVisible = false
-	m.ChangeFocus(1)
-	if m.focusedZone != constants.COMPONENT_ADD_INPUT {
-		t.Errorf("hidden lists: tab from tree got zone %d, want add input", m.focusedZone)
 	}
 }
