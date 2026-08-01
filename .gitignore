@@ -1,0 +1,15 @@
+/dist/
+
+# Compiled binary from `go build .` in the repo root. `make build` installs
+# to $(go env GOPATH)/bin instead, so nothing here needs to be tracked.
+/complete
+
+# Local SQLite data created by `make dev` / manual runs against a scratch
+# database. The real data file lives under $XDG_DATA_HOME, never here.
+*.db
+*.db-wal
+*.db-shm
+
+# Screenshots and demo recordings staged for README/docs but not yet committed.
+/demo/*.gif
+/demo/*.png

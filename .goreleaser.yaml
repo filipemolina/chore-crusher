@@ -1,0 +1,52 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: complete
+    binary: complete
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # The same stamp the Makefile applies, so a released binary and a local
+    # `make build` answer --version the same way. .Version is the tag with
+    # the leading v stripped, so put it back.
+    ldflags:
+      - -s -w -X github.com/filipemolina/chore-completer/src/constants.version=v{{ .Version }}
+
+# No Windows build for now — re-evaluate once phase 7's details screen lands
+# its $EDITOR handover; see docs/plans/phase-0-scaffolding.md step 7 for why
+# this isn't a silent default.
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^Merge branch"
+
+release:
+  draft: true
+  # Drafted rather than published: the first releases want a human to read
+  # the notes before they go out.
+  prerelease: auto

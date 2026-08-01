@@ -1,0 +1,5 @@
+// Package chrome holds rendering and layout shared by more than one leaf
+// component: panel frames, tree-row rendering, the progress pill, key-hint
+// rendering, the spinner. A helper earns its way in here by having a second
+// caller — see CONTRIBUTING.md and stack-stitcher's docs/DESIGN.md §6.
+package chrome

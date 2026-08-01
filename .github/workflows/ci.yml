@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to a branch makes the first run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # go-version-file keeps this honest: the toolchain is whatever go.mod
+      # asks for, so bumping the module bumps CI with it.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # gofmt exits 0 whatever it finds and just lists the files, so the
+      # listing itself has to be turned into the failure.
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # -race: src/store opens real SQLite connections and the TUI's poll
+      # loop runs on its own goroutine (docs/DESIGN.md §7-8), both worth
+      # checking under the race detector once they exist.
+      - name: Test
+        run: go test -race ./...
