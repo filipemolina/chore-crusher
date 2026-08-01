@@ -99,6 +99,14 @@ var Global = GlobalKeys{
 	Theme:     key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme")),
 }
 
+var Tree = TaskTreeKeys{
+	Navigate:    key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "navigate")),
+	Expand:      key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "expand")),
+	Collapse:    key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "collapse")),
+	Toggle:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle")),
+	OpenDetails: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
+}
+
 var Overlay = OverlayKeys{
 	Submit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 	Cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),

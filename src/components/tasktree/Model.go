@@ -3,29 +3,30 @@ package tasktree
 import (
 	"slices"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-completer/src/apptypes"
 	"github.com/filipemolina/chore-completer/src/cmds"
+	"github.com/filipemolina/chore-completer/src/keys"
 )
 
-// Model is the task-tree zone. Phase 3's job is the shell around it: the
-// frame, the focus state, and the cursor-preservation rule from
-// docs/DESIGN.md §7 are all implemented now, against a placeholder body —
-// phase 4 (docs/plans/phase-4-task-tree.md) replaces the body with the real
-// custom tree renderer, and the selection logic below is exactly what it
-// will keep.
+// Model is the task-tree zone with hierarchical rendering, navigation,
+// and collapse state. Selection is preserved across refreshes by id
+// (docs/DESIGN.md §7), collapsed state is view-only and not persisted
+// (docs/plans/phase-4-task-tree.md step 1).
 type Model struct {
 	focused    bool
 	body       cmds.SetBodyLayoutMsg
 	rows       []apptypes.Row
 	selectedID string
 	activeList bool
+	collapsed  map[string]bool // view-only collapse state, taskID -> is collapsed
 }
 
 func (m Model) Init() tea.Cmd { return nil }
 
-// New builds the placeholder task tree.
-func New() tea.Model { return Model{} }
+// New builds the task tree.
+func New() tea.Model { return Model{collapsed: make(map[string]bool)} }
 
 // Rows returns the tree's current rows. The model's tests read it to check
 // the poll cycle end to end; phase 4's tree reads the same field internally.
@@ -78,7 +79,116 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.activeList = msg.ListID != ""
 		m.applyRows(msg.Rows)
+
+	case tea.KeyPressMsg:
+		if !m.focused || len(m.rows) == 0 {
+			return m, nil
+		}
+
+		switch {
+		case key.Matches(msg, keys.Tree.Navigate):
+			// Determine direction based on key
+			if msg.String() == "up" || msg.String() == "k" {
+				m.moveSelection(-1)
+			} else if msg.String() == "down" || msg.String() == "j" {
+				m.moveSelection(1)
+			}
+		case key.Matches(msg, keys.Tree.Collapse):
+			m.toggleCollapse(false)
+		case key.Matches(msg, keys.Tree.Expand):
+			m.toggleCollapse(true)
+		case key.Matches(msg, keys.Tree.Toggle):
+			return m, m.toggleComplete()
+		}
 	}
 
 	return m, nil
+}
+
+// moveSelection moves the cursor by delta visible rows.
+func (m *Model) moveSelection(delta int) {
+	current := m.visibleIndex(m.selectedID)
+	if current < 0 {
+		current = 0
+	}
+	next := current + delta
+	visible := m.visibleRows()
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(visible) {
+		next = len(visible) - 1
+	}
+	if next >= 0 && next < len(visible) {
+		m.selectedID = visible[next].Task.ID
+	}
+}
+
+// visibleRows returns rows that should be rendered (collapsed nodes' children hidden).
+func (m *Model) visibleRows() []apptypes.Row {
+	var visible []apptypes.Row
+	for _, row := range m.rows {
+		if row.Depth == 0 || !m.isParentCollapsed(row) {
+			visible = append(visible, row)
+		}
+	}
+	return visible
+}
+
+// isParentCollapsed returns true if any ancestor of this row is collapsed.
+func (m *Model) isParentCollapsed(row apptypes.Row) bool {
+	if row.Task.ParentID == nil {
+		return false
+	}
+	for _, r := range m.rows {
+		if r.Task.ID == *row.Task.ParentID && m.collapsed[r.Task.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+// visibleIndex returns the index of a task in the visible rows list.
+func (m *Model) visibleIndex(taskID string) int {
+	for i, r := range m.visibleRows() {
+		if r.Task.ID == taskID {
+			return i
+		}
+	}
+	return -1
+}
+
+// toggleCollapse toggles or sets the collapse state of the selected row.
+func (m *Model) toggleCollapse(expand bool) {
+	row := m.findRow(m.selectedID)
+	if row == nil || !row.HasChildren {
+		return
+	}
+	if expand {
+		delete(m.collapsed, m.selectedID)
+	} else if row.Depth == 0 || !m.isParentCollapsed(*row) {
+		m.collapsed[m.selectedID] = true
+	}
+}
+
+// findRow returns the Row for the given task ID.
+func (m *Model) findRow(taskID string) *apptypes.Row {
+	for i, r := range m.rows {
+		if r.Task.ID == taskID {
+			return &m.rows[i]
+		}
+	}
+	return nil
+}
+
+// toggleComplete marks the selected task complete/pending and returns a command.
+// TODO(phase 4): Integrate with store to persist changes.
+func (m *Model) toggleComplete() tea.Cmd {
+	row := m.findRow(m.selectedID)
+	if row == nil {
+		return nil
+	}
+	// For now, just return nil. Phase 4 needs to call store.Complete/Reopen
+	// and immediately refresh the tree (not wait for the poll tick).
+	return nil
 }
