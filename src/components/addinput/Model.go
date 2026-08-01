@@ -217,6 +217,21 @@ func (m *Model) resolveParentAndAfter() (*string, string, error) {
 	return nil, "", nil
 }
 
+// glyphForOffset returns the leading glyph for the current level offset
+// (docs/DESIGN.md §4 and docs/plans/phase-5-add-input.md §4).
+func glyphForOffset(offset int) string {
+	switch offset {
+	case -1:
+		return "^"
+	case 0:
+		return "-"
+	case 1:
+		return "+"
+	default:
+		return "-"
+	}
+}
+
 // View renders the input with glyph, indentation, and textinput.
 func (m Model) View() tea.View {
 	width := chrome.PanelBodyWidth(m.body.MainWidth)
@@ -229,7 +244,13 @@ func (m Model) View() tea.View {
 		indent += " "
 	}
 
-	body := indent + m.textinput.View()
+	// Render the glyph and input together
+	glyph := glyphForOffset(m.levelOffset)
+	tiView := m.textinput.View()
+
+	// Construct the body: indent + glyph + space + textinput
+	// The textinput already includes its own prompt if set; we prepend the glyph instead
+	body := indent + glyph + " " + tiView
 
 	return tea.NewView(chrome.PanelFrame(m.focused, width, height, body))
 }
