@@ -596,6 +596,10 @@ in the same commit that introduces the element.** Do not decide it locally
 inside a component and move on; a decision made only in one component's code
 is a decision the next component's author cannot find.
 
+**→ For the hardened, actionable verification checklist,** read
+[`docs/UI_INSTRUCTIONS.md`](UI_INSTRUCTIONS.md). Before marking a component
+complete, run the verification script: `scripts/verify-ui-component.sh <component-path>`.
+
 ### Background tiers, and sealing them
 
 Ported unchanged from stack-stitcher's `docs/DESIGN.md` §"Background tiers,
@@ -751,6 +755,12 @@ A component that satisfies 1–6 cannot visually drift from the rest of the
 app no matter which phase or which contributor built it — that is the
 entire purpose of making the checklist mechanical rather than a matter of
 taste.
+
+**For a hardened, actionable version of this checklist with verification
+steps, bash commands to check each rule, and examples,** see
+[`docs/UI_INSTRUCTIONS.md`](UI_INSTRUCTIONS.md). Use
+`scripts/verify-ui-component.sh` to check a component against all six rules
+before marking it complete.
 
 ## 13. Testing
 

@@ -25,7 +25,13 @@ In this order:
    re-litigate.
 3. The specific file in [`docs/plans/`](docs/plans/) for your phase — the
    step-by-step "how."
-4. [stack-stitcher's `docs/DESIGN.md`](https://github.com/filipemolina/stack-stitcher/blob/main/docs/DESIGN.md)
+4. **For UI components:** [`docs/UI_INSTRUCTIONS.md`](docs/UI_INSTRUCTIONS.md) —
+   the hardened checklist for visual coherence. Before marking a component
+   complete, run through the six rules and the verification script
+   (`scripts/verify-ui-component.sh <component-path>`). This is not optional
+   polish; it's the mechanical check that keeps all components looking like
+   one app rather than a collection of bespoke pieces.
+5. [stack-stitcher's `docs/DESIGN.md`](https://github.com/filipemolina/stack-stitcher/blob/main/docs/DESIGN.md)
    and [its `CONTRIBUTING.md`](https://github.com/filipemolina/stack-stitcher/blob/main/CONTRIBUTING.md) —
    this project's architecture is deliberately copied from that one (theming,
    the single-keymap-package discipline, request/response commands, panel
