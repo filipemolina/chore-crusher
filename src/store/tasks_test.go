@@ -155,3 +155,67 @@ func TestDeleteTaskRequiresExisting(t *testing.T) {
 		t.Fatalf("DeleteTask on missing id error = %v, want a not-found error", err)
 	}
 }
+
+func TestCreateTaskAfterInsertsBetweenSiblings(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	// Create initial siblings a, b, c
+	a := mustTask(t, s, lid, "a", nil)
+	b := mustTask(t, s, lid, "b", nil)
+	c := mustTask(t, s, lid, "c", nil)
+
+	// Insert x between a and b
+	x, err := s.CreateTaskAfter(lid, "x", nil, "", a)
+	if err != nil {
+		t.Fatalf("CreateTaskAfter: %v", err)
+	}
+
+	tasks, err := s.ListTasks(lid)
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+
+	// Order should be: a, x, b, c
+	if len(tasks) != 4 {
+		t.Fatalf("ListTasks returned %d rows, want 4", len(tasks))
+	}
+	if tasks[0].ID != a || tasks[1].ID != x || tasks[2].ID != b || tasks[3].ID != c {
+		t.Fatalf("ListTasks order = %s, %s, %s, %s; want a, x, b, c",
+			tasks[0].ID, tasks[1].ID, tasks[2].ID, tasks[3].ID)
+	}
+
+	// Verify positions are correct
+	for i, task := range tasks {
+		if task.Position != i {
+			t.Errorf("task %s position = %d, want %d", task.ID, task.Position, i)
+		}
+	}
+}
+
+func TestCreateTaskAfterWithNoAfterIDAppends(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	a := mustTask(t, s, lid, "a", nil)
+	b := mustTask(t, s, lid, "b", nil)
+
+	// Call CreateTaskAfter with empty afterID — should append like CreateTask
+	c, err := s.CreateTaskAfter(lid, "c", nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateTaskAfter with empty afterID: %v", err)
+	}
+
+	tasks, err := s.ListTasks(lid)
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+
+	if len(tasks) != 3 {
+		t.Fatalf("ListTasks returned %d rows, want 3", len(tasks))
+	}
+	if tasks[0].ID != a || tasks[1].ID != b || tasks[2].ID != c {
+		t.Fatalf("ListTasks order = %s, %s, %s; want a, b, c",
+			tasks[0].ID, tasks[1].ID, tasks[2].ID)
+	}
+}

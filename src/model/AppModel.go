@@ -51,7 +51,7 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 	}
 	m.components.ListsPanel = listspanel.New()
 	m.components.TaskTree = tasktree.New()
-	m.components.AddInput = addinput.New()
+	m.components.AddInput = addinput.New(s, "")
 	return m
 }
 

@@ -74,6 +74,120 @@ func (s *Store) CreateTask(listID, title string, parentID *string, notes string)
 	return id, nil
 }
 
+// CreateTaskAfter creates a task and positions it immediately after a reference
+// sibling. If afterID is empty, behaves like CreateTask (appends to end).
+// The reference sibling and new task must share the same parent.
+func (s *Store) CreateTaskAfter(listID, title string, parentID *string, notes, afterID string) (string, error) {
+	if strings.TrimSpace(title) == "" {
+		return "", fmt.Errorf("task title must not be empty")
+	}
+
+	id := NewID()
+	now := time.Now().Unix()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	var one int
+	if err := tx.QueryRow(`SELECT 1 FROM List WHERE id = ?`, listID).Scan(&one); err != nil {
+		if isNoRows(err) {
+			return "", fmt.Errorf("list %q not found", listID)
+		}
+		return "", err
+	}
+
+	if parentID != nil {
+		var parentList string
+		err := tx.QueryRow(`SELECT list_id FROM Task WHERE id = ?`, *parentID).Scan(&parentList)
+		if err != nil {
+			if isNoRows(err) {
+				return "", fmt.Errorf("parent task %q not found", *parentID)
+			}
+			return "", err
+		}
+		if parentList != listID {
+			return "", fmt.Errorf("parent task %q belongs to a different list", *parentID)
+		}
+	}
+
+	// If no afterID given, append to end like CreateTask
+	if afterID == "" {
+		var position int
+		if err := tx.QueryRow(
+			`SELECT COALESCE(MAX(position), -1) + 1 FROM Task WHERE list_id = ? AND parent_id IS ?`,
+			listID, parentID,
+		).Scan(&position); err != nil {
+			return "", err
+		}
+
+		if _, err := tx.Exec(
+			`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind,
+			                  progress_pct, position, created_at, updated_at, completed_at)
+			 VALUES (?, ?, ?, ?, ?, 'pending', 'none', NULL, ?, ?, ?, NULL)`,
+			id, listID, parentID, title, notes, position, now, now,
+		); err != nil {
+			return "", err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return "", err
+		}
+		return id, nil
+	}
+
+	// Resolve afterID and verify it's a sibling
+	var refParentID sql.NullString
+	var refPosition int
+	if err := tx.QueryRow(
+		`SELECT parent_id, position FROM Task WHERE id = ? AND list_id = ?`,
+		afterID, listID,
+	).Scan(&refParentID, &refPosition); err != nil {
+		if isNoRows(err) {
+			return "", fmt.Errorf("reference task %q not found in list %q", afterID, listID)
+		}
+		return "", err
+	}
+
+	// Verify the reference task is a sibling (same parent)
+	var refParentPtr *string
+	if refParentID.Valid {
+		refParentPtr = &refParentID.String
+	}
+	if (parentID == nil) != (refParentPtr == nil) || (parentID != nil && refParentPtr != nil && *parentID != *refParentPtr) {
+		return "", fmt.Errorf("reference task %q has a different parent", afterID)
+	}
+
+	// Insert position is one after the reference
+	newPosition := refPosition + 1
+
+	// Shift all siblings at position >= newPosition up by 1
+	if _, err := tx.Exec(
+		`UPDATE Task SET position = position + 1
+		 WHERE list_id = ? AND parent_id IS ? AND position >= ?`,
+		listID, parentID, newPosition,
+	); err != nil {
+		return "", err
+	}
+
+	// Insert the new task at the new position
+	if _, err := tx.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind,
+		                  progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, ?, ?, ?, 'pending', 'none', NULL, ?, ?, ?, NULL)`,
+		id, listID, parentID, title, notes, newPosition, now, now,
+	); err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 // GetTask returns the task with the given id.
 func (s *Store) GetTask(id string) (Task, error) {
 	return getTask(s.db, id)

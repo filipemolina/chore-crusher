@@ -1,9 +1,12 @@
 package addinput
 
 import (
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-completer/src/cmds"
 	"github.com/filipemolina/chore-completer/src/components/chrome"
+	"github.com/filipemolina/chore-completer/src/store"
 )
 
 // focusedZoneID is the zone id this component answers to
@@ -11,40 +14,135 @@ import (
 const focusedZoneID = 2
 
 // Model is the add-input zone, pinned to the bottom of the main panel and
-// always visible (docs/DESIGN.md §5). Phase 3 renders the placeholder body
-// inside the shared frame; phase 5 (docs/plans/phase-5-add-input.md) puts
-// the real text input and its keys in here. The AddInput group of keys is
-// declared in src/keys already, waiting for it.
+// always visible (docs/DESIGN.md §5). Phase 5 implements the full text input
+// with level-selection behavior per docs/plans/phase-5-add-input.md.
 type Model struct {
-	focused bool
-	body    cmds.SetBodyLayoutMsg
+	focused       bool
+	body          cmds.SetBodyLayoutMsg
+	textinput     textinput.Model // bubbles/textinput v2
+	levelOffset   int             // {-1, 0, +1}: relative to selected task depth
+	selectedID    string          // ID of currently selected task
+	selectedDepth int             // Depth of selected task (for validating shift+tab)
+	store         *store.Store
+	activeListID  string
 }
 
 func (m Model) Init() tea.Cmd { return nil }
 
-// New builds the placeholder add input.
-func New() tea.Model { return Model{} }
+// New builds the add input with an embedded textinput component.
+func New(st *store.Store, activeListID string) tea.Model {
+	ti := textinput.New()
+	sty := textinput.DefaultDarkStyles()
+	ti.SetStyles(sty)
+
+	return &Model{
+		textinput:    ti,
+		levelOffset:  0,
+		store:        st,
+		activeListID: activeListID,
+	}
+}
+
+// nextOffset computes the new level offset after a keystroke, implementing
+// the exact table from docs/plans/phase-5-add-input.md §2.
+func nextOffset(current int, key string, selectedDepth int) int {
+	if key == "tab" {
+		return min(current+1, 1) // clamp to +1
+	}
+	if key == "shift+tab" {
+		// shift+tab is a no-op when selectedDepth == 0 and current == 0
+		// (already at root with default offset).
+		if selectedDepth == 0 && current == 0 {
+			return 0
+		}
+		// Otherwise, only decrement if the resulting level would be valid.
+		// The "resulting level" is selectedDepth + current - 1 (after decrement).
+		// This must be >= -1 (the root's parent level).
+		resultingDepth := selectedDepth + current - 1
+		if resultingDepth >= -1 {
+			return max(current-1, -1) // clamp to -1
+		}
+		return current // no-op: would go invalid
+	}
+	return current // any other key: no change
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case cmds.SetBodyLayoutMsg:
 		m.body = msg
+		m.textinput.SetWidth(chrome.PanelBodyWidth(msg.MainWidth) - 4) // account for glyph + space + indent
 
 	case cmds.SetFocusMsg:
 		m.focused = int(msg) == focusedZoneID
+		if m.focused {
+			return m, m.textinput.Focus()
+		}
+		m.textinput.Blur()
+
+	case cmds.SetSelectionMsg:
+		m.selectedID = msg.TaskID
+		m.selectedDepth = msg.Depth
+		m.levelOffset = 0 // reset level on selection change (§4 spec)
+
+	case tea.KeyPressMsg:
+		if !m.focused {
+			break
+		}
+
+		// Intercept tab/shift+tab for level offset logic
+		if key.Matches(msg, key.NewBinding(key.WithKeys("tab"))) {
+			m.levelOffset = nextOffset(m.levelOffset, "tab", m.selectedDepth)
+			return m, nil
+		}
+		if key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))) {
+			m.levelOffset = nextOffset(m.levelOffset, "shift+tab", m.selectedDepth)
+			return m, nil
+		}
+
+		// Intercept esc: clear if text present, otherwise fall through to esc ladder
+		if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
+			if m.textinput.Value() != "" {
+				m.textinput.Reset()
+				m.levelOffset = 0
+				return m, nil
+			}
+			// Fall through: don't consume esc if input is empty
+			break
+		}
+
+		// Forward other keys to textinput
+		var cmd tea.Cmd
+		m.textinput, cmd = m.textinput.Update(msg)
+		return m, cmd
 	}
 
-	return m, nil
+	// Forward non-key messages to textinput
+	var cmd tea.Cmd
+	m.textinput, cmd = m.textinput.Update(msg)
+	return m, cmd
 }
 
-// View renders the placeholder. The body is a single line, so the zone reads
-// as one input row inside its frame — the fixed ADD_INPUT_HEIGHT rows come
-// from the layout, not from any padding here.
+// View renders the input with glyph, indentation, and textinput.
 func (m Model) View() tea.View {
 	width := chrome.PanelBodyWidth(m.body.MainWidth)
 	height := chrome.PanelBodyHeight(m.body.InputHeight)
 
-	body := "(add input — phase 5)"
+	indentDepth := m.selectedDepth + m.levelOffset
+	indentWidth := 2 * indentDepth // 2 spaces per level
+	indent := ""
+	for i := 0; i < indentWidth; i++ {
+		indent += " "
+	}
+
+	body := indent + m.textinput.View()
 
 	return tea.NewView(chrome.PanelFrame(m.focused, width, height, body))
+}
+
+// OwnsKeyboard reports whether this component claims esc, used by AppModel's
+// esc ladder (docs/DESIGN.md §5) to determine if the input should swallow esc
+// or let it propagate (docs/plans/phase-5-add-input.md §6).
+func (m Model) OwnsKeyboard() bool {
+	return m.textinput.Value() != ""
 }
