@@ -8,13 +8,15 @@ import (
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
-// WrapperStyle is the frame every zone renders inside: Padding(0).
-// No component sets its own padding value - the shared frame is what keeps a
-// section header's left edge, a checkbox's left edge, and the add input's
-// left edge all landing on the same column when the zones stack vertically
-// in the main panel (docs/DESIGN.md §12 "One shared frame"). Its frame size
-// is subtracted from the zone box when inner content is sized.
-var WrapperStyle = lipgloss.NewStyle()
+// WrapperStyle is the frame every zone renders inside: Padding(1, 2), fixed,
+// matching Stack Stitcher's PanelFrame exactly (docs/DESIGN.md §12 "Two
+// shared frames"). No component sets its own padding value - the shared
+// frame is what keeps a section header's left edge, a checkbox's left edge,
+// and a list row's left edge all landing on the same inset regardless of
+// which surface they're in. Its frame size is subtracted from the zone box
+// when inner content is sized.
+var WrapperStyle = lipgloss.NewStyle().
+	Padding(1, 2)
 
 // FitBox constrains a style to an exact w x h box: Width/Height pad it out,
 // Max* clip anything that would otherwise overflow (Width alone pads but
@@ -46,13 +48,24 @@ func PanelBg(isFocused bool) color.Color {
 	return appstyles.Active.BackgroundPanel
 }
 
-// ModalSurface wraps a modal's content in the shared modal chrome: padding
-// and a background sealed against `bg` so the modal reads as one opaque
-// surface over the page it is composited onto. Modals in particular cannot
-// afford an unpainted cell - the page shows through it.
+// ModalSurface wraps a modal's content in the shared modal chrome: an accent
+// rounded border, padding, and a background sealed against `bg` so the modal
+// reads as one opaque surface over the page it is composited onto. Matches
+// Stack Stitcher's ModalSurface exactly — panels go borderless (elevation is
+// the only focus signal, docs/DESIGN.md §12), but a modal floats over the
+// page rather than sitting structurally within it, and needs its own edge to
+// read as a distinct layer. Modals in particular cannot afford an unpainted
+// cell - the page shows through it.
+//
+// BorderBackground is set explicitly because lipgloss leaves border cells on
+// the default background otherwise, which outlines the modal in the
+// terminal's color.
 func ModalSurface(bg color.Color, content string) string {
 	style := lipgloss.NewStyle().
 		Padding(1, 2).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(appstyles.Active.Accent).
+		BorderBackground(bg).
 		Background(bg)
 
 	return appstyles.FillBackground(bg, style.Render(content))
@@ -94,12 +107,6 @@ const modalListChrome = 9
 func ModalListHeight(items, termHeight int) int {
 	return min(items, max(3, termHeight-modalListChrome))
 }
-
-// ListWrapperStyle is the frame around the body lists. Its padding is
-// what separates the list content from the panel edges, and its frame size is
-// subtracted from the panel box when the inner list is sized.
-var ListWrapperStyle = lipgloss.NewStyle().
-	Padding(1, 2, 2, 2)
 
 // ListRowBg is the background a list row renders on. The active row is lifted
 // to the surface tier; every other row sits flush on its panel's tier. Rows

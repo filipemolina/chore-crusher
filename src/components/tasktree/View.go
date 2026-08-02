@@ -32,7 +32,7 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 
 	switch {
 	case !m.activeList:
-		body := chrome.EmptyStateCard("Add a task to get started", width, height, bg)
+		body := chrome.EmptyStateCard("Add a task to get started", width, height)
 		return appstyles.FillBackground(bg, body)
 	case m.creating:
 		// Inline creation mode: render the sections and splice the create row
@@ -136,7 +136,7 @@ func (m *Model) renderFiltered(width int, bg color.Color) string {
 
 	lines := []string{m.renderFilterBar()}
 	if len(rows) == 0 {
-		lines = append(lines, chrome.EmptyStateCard("No tasks match", width, 3, bg))
+		lines = append(lines, chrome.EmptyStateCard("No tasks match", width, 3))
 	} else {
 		for _, row := range rows {
 			// Only dim ancestors of a real match; when the query is empty (the

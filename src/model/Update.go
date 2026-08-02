@@ -229,13 +229,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastError = msg.Err.Error()
 		}
 
-	case cmds.CreateTaskMsg:
-		// Add-input created a task; refresh immediately and move selection to it.
-		if m.activeListID != "" {
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
-			finalCmds = append(finalCmds, cmds.SetSelection(msg.NewID, msg.Depth))
-		}
-
 	case cmds.CreateTaskFromInputMsg:
 		// The task tree's inline input submitted a draft. Don't create yet:
 		// resolve the insertion against the freshest rows on the next

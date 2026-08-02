@@ -27,7 +27,7 @@ func (d themePickerDelegate) Render(w io.Writer, m list.Model, index int, listIt
 		return
 	}
 
-	style := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
+	style := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Background(appstyles.Active.ModalBg)
 	if index == m.Index() {
 		style = style.Foreground(appstyles.Active.TextPrimary).Bold(true)
 	} else if item.Active {

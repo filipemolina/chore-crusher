@@ -154,11 +154,10 @@ func (m Model) KeepsEsc() bool {
 func (m Model) View() tea.View {
 	width := chrome.PanelBodyWidth(m.body.ListsWidth)
 	height := chrome.PanelBodyHeight(m.body.Height)
-	bg := chrome.PanelBg(m.focused)
 
 	var body string
 	if len(m.list.Items()) == 0 {
-		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height, bg)
+		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height)
 	} else {
 		body = m.list.View()
 	}

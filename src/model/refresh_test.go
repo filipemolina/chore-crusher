@@ -30,9 +30,21 @@ func newTestModel(t *testing.T, dataDir string) AppModel {
 // refresh runs the message through the model the way the loop would, plus
 // the commands it returns. Batch commands are flattened so a RefreshListsMsg
 // that asks for a RefreshTasks (and also updates the footer) still produces
-// the tasks message.
+// the tasks message. The batch check runs before Update, not just on a cmd's
+// result, so a caller can feed Init()'s own tea.BatchMsg straight in — Update
+// has no case for tea.BatchMsg itself (it isn't a real message, just the
+// runtime's signal to fan a cmd out), so skipping this check at the top
+// would silently swallow every message Init bundles.
 func refresh(t *testing.T, m AppModel, msg tea.Msg) AppModel {
 	t.Helper()
+
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			m = refresh(t, m, c())
+		}
+		return m
+	}
+
 	updated, cmd := m.Update(msg)
 	out, ok := updated.(AppModel)
 	if !ok {
@@ -41,15 +53,7 @@ func refresh(t *testing.T, m AppModel, msg tea.Msg) AppModel {
 	if cmd == nil {
 		return out
 	}
-
-	next := cmd()
-	if batch, ok := next.(tea.BatchMsg); ok {
-		for _, c := range batch {
-			out = refresh(t, out, c())
-		}
-		return out
-	}
-	return refresh(t, out, next)
+	return refresh(t, out, cmd())
 }
 
 // treeRows extracts the task titles from the tree's current rows.
@@ -197,4 +201,103 @@ func TestPollTickReissuesItself(t *testing.T) {
 		t.Fatal("PollTickMsg returned no command; the poll would stop")
 	}
 	_ = out
+}
+
+// End-to-end proof of the inline-creation circuit
+// (docs/plan/task-row-redesign-and-inline-creation.md): from a cold model,
+// focus the tree (via the real Init(), so this exercises the same startup
+// broadcast the running app relies on), press n to enter creating, type a
+// title, press enter, and assert the task landed in the store and the tree's
+// selection followed it. This is the "next session" handoff item that plan
+// doc's Status section asked for — the create circuit was otherwise only
+// covered piecemeal, by tasktree's own unit tests plus AppModel.applyCreateDraft's.
+func TestInlineCreateCircuitEndToEnd(t *testing.T) {
+	m := newTestModel(t, t.TempDir())
+	// GetInitialModel seeds a default list when the store is empty; drop it so
+	// this test's list and its one starting task are the whole picture.
+	lists, _ := m.store.ListLists()
+	for _, l := range lists {
+		m.store.DeleteList(l.ID)
+	}
+	listID, err := m.store.CreateList("Errands")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	if _, err := m.store.CreateTask(listID, "Existing task", nil, ""); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// Run the real startup sequence — first lists refresh, the task-tree
+	// focus broadcast Init's own comment says every tree key depends on —
+	// rather than hand-assembling the same messages, so this test breaks if
+	// Init ever stops broadcasting focus. The poll-tick entry (batch[0] per
+	// Init's literal cmds.PollTick(...), cmds.RefreshLists(...), ... order)
+	// is skipped without even being called: it is irrelevant to inline
+	// creation, and calling a tea.Tick cmd blocks for the whole interval
+	// just to find out what it is — TestPollTickReissuesItself avoids
+	// chasing it for the same reason.
+	batch, ok := m.Init()().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("Init() = %T, want tea.BatchMsg", m.Init()())
+	}
+	for _, c := range batch[1:] {
+		m = refresh(t, m, c())
+	}
+
+	rows := treeRows(t, m)
+	if len(rows) != 1 || rows[0] != "Existing task" {
+		t.Fatalf("initial tree rows = %v, want [Existing task]", rows)
+	}
+
+	// applyOnce delivers msg without chasing the returned cmd. Every
+	// keystroke into a focused bubbles/textinput returns a cursor-blink
+	// rescheduling cmd (charm.land/bubbles/v2/cursor.BlinkMsg, ~530ms per
+	// hop by default) that is cosmetic and irrelevant to what this test
+	// asserts; chasing it through refresh() for all nine keystrokes below
+	// would cost several real seconds for nothing. Only the final Enter,
+	// whose cascade (CreateTaskFromInputMsg -> RefreshTasksMsg ->
+	// CreateTaskConfirmedMsg) is the behavior under test, goes through
+	// refresh().
+	applyOnce := func(m AppModel, msg tea.Msg) AppModel {
+		t.Helper()
+		updated, _ := m.Update(msg)
+		out, ok := updated.(AppModel)
+		if !ok {
+			t.Fatalf("Update returned %T, want AppModel", updated)
+		}
+		return out
+	}
+
+	// n: enter inline creation mode (keys.Tree.New, tasktree.Model.Update).
+	m = applyOnce(m, tea.KeyPressMsg{Text: "n", Code: 'n'})
+
+	// Type "Buy milk" one keystroke at a time, the way a real terminal
+	// delivers it — bubbles/textinput inserts from KeyPressMsg.Text.
+	for _, r := range "Buy milk" {
+		m = applyOnce(m, tea.KeyPressMsg{Text: string(r), Code: r})
+	}
+
+	// Enter: submit the draft (keys.Overlay.Submit -> CreateTaskFromInputMsg
+	// -> AppModel.applyCreateDraft -> store.CreateTaskAfter -> CreateTaskConfirmedMsg).
+	m = refresh(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	rows = treeRows(t, m)
+	if len(rows) != 2 {
+		t.Fatalf("tree rows after create = %v, want 2 rows", rows)
+	}
+	if rows[0] != "Existing task" || rows[1] != "Buy milk" {
+		t.Errorf("tree rows after create = %v, want [Existing task Buy milk]", rows)
+	}
+
+	selectedID := treeSelectedID(m)
+	if selectedID == "" {
+		t.Fatal("no task selected after create")
+	}
+	created, err := m.store.GetTask(selectedID)
+	if err != nil {
+		t.Fatalf("get selected task: %v", err)
+	}
+	if created.Title != "Buy milk" {
+		t.Errorf("selected task = %q, want the newly created %q", created.Title, "Buy milk")
+	}
 }
