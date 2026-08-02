@@ -138,5 +138,5 @@ func (m Model) View() tea.View {
 		body = m.list.View()
 	}
 
-	return tea.NewView(chrome.PanelFrame(m.focused, width, height, body))
+	return tea.NewView(chrome.PanelFrame("Lists", m.focused, m.body.ListsWidth, m.body.Height, body))
 }

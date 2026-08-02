@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
 	"github.com/filipemolina/chore-crusher/src/config"
 	"github.com/filipemolina/chore-crusher/src/constants"
 )
@@ -32,10 +33,9 @@ func startup(width, height int) AppModel {
 // not exercise the poll interval.
 func config0() config.Config { return config.Config{} }
 
-// The three-zone layout (docs/DESIGN.md §5) must always add up to the
+// The two-surface layout (docs/DESIGN.md §5) must always add up to the
 // terminal width exactly — ListsWidth + gutter + MainWidth == width (when
-// lists panel is visible) — and the main panel's vertical split must add up
-// to the height.
+// Lists is visible) — and expose one title-adjusted Tasks body height.
 func TestBodyLayoutFillsTerminalExactly(t *testing.T) {
 	sizes := []struct{ width, height int }{
 		{120, 40},
@@ -54,8 +54,11 @@ func TestBodyLayoutFillsTerminalExactly(t *testing.T) {
 			t.Errorf("%dx%d: ListsWidth+gutter+MainWidth = %d, want %d", size.width, size.height, got, size.width)
 		}
 		bodyHeight := size.height - constants.HEADER_HEIGHT - constants.FOOTER_HEIGHT
-		if got := layout.TreeHeight + layout.InputHeight; got != bodyHeight {
-			t.Errorf("%dx%d: TreeHeight+InputHeight = %d, want %d", size.width, size.height, got, bodyHeight)
+		if got := layout.Height; got != bodyHeight {
+			t.Errorf("%dx%d: body height = %d, want %d", size.width, size.height, got, bodyHeight)
+		}
+		if got := chrome.PanelBodyHeight(layout.Height); got < 0 {
+			t.Errorf("%dx%d: Tasks inner height = %d, want non-negative", size.width, size.height, got)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package tasktree
 
 import (
 	"fmt"
+	"image/color"
 	"strconv"
 	"strings"
 
@@ -18,22 +19,28 @@ import (
 // accidentally answer to another zone's id.
 const focusedZoneID = 1
 
-// View renders the task tree: Pending and Complete sections with full hierarchy.
+// View renders raw content for Bubble Tea's Model contract. Taskspanel calls
+// ViewInPanel with the exact inner Tasks dimensions during normal composition.
 func (m Model) View() tea.View {
-	width := chrome.PanelBodyWidth(m.body.MainWidth)
-	height := chrome.PanelBodyHeight(m.body.TreeHeight)
+	return tea.NewView(m.ViewInPanel(chrome.PanelBodyWidth(m.body.MainWidth), chrome.PanelBodyHeight(m.body.Height), chrome.PanelBg(m.focused)))
+}
+
+// ViewInPanel renders the task tree as raw Tasks-surface content. Taskspanel
+// owns the enclosing frame, title, elevation, and footer composition.
+func (m Model) ViewInPanel(width, height int, bg color.Color) string {
+	m.filterInput.SetWidth(max(0, width-6))
 
 	var body string
 	if !m.activeList || len(m.rows) == 0 {
 		body = chrome.EmptyStateCard("Add a task to get started", width, height)
 	} else if m.filterActive() {
-		body = m.renderFiltered(width)
+		body = m.renderFiltered(width, bg)
 	} else {
 		pending, complete := m.splitSections()
-		body = m.renderSections(pending, complete, width)
+		body = m.renderSections(pending, complete, width, bg)
 	}
 
-	return tea.NewView(chrome.PanelFrame(m.focused, width, height, body))
+	return appstyles.FillBackground(bg, body)
 }
 
 // splitSections splits visible rows into Pending and Complete based on root task status.
@@ -64,14 +71,14 @@ func (m *Model) splitSections() (pending, complete []apptypes.Row) {
 }
 
 // renderSections renders Pending and Complete sections with their tasks.
-func (m *Model) renderSections(pending, complete []apptypes.Row, width int) string {
+func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg color.Color) string {
 	var lines []string
 
 	if len(pending) > 0 {
 		lines = append(lines, primary(true).Render("Pending")+" "+
 			muted().Render("("+strconv.Itoa(len(pending))+")"))
 		for _, row := range pending {
-			lines = append(lines, m.renderRow(row, width))
+			lines = append(lines, m.renderRow(row, width, bg))
 		}
 	} else {
 		lines = append(lines, chrome.EmptyStateCard("No tasks yet", width, 3))
@@ -84,7 +91,7 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int) stri
 		lines = append(lines, primary(true).Render("Complete")+" "+
 			muted().Render("("+strconv.Itoa(len(complete))+")"))
 		for _, row := range complete {
-			lines = append(lines, m.renderRow(row, width))
+			lines = append(lines, m.renderRow(row, width, bg))
 		}
 	}
 
@@ -95,7 +102,7 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int) stri
 // filtered row list. The Pending/Complete section headers are suppressed while
 // filtering — there is no honest way to split a half-filtered set into them
 // (docs/plans/phase-8-search.md step 1).
-func (m *Model) renderFiltered(width int) string {
+func (m *Model) renderFiltered(width int, bg color.Color) string {
 	rows, matched := matchVisible(m.rows, m.filterQuery)
 
 	lines := []string{m.renderFilterBar()}
@@ -106,7 +113,7 @@ func (m *Model) renderFiltered(width int) string {
 			// Only dim ancestors of a real match; when the query is empty (the
 			// input is open but nothing typed yet) nothing is dimmed.
 			dimmed := m.filterQuery != "" && !matched[row.Task.ID]
-			lines = append(lines, m.renderFilterRow(row, width, dimmed))
+			lines = append(lines, m.renderFilterRow(row, width, dimmed, bg))
 		}
 	}
 
@@ -128,16 +135,16 @@ func (m *Model) renderFilterBar() string {
 // a normal task row; an ancestor that only stays visible to anchor a match
 // renders dimmed so the two are distinguishable (docs/plans/phase-8-search.md
 // step 1's unmatched styling).
-func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool) string {
+func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, bg color.Color) string {
 	if dimmed {
 		indent := strings.Repeat("  ", row.Depth)
 		return dim().Render(chrome.Truncate(indent+"[…] "+row.Task.Title, width))
 	}
-	return m.renderRow(row, width)
+	return m.renderRow(row, width, bg)
 }
 
 // renderRow renders one task row with proper indent, glyph, checkbox, and title.
-func (m *Model) renderRow(row apptypes.Row, width int) string {
+func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 	indent := strings.Repeat(" ", 2*row.Depth)
 	glyph := " "
 	if row.HasChildren {
@@ -201,10 +208,7 @@ func (m *Model) renderRow(row apptypes.Row, width int) string {
 	}
 
 	content := indent + glyph + " " + checkbox + " " + title + progressSuffix
-	return rowStyle.Render(appstyles.FillBackground(
-		chrome.PanelBg(isSelected),
-		content,
-	))
+	return rowStyle.Render(appstyles.FillBackground(bg, content))
 }
 
 // taskRowDropOrder is phase-9's declared order in which a task row's units

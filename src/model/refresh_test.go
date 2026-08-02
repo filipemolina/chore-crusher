@@ -6,7 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/tasktree"
 	"github.com/filipemolina/chore-crusher/src/config"
 	"github.com/filipemolina/chore-crusher/src/store"
 )
@@ -56,9 +55,9 @@ func refresh(t *testing.T, m AppModel, msg tea.Msg) AppModel {
 // treeRows extracts the task titles from the tree's current rows.
 func treeRows(t *testing.T, m AppModel) []string {
 	t.Helper()
-	tree, ok := m.components.TaskTree.(tasktree.Model)
+	tree, ok := m.components.TaskPanel.(interface{ Rows() []apptypes.Row })
 	if !ok {
-		t.Fatalf("TaskTree is %T, want tasktree.Model", m.components.TaskTree)
+		t.Fatalf("TaskPanel is %T, want rows accessor", m.components.TaskPanel)
 	}
 	var titles []string
 	for _, row := range tree.Rows() {
@@ -70,7 +69,7 @@ func treeRows(t *testing.T, m AppModel) []string {
 // taskRowsFor gets the flattened rows for the model's current active list.
 // Used to simulate what the refresh command would receive from the store.
 func taskRowsFor(m AppModel) []apptypes.Row {
-	tree, ok := m.components.TaskTree.(tasktree.Model)
+	tree, ok := m.components.TaskPanel.(interface{ Rows() []apptypes.Row })
 	if !ok {
 		return nil
 	}
@@ -80,9 +79,9 @@ func taskRowsFor(m AppModel) []apptypes.Row {
 // selectTreeRow selects a task in the tree by ID (for testing purposes).
 func selectTreeRow(t *testing.T, m AppModel, taskID string) {
 	t.Helper()
-	tree, ok := m.components.TaskTree.(tasktree.Model)
+	tree, ok := m.components.TaskPanel.(interface{ Rows() []apptypes.Row })
 	if !ok {
-		t.Fatalf("TaskTree is %T, want tasktree.Model", m.components.TaskTree)
+		t.Fatalf("TaskPanel is %T, want rows accessor", m.components.TaskPanel)
 	}
 	for _, row := range tree.Rows() {
 		if row.Task.ID == taskID {
@@ -98,20 +97,11 @@ func selectTreeRow(t *testing.T, m AppModel, taskID string) {
 
 // treeSelectedID returns the currently selected task ID.
 func treeSelectedID(m AppModel) string {
-	// Access the private selectedID through the public Rows interface.
-	// For a proper test, tasktree.Model should expose SelectedID().
-	tree, ok := m.components.TaskTree.(tasktree.Model)
+	tree, ok := m.components.TaskPanel.(interface{ SelectedID() string })
 	if !ok {
 		return ""
 	}
-	rows := tree.Rows()
-	if len(rows) == 0 {
-		return ""
-	}
-	// This is a limitation of the current API — we can't directly access
-	// the selected ID. For now, return the first row's ID (this test helper
-	// needs to be refined once tasktree.Model exposes SelectedID).
-	return rows[0].Task.ID
+	return tree.SelectedID()
 }
 
 // The first lists refresh adopts the first list as the active list and

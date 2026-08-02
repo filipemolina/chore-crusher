@@ -45,13 +45,21 @@ else
 	((PASSED++))
 fi
 
-# Check if View() calls a chrome helper
+# Check that a surface delegates to chrome, or that a documented inner Tasks
+# control seals raw content for taskspanel without creating a second frame.
 CHROME_HELPER_FOUND=$(grep -r "chrome.PanelFrame\|chrome.ModalSurface\|chrome.EmptyStateCard" "$COMPONENT_PATH"/*.go 2>/dev/null)
+INNER_TASKS_CONTROL=false
+if [ "$COMPONENT_NAME" = "tasktree" ] || [ "$COMPONENT_NAME" = "addinput" ]; then
+	INNER_TASKS_CONTROL=true
+fi
 if [ -n "$CHROME_HELPER_FOUND" ]; then
 	echo "  ✓ PASSED: View() delegates to chrome helper"
 	((PASSED++))
+elif [ "$INNER_TASKS_CONTROL" = true ] && grep -r "appstyles.FillBackground" "$COMPONENT_PATH"/*.go 2>/dev/null | grep -q ".go"; then
+	echo "  ✓ PASSED: Inner Tasks control seals parent-supplied background"
+	((PASSED++))
 else
-	echo "  ✗ FAILED: View() doesn't call a chrome helper"
+	echo "  ✗ FAILED: View() doesn't call a chrome helper or seal as an inner Tasks control"
 	((FAILED++))
 fi
 

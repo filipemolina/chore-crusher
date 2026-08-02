@@ -208,20 +208,28 @@ itself never hides, unlike a modal, so `esc` here has exactly one job.
 
 ## 5. Navigation and focus
 
-Three focusable zones, not two like stack-stitcher, because this app has a
-sidebar that can be entirely absent from the cycle:
+Three keyboard focus targets, not two like stack-stitcher, because this app
+has a sidebar that can be entirely absent from the cycle:
 
 - **Lists panel** — present in the cycle only while visible (`L` toggles
   visibility; see §6). Hidden by default on every launch — this app's whole
   premise is "spend your time in one list," and a sidebar that's there by
   default fights that.
-- **Task tree** — the main panel's Pending/Complete sections, one flat
+- **Task tree** — the Tasks surface's Pending/Complete sections, one flat
   keyboard-navigable cursor across both (see §6 for why the split is visual
   section headers, not two independently-focusable lists).
-- **Add input** — fixed to the bottom of the main panel, always visible,
+- **Add input** — fixed to the bottom of the Tasks surface, always visible,
   always reachable, never a modal.
 
-`ctrl+right`/`ctrl+left` cycle **only through the zones currently visible** —
+The rendered body has only two surfaces: **Lists** and **Tasks**. When Lists
+is hidden, Tasks fills the body width; when Lists is visible, a tier-2 gutter
+separates the two equal-height surfaces. The task tree and add input are
+controls inside Tasks, not independently framed surfaces. Lists is elevated
+only while it has keyboard focus; Tasks is elevated while either the task tree
+or add input has keyboard focus. Moving focus between those two controls must
+not change the Tasks surface's title, padding, gap, or dimensions.
+
+`ctrl+right`/`ctrl+left` cycle **only through the targets currently visible** —
 the lists panel is skipped entirely from the cycle while hidden, the same way
 stack-stitcher's nav bar is permanently absent from its own cycle
 (`constants.FocusableComponents`) rather than being a focusable-but-inert
@@ -658,8 +666,8 @@ background through). The tiers, mapped to this app's own surfaces:
 | --- | --- | --- |
 | 1 | terminal default | outside the app — never drawn on |
 | 2 | `BackgroundContent` | the outermost frame, if one exists (gutter between the lists panel and the main panel) |
-| 3 | `BackgroundPanel` | the lists panel and the main panel, unfocused |
-| 4 | `BackgroundElevated` | whichever zone (§5) currently has focus |
+| 3 | `BackgroundPanel` | the Lists and Tasks surfaces, when unfocused |
+| 4 | `BackgroundElevated` | Lists when it has focus, or Tasks while its task-tree or add-input control has focus (§5) |
 | — | `ModalBg` | every modal (theme picker, confirm, list-name, details screen if built as a modal — §Phase 7) **and the row the cursor sits on in the task tree** — an active row is its own register, not a tint of the panel it's in, the same reasoning stack-stitcher applies to an active list row |
 | — | `BackgroundRecessed` | empty-state cards (§Empty states, below) — equal to `PanelBg`, the un-raised base |
 
@@ -677,27 +685,34 @@ optional polish, it's the mechanical check that catches a missing
 
 ### Focus is shown by lifting a tier, never by changing box size or border weight
 
-A zone's box is exactly the same width and height whether or not it has
-focus. What changes is the fill: `BackgroundPanel` (tier 3) unfocused,
+A rendered surface's box is exactly the same width and height whether or not
+it has focus. What changes is the fill: `BackgroundPanel` (tier 3) unfocused,
 `BackgroundElevated` (tier 4) focused. **Do not indicate focus with a
 heavier border, a different border color, or a resized box** — any of those
 shifts the layout of everything around it by at least one cell, which is
 exactly the kind of thing that looks fine in isolation and wrong the moment
-two zones are on screen having made different choices. One function,
+two surfaces are on screen having made different choices. One function,
 `chrome.PanelBg(isFocused bool) color.Color`, is the only place this
-decision is made; every zone calls it rather than branching on focus itself.
+decision is made; each surface calls it rather than branching on focus itself.
+The selected task row still uses `ModalBg` as its separate active-register
+signal, and the input caret identifies the active control inside Tasks.
 
-### One shared frame: `chrome.PanelFrame`
+### Two shared frames: `chrome.PanelFrame`
 
-All three focusable zones (§5) — the lists panel, the task tree, the add
-input — render inside the same frame helper, with the same padding:
-**1 row vertical, 2 columns horizontal** (`lipgloss.NewStyle().Padding(1,
-2)`), the exact padding stack-stitcher's own `PanelFrame`/`ListWrapperStyle`
-use. No component sets its own padding value. This is what keeps a title's
-left edge, a checkbox's left edge, and the add input's left edge all landing
-on the same column when the zones stack vertically in the main panel — three
-components independently choosing "close enough" padding is how that
-alignment quietly breaks.
+`chrome.PanelFrame` owns the only body frames: **Lists** and **Tasks**. It
+renders those exact labels through `appstyles.NormalTitle()` as an accent chip
+with a two-column left gutter, then one blank chrome row before the body. The
+frame has **1 row vertical and 2 columns horizontal** padding
+(`lipgloss.NewStyle().Padding(1, 2)`), matching stack-stitcher's `PanelFrame`.
+No component sets its own panel padding value or panel border.
+
+The frame receives the total surface box. It alone derives its inner body
+width and height, so callers never subtract frame padding twice. Tasks
+composes its raw task tree above its raw add-input footer inside that one
+inner box: the tree clips or scrolls above, while the unframed one-row input
+is pinned to the bottom with the same Tasks background and no divider. The
+inner renderers receive their supplied dimensions and background; they do not
+add a title, frame, elevation, or local padding.
 
 ### Truncation: one function, built in phase 3, used everywhere from the start
 
@@ -797,9 +812,12 @@ prose to have read once:
 
 1. Every color it draws with is read from `appstyles.Active.*` at render
    time — never a cached package-level color, never a literal hex.
-2. Its outer box is built with `chrome.PanelFrame` (or, for a modal, the
-   equivalent shared modal-frame helper phase 3 establishes) — it does not
-   set its own padding, border style, or corner treatment.
+2. Its outer surface is built with `chrome.PanelFrame` (or, for a modal,
+   the equivalent shared modal-frame helper phase 3 establishes) — it does
+   not set its own padding, border style, or corner treatment. A leaf inside
+   the aggregate Tasks surface does not create a second frame; its parent
+   frames and seals the aggregate while the leaf uses the supplied dimensions
+   and background.
 3. Any user-supplied text it renders goes through `chrome.Truncate`.
 4. It seals its own background tier before returning its content to
    whatever composes it (§Background tiers, above).

@@ -144,3 +144,51 @@ func TestEmptyStateCardZeroBox(t *testing.T) {
 		t.Errorf("zero width should render nothing, got %q", got)
 	}
 }
+
+func TestPanelFrameTitlesAndSealsEveryTheme(t *testing.T) {
+	for _, theme := range appstyles.Themes {
+		t.Run(theme.Name, func(t *testing.T) {
+			original := appstyles.Active
+			appstyles.Active = theme
+			defer func() { appstyles.Active = original }()
+
+			frame := PanelFrame("Tasks", true, 32, 9, "body")
+			if got, want := lipgloss.Width(frame), 32; got != want {
+				t.Errorf("PanelFrame width = %d, want %d", got, want)
+			}
+			if got, want := lipgloss.Height(frame), 9; got != want {
+				t.Errorf("PanelFrame height = %d, want %d", got, want)
+			}
+			if appstyles.HasBackgroundBleed(frame) {
+				t.Errorf("PanelFrame has unpainted cells under %s: %q", theme.Name, frame)
+			}
+
+			lines := strings.Split(ansi.Strip(frame), "\n")
+			if !strings.Contains(lines[1], "Tasks") || strings.TrimSpace(lines[2]) != "" || !strings.Contains(lines[3], "body") {
+				t.Errorf("title chrome = %q, want title then blank row then body", ansi.Strip(frame))
+			}
+			accentMarker := lipgloss.NewStyle().Background(theme.Accent).Render("x")
+			accentSGR := accentMarker[:strings.Index(accentMarker, "x")]
+			if !strings.Contains(frame, accentSGR) {
+				t.Errorf("title chip did not use the active theme accent")
+			}
+			if strings.ContainsAny(ansi.Strip(frame), "╭╮╰╯│─") {
+				t.Errorf("PanelFrame introduced a border: %q", ansi.Strip(frame))
+			}
+		})
+	}
+}
+
+func TestPanelBodyWithFooterPinsFooterAndClipsContent(t *testing.T) {
+	body := PanelBodyWithFooter(20, 4, appstyles.Active.BackgroundPanel, "one\ntwo\nthree\nfour", "input")
+	lines := strings.Split(ansi.Strip(body), "\n")
+	if got, want := len(lines), 4; got != want {
+		t.Fatalf("PanelBodyWithFooter lines = %d, want %d: %q", got, want, ansi.Strip(body))
+	}
+	if got, want := strings.TrimSpace(lines[3]), "input"; got != want {
+		t.Errorf("footer line = %q, want %q", got, want)
+	}
+	if strings.Contains(ansi.Strip(body), "four") {
+		t.Errorf("overflowing content was not clipped: %q", ansi.Strip(body))
+	}
+}

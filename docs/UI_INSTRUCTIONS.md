@@ -1,6 +1,6 @@
 # UI Coherence Instructions
 
-This document hardens the visual coherence rules from `docs/DESIGN.md` §12 into a mechanical checklist. Every leaf component must satisfy all six rules below before it is complete. This is a **verification guide, not a prose explanation** — use it as a literal checklist, not a once-and-read document.
+This document hardens the visual coherence rules from `docs/DESIGN.md` §12 into a mechanical checklist. Every component must satisfy the applicable six rules below before it is complete. An inner control in the aggregate Tasks surface follows the documented frame exception in Rule 2; this is a **verification guide, not a prose explanation** — use it as a literal checklist, not a once-and-read document.
 
 ## The Chrome-Package Contract: Six Rules
 
@@ -48,12 +48,17 @@ func dim() lipgloss.Style   { return lipgloss.NewStyle().Foreground(appstyles.Ac
 
 ---
 
-### Rule 2: Outer box is built with a shared frame helper, never hand-set padding/border/corners
+### Rule 2: Outer surface is built with shared chrome; inner controls do not create one
 
-**The rule:** A component's outermost boundary uses one of:
-- `chrome.PanelFrame()` for zones (lists panel, task tree, add input)
+**The rule:** A rendered body surface's outer boundary uses one of:
+- `chrome.PanelFrame()` for the Lists and Tasks surfaces
 - `chrome.ModalSurface()` for modals
-- A component never sets its own `Padding()`, `Border()`, or `BorderStyle()`
+- `chrome.EmptyStateCard()` for a recessed empty-state card
+
+A leaf inside the aggregate Tasks surface (the task tree or add input) must
+not create a second `PanelFrame`. Its parent frames and seals the aggregate;
+the leaf receives and uses the parent-supplied inner dimensions and background.
+No component sets its own `Padding()`, panel `Border()`, or `BorderStyle()`.
 
 **Why:** Zones that pick different padding silently break the alignment of checkboxes, titles, and input fields across the whole layout.
 
@@ -64,10 +69,14 @@ func dim() lipgloss.Style   { return lipgloss.NewStyle().Foreground(appstyles.Ac
    grep -A 20 "func (m Model) View()" <component>/View.go
    ```
 
-2. Check that the outermost return calls one of:
+2. Check that a surface owner's outermost return calls one of:
    - `chrome.PanelFrame()`, or
    - `chrome.ModalSurface()`, or
-   - Explicitly documented exception (only for chrome helpers themselves)
+   - `chrome.EmptyStateCard()`.
+
+   For an inner Tasks control, check its parent `taskspanel` calls
+   `chrome.PanelFrame()` and the control accepts the supplied dimensions and
+   background without creating another frame.
 
 3. Search for banned methods in the component:
    ```bash
@@ -75,11 +84,11 @@ func dim() lipgloss.Style   { return lipgloss.NewStyle().Foreground(appstyles.Ac
    ```
    Should return **zero results** (the chrome helper is the only place these live).
 
-**Example (from `tasktree/View.go` line 44):**
+**Example (from `taskspanel/View.go`):**
 ```go
-return tea.NewView(chrome.PanelFrame(m.focused, width, height, body))
+return tea.NewView(chrome.PanelFrame("Tasks", m.focused, width, height, body))
 ```
-✓ Delegates all padding and framing to the shared helper.
+✓ The aggregate surface delegates all padding and framing to the shared helper.
 
 **Counterexample (an error):**
 ```go
@@ -141,15 +150,16 @@ return lipgloss.NewStyle().Render(task.Title[:min(len(task.Title), width)])
 **The tiers:**
 | Component Type | Tier | Field | How to seal |
 |---|---|---|---|
-| Zone (lists, tree, input) | 3 or 4 | `BackgroundPanel` / `BackgroundElevated` | `chrome.PanelFrame()` seals this automatically |
+| Lists or Tasks surface | 3 or 4 | `BackgroundPanel` / `BackgroundElevated` | `chrome.PanelFrame()` seals this automatically |
+| Task-tree or add-input inner control | its supplied Tasks tier | parent-supplied Tasks background | `appstyles.FillBackground()` before returning its raw content |
 | Modal | modal | `ModalBg` | `chrome.ModalSurface()` seals this automatically |
 | Empty state | recessed | `BackgroundRecessed` | `chrome.EmptyStateCard()` seals this automatically |
 
 **How to verify:**
 
-1. If the component uses `chrome.PanelFrame()`, `chrome.ModalSurface()`, or `chrome.EmptyStateCard()`, **the seal is automatic** — the helper handles it.
+1. If a surface uses `chrome.PanelFrame()`, `chrome.ModalSurface()`, or `chrome.EmptyStateCard()`, **the seal is automatic** — the helper handles it.
 
-2. If the component builds its own content (rare), verify it calls `appstyles.FillBackground(bg, content)`:
+2. If an inner Tasks control builds raw content, verify it calls `appstyles.FillBackground(bg, content)` with its supplied background before returning it:
    ```bash
    grep "FillBackground" <component>/*.go
    ```
@@ -223,11 +233,14 @@ icon := "→"   // not in vocabulary; use ▾/▸ for expand/collapse
 
 ### Rule 6: Focus is shown by lifting a tier (background color), never by changing size or border
 
-**The rule:** When a zone gains or loses focus, **only the background color changes**:
+**The rule:** When a body surface gains or loses focus, **only the background color changes**:
 - Unfocused: `appstyles.Active.BackgroundPanel` (tier 3)
 - Focused: `appstyles.Active.BackgroundElevated` (tier 4)
 
-The zone's width, height, border weight, and corner radius **do not change**. Never:
+Lists is focused only for Lists keyboard focus. Tasks is focused for either
+task-tree or add-input keyboard focus; that child-control transition changes
+neither surface dimensions nor chrome. A surface's width, height, border
+weight, and corner radius **do not change**. Never:
 - Add a border when focused
 - Make the border thicker
 - Resize the box
@@ -243,11 +256,12 @@ The zone's width, height, border weight, and corner radius **do not change**. Ne
    grep -n "func (m Model) View()" <component>/View.go
    ```
 
-2. Check that the component takes an `isFocused` bool and uses it only for `chrome.PanelBg()`:
+2. Check that a surface owner derives its focus through `chrome.PanelBg()`:
    ```bash
    grep "PanelBg\|BackgroundElevated\|BackgroundPanel" <component>/*.go
    ```
-   Should find calls to `chrome.PanelBg()`, never direct comparisons of `isFocused`.
+   An inner Tasks control may retain its own focus for cursor/key handling, but
+   it must not derive a second surface tier or direct focus-dependent geometry.
 
 3. Verify no focus-dependent sizing:
    ```bash
@@ -255,11 +269,11 @@ The zone's width, height, border weight, and corner radius **do not change**. Ne
    ```
    Should return **zero results** related to sizing or borders.
 
-4. Check `chrome.PanelFrame()` handles the focus background — the component does not:
+4. Check the surface owner passes its focus to `chrome.PanelFrame()`:
    ```bash
    grep "chrome.PanelFrame" <component>/*.go
    ```
-   The third parameter is `isFocused`; `PanelFrame` applies the tier.
+   `PanelFrame` applies the tier; an inner Tasks control never calls it.
 
 **Example (from `chrome/Styles.go` lines 36–47):**
 ```go
@@ -320,10 +334,11 @@ grep -B 2 -A 2 "isFocused" . | grep -rEn "Width|Height|Border"
 ### Step 2: Visual inspection
 
 1. **Render the component** in the running app (use `make dev`)
-2. **Tab between zones** — verify focus shows only as a background color lift, not a border or size change
-3. **Check alignment** — a task title's left edge, a list name's left edge, and the add input's left edge should all line up vertically
-4. **Test with long text** — paste a 100-character task title and verify it truncates with `…`, no overflow
-5. **Switch themes** — verify all colors change; a static color wouldn't
+2. At startup, verify Lists is hidden, Tasks is titled, and the footer advertises `L lists`
+3. Focus Lists, then focus Tasks through both the task tree and add input — verify only the appropriate outer surface lifts, with no border or size change
+4. **Check alignment** — the title chips share their inset, and task rows and the add input align inside Tasks
+5. **Test with long text** — paste a 100-character task title and verify it truncates with `…`, no overflow
+6. **Switch themes** — verify all colors change; a static color wouldn't
 
 ### Step 3: Tests
 

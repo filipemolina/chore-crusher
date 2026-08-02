@@ -8,17 +8,18 @@ Use this as a literal checklist for any UI component (`src/components/<name>/`).
   Every color is `appstyles.Active.*` at render time, never literal hex or cached colors.  
   Run: `grep -rEn "(0x[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{6})" src/components/<component>/`
 
-- [ ] **Rule 2: Frame**  
-  Outer box uses `chrome.PanelFrame()`, `chrome.ModalSurface()`, or `chrome.EmptyStateCard()`.  
-  No hand-set `.Padding()`, `.Border()`, or `.BorderStyle()`.  
+- [ ] **Rule 2: Frame**
+  Each body surface uses `chrome.PanelFrame()`; modals and empty cards use their shared chrome helpers.
+  A task-tree/add-input leaf is an inner Tasks control: its parent frames and seals the aggregate, while it uses the supplied dimensions and background without a second frame.
+  No hand-set `.Padding()`, panel `.Border()`, or `.BorderStyle()`.
   Run: `grep -rEn "\.Padding\(|\.Border\(|\.BorderStyle\(" src/components/<component>/ | grep -v chrome`
 
 - [ ] **Rule 3: Truncation**  
   Any user-supplied text (Task.Title, List.Name, etc.) passes through `chrome.Truncate()`.  
   Check: Read `View()` method and verify user fields use truncation.
 
-- [ ] **Rule 4: Background Seal**  
-  Background tier is sealed. The component uses a chrome helper (automatically sealed), or calls `appstyles.FillBackground()`.  
+- [ ] **Rule 4: Background Seal**
+  Background tier is sealed. A surface uses a chrome helper (automatically sealed); an inner Tasks control calls `appstyles.FillBackground()` with the supplied Tasks background.
   Run: `grep -rn "FillBackground\|chrome.PanelFrame\|chrome.ModalSurface\|chrome.EmptyStateCard" src/components/<component>/`
 
 - [ ] **Rule 5: Glyphs**  
@@ -43,10 +44,11 @@ This checks all six rules and reports which ones pass.
 
 With the app running (`make dev`):
 
-1. **Tab between zones** — Check focus shows only as a background color lift
-2. **Check alignment** — Verify task titles, list names, and input fields line up vertically
-3. **Test long text** — Paste a 100+ character task title; should truncate with `…`
-4. **Switch themes** — Colors should change; verify no static colors remain
+1. **Check startup** — Lists is hidden, Tasks is titled, and the footer advertises `L lists`
+2. **Focus Lists and Tasks** — Focus Tasks through both tree and input; only the correct outer surface lifts, with no new border or size change
+3. **Check alignment** — Title chips share their inset; task rows and the input align inside Tasks
+4. **Test long text** — Paste a 100+ character task title; should truncate with `…`
+5. **Switch themes** — Colors should change; verify no static colors remain
 
 ## If a Rule Doesn't Apply
 

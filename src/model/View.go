@@ -49,20 +49,13 @@ func (m AppModel) View() tea.View {
 	return v
 }
 
-// renderBody renders the zones: the main panel (task tree over the add
-// input) and, while the lists panel is visible, the sidebar with a thin
-// tier-2 gutter between them. The gutter's width is the same constant the
-// layout subtracted from the row before sizing the panels, so the three
-// pieces add up to the terminal width exactly. Before the first
-// WindowSizeMsg the body height is 0 and the components have not yet been
-// sized; render nothing so the header and footer alone define the frame.
+// renderBody renders the Tasks surface and, while visible, the Lists surface
+// separated by a sealed tier-2 gutter. Before the first WindowSizeMsg the body
+// height is 0 and the components have not yet been sized; their natural render
+// still leaves the header and footer as the frame boundary.
 func (m AppModel) renderBody() string {
 	layout := m.bodyLayout
-
-	main := lipgloss.JoinVertical(lipgloss.Left,
-		m.components.TaskTree.View().Content,
-		m.components.AddInput.View().Content,
-	)
+	main := m.components.TaskPanel.View().Content
 
 	if !m.listsPanelVisible {
 		return main

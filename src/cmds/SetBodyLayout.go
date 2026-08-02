@@ -2,10 +2,9 @@ package cmds
 
 import tea "charm.land/bubbletea/v2"
 
-// SetBodyLayoutMsg is the exact box each body zone must render into.
+// SetBodyLayoutMsg is the exact outer box each body surface renders into.
 // AppModel is the single source of truth for these numbers: it guarantees
-// ListsWidth + BODY_GUTTER_WIDTH + MainWidth == the terminal width, and
-// TreeHeight + InputHeight == Height (docs/DESIGN.md §5).
+// ListsWidth + BODY_GUTTER_WIDTH + MainWidth == the terminal width.
 //
 // Components must render at exactly this size rather than deriving their own
 // from tea.WindowSizeMsg. WindowSizeMsg only reaches the components of the
@@ -17,28 +16,23 @@ import tea "charm.land/bubbletea/v2"
 //
 // ListsWidth is the lists panel's width, or 0 while the panel is hidden (the
 // panel is out of the layout and out of the focus cycle until L is pressed).
-// MainWidth is the main panel's width; TreeHeight and InputHeight describe
-// the main panel's vertical split, with the add input pinned to the bottom
-// (fixed ADD_INPUT_HEIGHT rows, always visible). TerminalWidth is the full
-// terminal width, needed by chrome (header/footer) that spans the frame.
+// MainWidth is the Tasks surface's width. Taskspanel owns its internal tree
+// and one-row input-footer split. TerminalWidth is the full terminal width,
+// needed by chrome that spans the frame.
 type SetBodyLayoutMsg struct {
 	Height        int
 	ListsWidth    int
 	MainWidth     int
-	TreeHeight    int
-	InputHeight   int
 	TerminalWidth int
 }
 
 // SetBodyLayout broadcasts the layout to every component.
-func SetBodyLayout(height, listsWidth, mainWidth, treeHeight, inputHeight, terminalWidth int) tea.Cmd {
+func SetBodyLayout(height, listsWidth, mainWidth, terminalWidth int) tea.Cmd {
 	return func() tea.Msg {
 		return SetBodyLayoutMsg{
 			Height:        height,
 			ListsWidth:    listsWidth,
 			MainWidth:     mainWidth,
-			TreeHeight:    treeHeight,
-			InputHeight:   inputHeight,
 			TerminalWidth: terminalWidth,
 		}
 	}

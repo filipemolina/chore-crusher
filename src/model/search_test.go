@@ -4,16 +4,15 @@ import (
 	"testing"
 
 	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/tasktree"
 )
 
 // selectedID reports the task tree's current selection, which the picker's
 // jump must move onto.
 func selectedID(t *testing.T, m AppModel) string {
 	t.Helper()
-	tree, ok := m.components.TaskTree.(tasktree.Model)
+	tree, ok := m.components.TaskPanel.(interface{ SelectedID() string })
 	if !ok {
-		t.Fatalf("TaskTree is %T, want tasktree.Model", m.components.TaskTree)
+		t.Fatalf("TaskPanel is %T, want selected-ID accessor", m.components.TaskPanel)
 	}
 	return tree.SelectedID()
 }

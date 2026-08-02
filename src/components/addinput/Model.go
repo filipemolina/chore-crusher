@@ -1,9 +1,12 @@
 package addinput
 
 import (
+	"image/color"
+
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
 	"github.com/filipemolina/chore-crusher/src/store"
@@ -233,10 +236,19 @@ func glyphForOffset(offset int) string {
 	}
 }
 
-// View renders the input with glyph, indentation, and textinput.
+// View renders raw content for Bubble Tea's Model contract. Taskspanel calls
+// ViewInPanel with the exact inner Tasks dimensions during normal composition.
 func (m Model) View() tea.View {
-	width := chrome.PanelBodyWidth(m.body.MainWidth)
-	height := chrome.PanelBodyHeight(m.body.InputHeight)
+	return tea.NewView(m.ViewInPanel(chrome.PanelBodyWidth(m.body.MainWidth), 1, chrome.PanelBg(m.focused)))
+}
+
+// ViewInPanel renders the input as a raw one-row Tasks footer. Taskspanel
+// owns the enclosing frame, title, elevation, and footer placement.
+func (m Model) ViewInPanel(width, height int, bg color.Color) string {
+	if height < 1 {
+		return ""
+	}
+	m.textinput.SetWidth(max(0, width-4)) // glyph, space, and one indentation level
 
 	indentDepth := m.selectedDepth + m.levelOffset
 	indentWidth := 2 * indentDepth // 2 spaces per level
@@ -253,7 +265,7 @@ func (m Model) View() tea.View {
 	// The textinput already includes its own prompt if set; we prepend the glyph instead
 	body := indent + glyph + " " + tiView
 
-	return tea.NewView(chrome.PanelFrame(m.focused, width, height, body))
+	return appstyles.FillBackground(bg, body)
 }
 
 // OwnsKeyboard reports whether this component claims esc, used by AppModel's

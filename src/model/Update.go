@@ -197,26 +197,22 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Forward the message to every component. Each one answers to a subset
-	// (SetBodyLayoutMsg and SetFocusMsg reach all of them; RefreshListsMsg
-	// to the lists panel; RefreshTasksMsg to the task tree) and ignores the
-	// rest.
-	var menuCmd, barCmd, listsCmd, treeCmd, inputCmd tea.Cmd
+	// Forward the message to every component. TaskPanel forwards to the tree
+	// and input controls after deriving their shared Tasks-surface state.
+	var menuCmd, barCmd, listsCmd, tasksCmd tea.Cmd
 	m.components.MainMenu, menuCmd = m.components.MainMenu.Update(msg)
 	m.components.KeybindingBar, barCmd = m.components.KeybindingBar.Update(msg)
 	m.components.ListsPanel, listsCmd = m.components.ListsPanel.Update(msg)
-	m.components.TaskTree, treeCmd = m.components.TaskTree.Update(msg)
-	m.components.AddInput, inputCmd = m.components.AddInput.Update(msg)
-	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, treeCmd, inputCmd)
+	m.components.TaskPanel, tasksCmd = m.components.TaskPanel.Update(msg)
+	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, tasksCmd)
 
 	return m, tea.Batch(finalCmds...)
 }
 
 // calculateBodyLayout returns the exact box each body zone must render
 // into. Width: ListsWidth + BODY_GUTTER_WIDTH + MainWidth == the terminal
-// width when the sidebar is visible. Height: the remaining rows after the
-// header and footer, with TreeHeight + InputHeight == Height (the add input
-// pinned to the bottom at ADD_INPUT_HEIGHT, docs/DESIGN.md §5).
+// width when the sidebar is visible. Height is the remaining rows after the
+// header and footer; TaskPanel owns its internal one-row input footer.
 //
 // The lists panel gets LEFT_PANEL_WIDTH of the row (after the gutter is
 // taken out) and the main panel gets whatever is left, so rounding can
@@ -230,16 +226,11 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 	height := max(0, m.terminalHeight-constants.HEADER_HEIGHT-constants.FOOTER_HEIGHT)
 	available := max(0, m.terminalWidth)
 
-	inputHeight := constants.ADD_INPUT_HEIGHT
-	treeHeight := max(0, height-inputHeight)
-
 	if !m.listsPanelVisible {
 		return cmds.SetBodyLayoutMsg{
 			Height:        height,
 			ListsWidth:    0,
 			MainWidth:     available,
-			TreeHeight:    treeHeight,
-			InputHeight:   inputHeight,
 			TerminalWidth: available,
 		}
 	}
@@ -263,8 +254,6 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 		Height:        height,
 		ListsWidth:    listsWidth,
 		MainWidth:     mainWidth,
-		TreeHeight:    treeHeight,
-		InputHeight:   inputHeight,
 		TerminalWidth: available,
 	}
 }
@@ -300,5 +289,5 @@ func (m *AppModel) ChangeFocus(delta int) tea.Cmd {
 // to all chrome and body components.
 func (m AppModel) broadcastBodyLayout() tea.Cmd {
 	l := m.bodyLayout
-	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.MainWidth, l.TreeHeight, l.InputHeight, l.TerminalWidth)
+	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.MainWidth, l.TerminalWidth)
 }

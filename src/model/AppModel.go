@@ -4,11 +4,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/addinput"
 	"github.com/filipemolina/chore-crusher/src/components/keybindingbar"
 	"github.com/filipemolina/chore-crusher/src/components/listspanel"
 	"github.com/filipemolina/chore-crusher/src/components/mainmenu"
-	"github.com/filipemolina/chore-crusher/src/components/tasktree"
+	"github.com/filipemolina/chore-crusher/src/components/taskspanel"
 	"github.com/filipemolina/chore-crusher/src/config"
 	"github.com/filipemolina/chore-crusher/src/constants"
 	"github.com/filipemolina/chore-crusher/src/keys"
@@ -38,8 +37,7 @@ type AppModel struct {
 		MainMenu      tea.Model
 		KeybindingBar tea.Model
 		ListsPanel    tea.Model
-		TaskTree      tea.Model
-		AddInput      tea.Model
+		TaskPanel     tea.Model
 	}
 }
 
@@ -57,8 +55,7 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 	m.components.MainMenu = mainmenu.New()
 	m.components.KeybindingBar = keybindingbar.New()
 	m.components.ListsPanel = listspanel.New()
-	m.components.TaskTree = tasktree.New()
-	m.components.AddInput = addinput.New(s, "")
+	m.components.TaskPanel = taskspanel.New(s, "")
 	return m
 }
 
@@ -78,8 +75,8 @@ func (m AppModel) helpContext() keys.Context {
 // conservative: before the first refresh there are no rows, so the footer
 // advertises the add-input keys rather than navigation keys.
 func (m AppModel) taskTreeEmpty() bool {
-	tree, ok := m.components.TaskTree.(interface{ IsEmpty() bool })
-	return !ok || tree.IsEmpty()
+	tasks, ok := m.components.TaskPanel.(interface{ IsEmpty() bool })
+	return !ok || tasks.IsEmpty()
 }
 
 // footerContextCmd returns the command that updates the footer with the

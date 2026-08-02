@@ -1,10 +1,9 @@
 package constants
 
-// Widths and heights for the three-zone layout (docs/DESIGN.md §5). Where
+// Widths and heights for the two-surface layout (docs/DESIGN.md §5). Where
 // stack-stitcher already solved the same layout problem, its numbers are
-// ported outright (docs/DESIGN.md §12): the lists panel is a sidebar like
-// its left panel, and the task-tree/main split behaves like its two body
-// panels.
+// ported outright (docs/DESIGN.md §12): the Lists surface is a sidebar like
+// its left panel and Tasks takes the remaining body width.
 
 // LEFT_PANEL_WIDTH is the lists panel's share of the row when it is visible,
 // ported from stack-stitcher's sidebar (one-third, lazydocker's default).
@@ -25,10 +24,3 @@ const BODY_GUTTER_WIDTH = 2
 // bar and the keybinding hint bar, matching stack-stitcher's shell.
 const HEADER_HEIGHT = 1
 const FOOTER_HEIGHT = 1
-
-// ADD_INPUT_HEIGHT is the task-tree zone's fixed vertical partner: the add
-// input is pinned to the bottom of the main panel, always visible, always
-// reachable (docs/DESIGN.md §5). Three rows is one content row inside
-// chrome.PanelFrame's 1-row vertical padding — the frame's top and bottom
-// edges plus the input line itself.
-const ADD_INPUT_HEIGHT = 3
