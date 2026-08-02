@@ -3,22 +3,22 @@
 # The tapes (demo/*.tape) set the same XDG dirs, so a stamped seed is what
 # they show — the recording neither depends on nor clobbers the real store.
 #
-#   ./demo/seed.sh [binary]     launch path defaults to /tmp/complete-demo/complete
+#   ./demo/seed.sh [binary]     launch path defaults to /tmp/chore-crusher-demo/crush
 #
-# Everything lives under /tmp/complete-demo so a run is reproducible from a
+# Everything lives under /tmp/chore-crusher-demo so a run is reproducible from a
 # clean checkout and touches nothing outside it.
 set -euo pipefail
 
-DATA=/tmp/complete-demo/data
-CONFIG=/tmp/complete-demo/config
-BIN=${1:-/tmp/complete-demo/complete}
+DATA=/tmp/chore-crusher-demo/data
+CONFIG=/tmp/chore-crusher-demo/config
+BIN=${1:-/tmp/chore-crusher-demo/crush}
 
 # Pin the theme so frames don't depend on whatever the recorder's own config
-# holds. complete-dark is also the compiled default, so this is belt-and-
+# holds. crush-dark is also the compiled default, so this is belt-and-
 # suspenders against a later re-theme.
 rm -rf "$DATA" "$CONFIG"
-mkdir -p "$DATA" "$CONFIG/complete"
-printf 'theme: complete-dark\n' > "$CONFIG/complete/config.yaml"
+mkdir -p "$DATA" "$CONFIG/chore-crusher"
+printf 'theme: crush-dark\n' > "$CONFIG/chore-crusher/config.yaml"
 
 export XDG_DATA_HOME="$DATA"
 export XDG_CONFIG_HOME="$CONFIG"
@@ -49,6 +49,6 @@ run progress "$ferns" --mode percentage --percent 45
 kitchen=$(run add "$LIST" "Clean the kitchen")
 run add "$LIST" "Clear the counters" --parent "$kitchen"
 run add "$LIST" "Dust the shelves" --parent "$kitchen"
-run complete "$kitchen"
+run "$kitchen"
 
 echo "seeded list $LIST"

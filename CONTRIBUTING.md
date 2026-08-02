@@ -284,7 +284,7 @@ the next reader, from three different things.
 | **Task** | A `Task` row, at any depth. | "Todo," "item," "entry" — pick Task and keep it everywhere, including comments and UI copy. |
 | **Subtask** | A Task with a non-nil `parent_id`. Not a separate Go type — `apptypes.Task` and `store`'s task rows have no `Subtask` type. | A fixed second level of nesting — nesting is unbounded (`docs/DESIGN.md` §2); "subtask" describes a relationship (child of), not a depth. |
 | **Root task** | A Task with a nil `parent_id` (depth 0). | — |
-| **Status** | One of `pending` / `in_progress` / `complete` — the `Task.status` column. | "Progress," which is the separate `progress_kind`/`progress_pct` pair that only applies while status is `in_progress`. |
+| **Status** | One of `pending` / `in_progress` / `crush` — the `Task.status` column. | "Progress," which is the separate `progress_kind`/`progress_pct` pair that only applies while status is `in_progress`. |
 | **Progress kind** | One of `none` / `simple` / `subtasks` / `percentage` — `Task.progress_kind`. | A synonym for status. |
 | **Cascade** | The specific downward propagation `store.Complete` performs onto every descendant (`docs/DESIGN.md` §3). | Any recursive walk — `recomputeAncestors` walks *upward* and is never called "cascade" in these docs, to keep the direction unambiguous from the word alone. |
 | **Zone** | One of the three focusable regions in `docs/DESIGN.md` §5: the lists panel, the task tree, the add input. | "Panel," "pane," "component" — those all still apply to the same things, but "zone" is reserved for the focus-cycle concept specifically (`focusableZones()`). |
@@ -308,7 +308,7 @@ src/
 ├── store/            # SQLite schema, migrations, and every read/write function
 ├── cli/              # one file per subcommand group, thin cobra-to-store adapters
 ├── appstyles/        # Theme type + the 14-theme registry (ported from stack-stitcher)
-├── config/           # ~/.config/complete/config.yaml
+├── config/           # ~/.config/chore-crusher/config.yaml
 └── constants/        # layout widths, focusable-zone ids, branding
 docs/
 ├── DESIGN.md         # why — the specification
@@ -370,4 +370,4 @@ should stay rare, because it's timing-based.
 Maintainer-only. Once phase 0's GoReleaser config is in place, pushing a `v*`
 tag builds and drafts a release the same way stack-stitcher's does — see
 `docs/plans/phase-0-scaffolding.md` for the exact config, carried over with
-the binary name changed from `stitch` to `complete`.
+the binary name changed from `stitch` to `crush`.

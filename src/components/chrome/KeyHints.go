@@ -6,7 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
 // KeyHint represents a single keybinding for display in a help line.

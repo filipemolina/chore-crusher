@@ -1,12 +1,12 @@
-# VHS tape for the chore-completer README demo.
+# VHS tape for the chore-crusher README demo.
 # Install VHS first: https://github.com/charmbracelet/vhs (needs ttyd + ffmpeg too).
 #
-# The binary is the repo-root `./complete` (built with `make build`; the
-# `complete` on PATH is bash's completion builtin, so the tape uses the
+# The binary is the repo-root `./crush` (built with `make build`; the
+# `crush` on PATH is bash's completion builtin, so the tape uses the
 # relative path on purpose). Seed the store first into the same throwaway
 # XDG dirs the recording uses, so the frames are deterministic:
 #
-#   ./demo/seed.sh           # builds state into /tmp/complete-demo/{data,config}
+#   ./demo/seed.sh           # builds state into /tmp/chore-crusher-demo/{data,config}
 #   vhs demo/demo.tape       # record from the repo root
 #
 # VHS writes every frame at 25fps and the raw GIF comes out large; shrink it
@@ -33,12 +33,12 @@ Set TypingSpeed 45ms
 # Same throwaway dirs the seed used: recording neither depends on nor
 # overwrites the recorder's real store or config.
 Hide
-Type "export XDG_DATA_HOME=/tmp/complete-demo/data XDG_CONFIG_HOME=/tmp/complete-demo/config && clear"
+Type "export XDG_DATA_HOME=/tmp/chore-crusher-demo/data XDG_CONFIG_HOME=/tmp/chore-crusher-demo/config && clear"
 Enter
 Sleep 800ms
 Show
 
-Type "./complete"
+Type "./crush"
 Enter
 Sleep 3s
 

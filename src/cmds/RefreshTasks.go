@@ -2,8 +2,8 @@ package cmds
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/apptypes"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // RefreshTasksMsg carries one list's tasks as flattened tree rows, converted

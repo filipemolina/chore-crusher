@@ -2,7 +2,7 @@ package chrome
 
 import (
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
 // EmptyStateCard renders the one recessed-card pattern every empty zone uses

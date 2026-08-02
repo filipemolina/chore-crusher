@@ -22,7 +22,7 @@ func TestTaskTreeAndCascade(t *testing.T) {
 	}
 
 	// Completing the parent cascades to the child.
-	mustCLI(t, data, "complete", parent)
+	mustCLI(t, data, parent)
 	var payload []taskRowJSON
 	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
 	if payload[0].Status != "complete" || payload[1].Status != "complete" || payload[1].ID != child {
@@ -91,7 +91,7 @@ func TestProgressValidationAndDisplay(t *testing.T) {
 	}
 
 	// Setting progress on a complete task is a domain error, not a reopen.
-	mustCLI(t, data, "complete", tid)
+	mustCLI(t, data, tid)
 	code, _, errOut = runCLI(t, data, "progress", tid, "--mode", "percentage", "--percent", "50")
 	if code != 1 || !strings.Contains(errOut, "reopen") {
 		t.Errorf("progress on complete: exit %d stderr %q", code, errOut)
@@ -111,13 +111,13 @@ func TestSubtasksDerivationThroughCLI(t *testing.T) {
 		t.Errorf("tasks after subtasks mode: %q, want parent at 0%%", out)
 	}
 	// One of two children complete: 50%.
-	mustCLI(t, data, "complete", c1)
+	mustCLI(t, data, c1)
 	if out := mustCLI(t, data, "tasks", lid); !strings.Contains(out, "[~] parent (50%)") {
 		t.Errorf("tasks after one child complete: %q, want parent at 50%%", out)
 	}
 	// Both children complete: the store auto-promotes the parent (§3) and the
 	// whole tree moves to Complete.
-	mustCLI(t, data, "complete", c2)
+	mustCLI(t, data, c2)
 	out := mustCLI(t, data, "tasks", lid)
 	if !strings.Contains(out, "Complete (3)") || strings.Contains(out, "Pending") {
 		t.Errorf("tasks after both children complete: %q, want the whole tree under Complete", out)

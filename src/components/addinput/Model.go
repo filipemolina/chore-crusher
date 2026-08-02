@@ -4,9 +4,9 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/chrome"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // focusedZoneID is the zone id this component answers to
@@ -34,6 +34,7 @@ func New(st *store.Store, activeListID string) tea.Model {
 	ti := textinput.New()
 	sty := textinput.DefaultDarkStyles()
 	ti.SetStyles(sty)
+	ti.Placeholder = "new task"
 
 	return &Model{
 		textinput:    ti,

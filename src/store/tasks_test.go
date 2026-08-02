@@ -366,7 +366,6 @@ func TestReparentNoOpSameParent(t *testing.T) {
 	}
 }
 
-
 func TestCreateTaskAfterWithNoAfterIDAppends(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")

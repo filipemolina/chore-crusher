@@ -1,9 +1,9 @@
 // Package config reads and writes the user's persistent preferences:
-// ~/.config/complete/config.yaml (or $XDG_CONFIG_HOME if set).
+// ~/.config/chore-crusher/config.yaml (or $XDG_CONFIG_HOME if set).
 //
 // The config file is a small YAML document:
 //
-//	theme: complete-dark
+//	theme: crush-dark
 //	poll_interval_ms: 1000
 //
 // More fields will land later (docs/ROADMAP.md). The struct and the write
@@ -58,11 +58,11 @@ func PollInterval(cfg Config) time.Duration {
 }
 
 // configDir returns the directory the config file lives in:
-// $XDG_CONFIG_HOME/complete if XDG_CONFIG_HOME is set, otherwise
-// ~/.config/complete.
+// $XDG_CONFIG_HOME/chore-crusher if XDG_CONFIG_HOME is set, otherwise
+// ~/.config/chore-crusher.
 func configDir() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "complete"), nil
+		return filepath.Join(xdg, "chore-crusher"), nil
 	}
 
 	home, err := os.UserHomeDir()
@@ -70,7 +70,7 @@ func configDir() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(home, ".config", "complete"), nil
+	return filepath.Join(home, ".config", "chore-crusher"), nil
 }
 
 // configPath returns the full path to the config file.

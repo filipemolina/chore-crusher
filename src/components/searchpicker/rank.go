@@ -1,8 +1,8 @@
 package searchpicker
 
 import (
+	"github.com/filipemolina/chore-crusher/src/store"
 	"github.com/sahilm/fuzzy"
-	"github.com/filipemolina/chore-completer/src/store"
 )
 
 // rank runs store.SearchTasks across all lists and orders the results the

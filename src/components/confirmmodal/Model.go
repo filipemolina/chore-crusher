@@ -3,19 +3,19 @@ package confirmmodal
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/chrome"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // Model is a confirmation modal for destructive operations.
 type Model struct {
-	title      string
-	message    string
-	listID     string // ID of the list to delete (for now, only for delete list)
-	store      *store.Store
-	yesHover   bool   // whether "yes" is highlighted
+	title    string
+	message  string
+	listID   string // ID of the list to delete (for now, only for delete list)
+	store    *store.Store
+	yesHover bool // whether "yes" is highlighted
 }
 
 // New creates a new confirmation modal.

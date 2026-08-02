@@ -18,6 +18,6 @@ func DerivedPercent(rows []Row, taskID string) (percent int, displayAsSimple boo
 	if total == 0 {
 		return 0, true
 	}
-	pct := int(float64(complete)*100 + 0.5) / total // round(complete * 100 / total)
+	pct := int(float64(complete)*100+0.5) / total // round(complete * 100 / total)
 	return pct, false
 }

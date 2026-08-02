@@ -8,7 +8,7 @@ package searchpicker
 import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // modalChrome is how many rows the picker's chrome (border, title, input,

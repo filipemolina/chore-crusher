@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/apptypes"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/tasktree"
-	"github.com/filipemolina/chore-completer/src/config"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/tasktree"
+	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // newTestModel builds an AppModel against a real store in dataDir (one temp
@@ -29,8 +29,9 @@ func newTestModel(t *testing.T, dataDir string) AppModel {
 }
 
 // refresh runs the message through the model the way the loop would, plus
-// the commands it returns (so a RefreshListsMsg that asks for a
-// RefreshTasks actually produces the tasks message).
+// the commands it returns. Batch commands are flattened so a RefreshListsMsg
+// that asks for a RefreshTasks (and also updates the footer) still produces
+// the tasks message.
 func refresh(t *testing.T, m AppModel, msg tea.Msg) AppModel {
 	t.Helper()
 	updated, cmd := m.Update(msg)
@@ -38,12 +39,18 @@ func refresh(t *testing.T, m AppModel, msg tea.Msg) AppModel {
 	if !ok {
 		t.Fatalf("Update returned %T, want AppModel", updated)
 	}
-	if cmd != nil {
-		for _, c := range []tea.Cmd{cmd} {
+	if cmd == nil {
+		return out
+	}
+
+	next := cmd()
+	if batch, ok := next.(tea.BatchMsg); ok {
+		for _, c := range batch {
 			out = refresh(t, out, c())
 		}
+		return out
 	}
-	return out
+	return refresh(t, out, next)
 }
 
 // treeRows extracts the task titles from the tree's current rows.

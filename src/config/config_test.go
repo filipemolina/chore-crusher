@@ -29,7 +29,7 @@ func TestRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	original := Config{Theme: "complete-slate", PollIntervalMs: 500}
+	original := Config{Theme: "crush-slate", PollIntervalMs: 500}
 	if err := SaveConfig(original); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
@@ -45,8 +45,8 @@ func TestRoundTrip(t *testing.T) {
 		t.Errorf("round-tripped poll_interval_ms = %d, want %d", loaded.PollIntervalMs, original.PollIntervalMs)
 	}
 
-	// The file should live at $XDG_CONFIG_HOME/complete/config.yaml.
-	path := filepath.Join(home, "complete", "config.yaml")
+	// The file should live at $XDG_CONFIG_HOME/chore-crusher/config.yaml.
+	path := filepath.Join(home, "chore-crusher", "config.yaml")
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("config file not found at %s: %v", path, err)
 	}
@@ -56,7 +56,7 @@ func TestLoadConfigMalformed(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	dir := filepath.Join(home, "complete")
+	dir := filepath.Join(home, "chore-crusher")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -74,12 +74,12 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	dir := filepath.Join(home, "complete")
+	dir := filepath.Join(home, "chore-crusher")
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("expected %s to not exist yet", dir)
 	}
 
-	if err := SaveConfig(Config{Theme: "complete-dark"}); err != nil {
+	if err := SaveConfig(Config{Theme: "crush-dark"}); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 
@@ -92,10 +92,10 @@ func TestSaveConfigOverwrites(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	if err := SaveConfig(Config{Theme: "complete-slate"}); err != nil {
+	if err := SaveConfig(Config{Theme: "crush-slate"}); err != nil {
 		t.Fatalf("first SaveConfig: %v", err)
 	}
-	if err := SaveConfig(Config{Theme: "complete-ember"}); err != nil {
+	if err := SaveConfig(Config{Theme: "crush-ember"}); err != nil {
 		t.Fatalf("second SaveConfig: %v", err)
 	}
 
@@ -103,7 +103,7 @@ func TestSaveConfigOverwrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if loaded.Theme != "complete-ember" {
-		t.Errorf("overwritten theme = %q, want %q", loaded.Theme, "complete-ember")
+	if loaded.Theme != "crush-ember" {
+		t.Errorf("overwritten theme = %q, want %q", loaded.Theme, "crush-ember")
 	}
 }

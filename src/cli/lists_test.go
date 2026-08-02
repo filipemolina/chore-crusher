@@ -63,7 +63,7 @@ func TestListsAddRejectsEmptyName(t *testing.T) {
 	if code != 1 {
 		t.Errorf("empty name: exit %d, want 1 (store's domain error)", code)
 	}
-	if out != "" || !strings.Contains(errOut, "complete: ") {
+	if out != "" || !strings.Contains(errOut, "crush: ") {
 		t.Errorf("empty name: stdout %q stderr %q, want the human error shape", out, errOut)
 	}
 }

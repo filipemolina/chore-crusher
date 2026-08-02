@@ -1,7 +1,7 @@
 package chrome
 
 import (
-	"github.com/filipemolina/chore-completer/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
 // PanelFrame renders the shared zone frame: the fixed (1, 2) padding, the

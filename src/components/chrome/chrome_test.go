@@ -8,7 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/filipemolina/chore-completer/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
 // TestTruncateNeverEndsMidRuneOrMidEscape is the mechanical backstop for

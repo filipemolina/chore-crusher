@@ -1,6 +1,6 @@
 # VHS tape for static README screenshots.
 # Run the same seeded state the demo GIF uses:
-#   ./demo/seed.sh ./complete
+#   ./demo/seed.sh ./crush
 #   vhs demo/screenshots.tape
 #
 # VHS Screenshot takes relative paths only, so every PNG lands under demo/.
@@ -14,12 +14,12 @@ Set CursorBlink false
 Set TypingSpeed 45ms
 
 Hide
-Type "export XDG_DATA_HOME=/tmp/complete-demo/data XDG_CONFIG_HOME=/tmp/complete-demo/config && clear"
+Type "export XDG_DATA_HOME=/tmp/chore-crusher-demo/data XDG_CONFIG_HOME=/tmp/chore-crusher-demo/config && clear"
 Enter
 Sleep 800ms
 Show
 
-Type "./complete"
+Type "./crush"
 Enter
 Sleep 3s
 

@@ -13,7 +13,7 @@ import (
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver; see CONTRIBUTING.md's trap notes
 
-	"github.com/filipemolina/chore-completer/src/store/migrations"
+	"github.com/filipemolina/chore-crusher/src/store/migrations"
 )
 
 // Status is a task's lifecycle state. The values are the literal strings

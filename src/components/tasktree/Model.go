@@ -7,10 +7,10 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/apptypes"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/chrome"
-	"github.com/filipemolina/chore-completer/src/keys"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/chore-crusher/src/keys"
 	"github.com/sahilm/fuzzy"
 )
 
@@ -62,6 +62,13 @@ func (m Model) Rows() []apptypes.Row { return m.rows }
 // SelectedID returns the currently selected task id, for tests and the
 // cross-list picker's jump verification.
 func (m Model) SelectedID() string { return m.selectedID }
+
+// IsEmpty reports whether the tree has no rows right now. AppModel reads
+// this for the keybinding bar, so the footer only advertises keys that make
+// sense in the current state.
+func (m Model) IsEmpty() bool {
+	return !m.activeList || len(m.rows) == 0
+}
 
 // applyRows replaces the tree's rows, preserving the selection across the
 // refresh: the selected task is matched by id, not by row index, and when

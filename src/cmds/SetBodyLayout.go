@@ -19,24 +19,27 @@ import tea "charm.land/bubbletea/v2"
 // panel is out of the layout and out of the focus cycle until L is pressed).
 // MainWidth is the main panel's width; TreeHeight and InputHeight describe
 // the main panel's vertical split, with the add input pinned to the bottom
-// (fixed ADD_INPUT_HEIGHT rows, always visible).
+// (fixed ADD_INPUT_HEIGHT rows, always visible). TerminalWidth is the full
+// terminal width, needed by chrome (header/footer) that spans the frame.
 type SetBodyLayoutMsg struct {
-	Height      int
-	ListsWidth  int
-	MainWidth   int
-	TreeHeight  int
-	InputHeight int
+	Height        int
+	ListsWidth    int
+	MainWidth     int
+	TreeHeight    int
+	InputHeight   int
+	TerminalWidth int
 }
 
 // SetBodyLayout broadcasts the layout to every component.
-func SetBodyLayout(height, listsWidth, mainWidth, treeHeight, inputHeight int) tea.Cmd {
+func SetBodyLayout(height, listsWidth, mainWidth, treeHeight, inputHeight, terminalWidth int) tea.Cmd {
 	return func() tea.Msg {
 		return SetBodyLayoutMsg{
-			Height:      height,
-			ListsWidth:  listsWidth,
-			MainWidth:   mainWidth,
-			TreeHeight:  treeHeight,
-			InputHeight: inputHeight,
+			Height:        height,
+			ListsWidth:    listsWidth,
+			MainWidth:     mainWidth,
+			TreeHeight:    treeHeight,
+			InputHeight:   inputHeight,
+			TerminalWidth: terminalWidth,
 		}
 	}
 }

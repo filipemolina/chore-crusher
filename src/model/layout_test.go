@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/config"
-	"github.com/filipemolina/chore-completer/src/constants"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/constants"
 )
 
 // drive feeds messages through the model the way the Bubble Tea loop would,
@@ -53,8 +53,9 @@ func TestBodyLayoutFillsTerminalExactly(t *testing.T) {
 		if got := layout.ListsWidth + constants.BODY_GUTTER_WIDTH + layout.MainWidth; got != size.width {
 			t.Errorf("%dx%d: ListsWidth+gutter+MainWidth = %d, want %d", size.width, size.height, got, size.width)
 		}
-		if got := layout.TreeHeight + layout.InputHeight; got != size.height {
-			t.Errorf("%dx%d: TreeHeight+InputHeight = %d, want %d", size.width, size.height, got, size.height)
+		bodyHeight := size.height - constants.HEADER_HEIGHT - constants.FOOTER_HEIGHT
+		if got := layout.TreeHeight + layout.InputHeight; got != bodyHeight {
+			t.Errorf("%dx%d: TreeHeight+InputHeight = %d, want %d", size.width, size.height, got, bodyHeight)
 		}
 	}
 }

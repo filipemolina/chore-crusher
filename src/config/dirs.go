@@ -1,4 +1,4 @@
-// Package config reads and writes ~/.config/complete/config.yaml (or
+// Package config reads and writes ~/.config/chore-crusher/config.yaml (or
 // $XDG_CONFIG_HOME), following stack-stitcher's src/config exactly: a
 // missing file or field falls back to the compiled default, a malformed
 // file is reported. See docs/DESIGN.md §8.
@@ -15,9 +15,9 @@ import (
 )
 
 // DataDir returns the directory that owns this app's data files:
-// $XDG_DATA_HOME/complete, or ~/.local/share/complete when XDG_DATA_HOME is
+// $XDG_DATA_HOME/chore-crusher, or ~/.local/share/chore-crusher when XDG_DATA_HOME is
 // unset (docs/DESIGN.md §8). store.Open creates it on first use; a HOME-less
-// environment degrades to a relative "complete" directory in the current
+// environment degrades to a relative "chore-crusher" directory in the current
 // working directory rather than failing.
 func DataDir() string {
 	base := os.Getenv("XDG_DATA_HOME")
@@ -29,10 +29,10 @@ func DataDir() string {
 			base = filepath.Join(home, ".local", "share")
 		}
 	}
-	return filepath.Join(base, "complete")
+	return filepath.Join(base, "chore-crusher")
 }
 
-// DBPath returns the path of the SQLite store file — DataDir()/complete.db.
+// DBPath returns the path of the SQLite store file — DataDir()/chore-crusher.db.
 func DBPath() string {
-	return filepath.Join(DataDir(), "complete.db")
+	return filepath.Join(DataDir(), "chore-crusher.db")
 }

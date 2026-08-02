@@ -8,10 +8,10 @@ import (
 	"github.com/sahilm/fuzzy"
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
-// searchResultJSON is one `complete search` hit: the task plus the name of
+// searchResultJSON is one `crush search` hit: the task plus the name of
 // the list it lives in, so a cross-list result carries its context without a
 // second lookup.
 type searchResultJSON struct {

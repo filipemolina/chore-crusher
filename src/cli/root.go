@@ -7,14 +7,16 @@ package cli
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-completer/src/config"
-	"github.com/filipemolina/chore-completer/src/constants"
-	"github.com/filipemolina/chore-completer/src/model"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/chore-crusher/src/model"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // domainErr marks a RunE failure as a domain failure — docs/DESIGN.md §9's
@@ -51,22 +53,38 @@ func Execute(args []string) int {
 	return 0
 }
 
-// NewRootCommand builds the complete command tree. Cobra owns argument
+// taskIDPattern matches a ULID, or an unambiguous prefix of one: uppercase
+// letters and digits (the Crockford alphabet), 1–26 characters. A single
+// argument that looks like a task id is treated as the mark-complete
+// shorthand; anything else falls through to the unknown-command path so
+// typos like `crush frobnicate` still produce Cobra's usage error.
+var taskIDPattern = regexp.MustCompile(`^[0-9A-Z]{1,26}$`)
+
+func looksLikeTaskID(s string) bool { return taskIDPattern.MatchString(s) }
+
+// NewRootCommand builds the crush command tree. Cobra owns argument
 // parsing and --help; --version comes from the Version field (fed by
 // constants.Version), which also gives the -v shorthand phase 0 had.
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "complete",
+		Use:   "crush",
 		Short: "a terminal to-do list manager, and a CLI an agent can drive",
-		Long: `complete is a keyboard-driven terminal to-do list, paired with a
+		Long: `crush is a keyboard-driven terminal to-do list, paired with a
 full command-line interface for the same operations — the TUI and the CLI
 are two views of one store, and either one's changes are visible to the
 other within a second (docs/DESIGN.md §7).
 
-With no subcommand it launches the TUI.`,
+With no subcommand it launches the TUI. With one ULID-looking argument it
+marks the task with that id complete (cascading to descendants).`,
+		Args:    cobra.ArbitraryArgs,
 		Version: constants.Version(),
-		// No subcommand: launch the TUI.
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && looksLikeTaskID(args[0]) {
+				return runComplete(cmd, args)
+			}
+			if len(args) >= 1 {
+				return fmt.Errorf("unknown command %q for %q", args[0], cmd.Name())
+			}
 			s, err := store.Open(config.DBPath())
 			if err != nil {
 				return domainError(err)
@@ -85,7 +103,7 @@ With no subcommand it launches the TUI.`,
 			return nil
 		},
 	}
-	// Phase 0 printed "complete <version>"; keep that exact shape now that
+	// Phase 0 printed "crush <version>"; keep that exact shape now that
 	// Cobra owns the flag (docs/plans/phase-2-cli.md step 6).
 	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
@@ -96,6 +114,7 @@ With no subcommand it launches the TUI.`,
 		newListsCmd(),
 		newTasksCmd(),
 		newSearchCmd(),
+		newMcpCmd(),
 	)
 	root.AddCommand(taskCommands()...)
 	return root

@@ -3,9 +3,9 @@ package searchpicker
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
-	"github.com/filipemolina/chore-completer/src/components/chrome"
-	"github.com/filipemolina/chore-completer/src/keys"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/chore-crusher/src/keys"
 )
 
 func (m Model) View() tea.View {

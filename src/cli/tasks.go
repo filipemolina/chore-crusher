@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-completer/src/apptypes"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // idJSON is the success payload of the two add commands — the one value an
@@ -42,7 +42,7 @@ func progressOf(s *store.Store, id string) (progressJSON, error) {
 	return progressJSON{Kind: string(kind), Percent: p, DisplayAsSimple: simple}, nil
 }
 
-// taskRowJSON is one row of `complete tasks` (and `complete show`'s
+// taskRowJSON is one row of `crush tasks` (and `crush show`'s
 // children) in JSON mode: a flat preorder array with depth, so a caller
 // walks the same shape whether or not it asked for --flat (docs/DESIGN.md
 // §9).
@@ -110,13 +110,6 @@ func taskCommands() []*cobra.Command {
 		RunE:  runNotes,
 	}
 
-	completeCmd := &cobra.Command{
-		Use:   "complete <task-id>",
-		Short: "mark complete (cascades to descendants)",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runComplete,
-	}
-
 	reopenCmd := &cobra.Command{
 		Use:   "reopen <task-id>",
 		Short: "mark pending (does not cascade)",
@@ -159,7 +152,7 @@ func taskCommands() []*cobra.Command {
 		"new parent task id (prefix accepted); an empty value moves the task to the list root")
 
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
-		completeCmd, reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd}
+		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd}
 }
 
 func validStatusFilter(s string) bool {
@@ -344,7 +337,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// showJSON is `complete show`'s payload: the task's own fields plus its
+// showJSON is `crush show`'s payload: the task's own fields plus its
 // descendants as the same flat, depth-annotated rows `tasks` emits, so a
 // caller that can read one can read the other.
 type showJSON struct {
@@ -362,7 +355,7 @@ type showJSON struct {
 
 // descendantsOf filters one list's flat tasks down to a task's subtree
 // (descendants only, the task itself excluded) by walking parent links from
-// the root — `complete show` prints children the same way whether the caller
+// the root — `crush show` prints children the same way whether the caller
 // resolved a prefix or a task deep in the tree.
 func descendantsOf(tasks []store.Task, rootID string) []store.Task {
 	children := make(map[string][]store.Task)
@@ -576,7 +569,7 @@ func runProgress(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// runMv wires `complete mv` to store.Reparent. The --parent flag carries the
+// runMv wires `crush mv` to store.Reparent. The --parent flag carries the
 // new parent's id (prefix accepted); an empty --parent — the flag's default,
 // so omitting it entirely — is how a caller asks to move a task to the list
 // root, recorded in docs/DESIGN.md §9 (docs/plans/phase-9-polish-release.md

@@ -2,8 +2,8 @@ package cmds
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
-	"github.com/filipemolina/chore-completer/src/config"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/config"
 )
 
 // ApplyThemeMsg asks AppModel to make a theme permanent: set it as the

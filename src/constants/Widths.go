@@ -21,6 +21,11 @@ const MIN_PANEL_WIDTH = 30
 // past the terminal width.
 const BODY_GUTTER_WIDTH = 2
 
+// HEADER_HEIGHT and FOOTER_HEIGHT reserve one row each for the main menu
+// bar and the keybinding hint bar, matching stack-stitcher's shell.
+const HEADER_HEIGHT = 1
+const FOOTER_HEIGHT = 1
+
 // ADD_INPUT_HEIGHT is the task-tree zone's fixed vertical partner: the add
 // input is pinned to the bottom of the main panel, always visible, always
 // reachable (docs/DESIGN.md §5). Three rows is one content row inside

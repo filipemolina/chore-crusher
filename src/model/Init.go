@@ -2,9 +2,9 @@ package model
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/config"
-	"github.com/filipemolina/chore-completer/src/constants"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/constants"
 )
 
 // Init starts the app: the poll tick (which re-issues itself for the life
@@ -21,5 +21,6 @@ func (m AppModel) Init() tea.Cmd {
 		cmds.PollTick(config.PollInterval(m.cfg)),
 		cmds.RefreshLists(m.store),
 		cmds.SetFocus(constants.COMPONENT_TASK_TREE),
+		m.footerContextCmd(),
 	)
 }

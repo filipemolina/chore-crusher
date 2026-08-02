@@ -5,16 +5,16 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/confirmmodal"
-	"github.com/filipemolina/chore-completer/src/components/detailsmodal"
-	"github.com/filipemolina/chore-completer/src/components/helpoverlay"
-	"github.com/filipemolina/chore-completer/src/components/listnamemodal"
-	"github.com/filipemolina/chore-completer/src/components/searchpicker"
-	"github.com/filipemolina/chore-completer/src/components/themepickermodal"
-	"github.com/filipemolina/chore-completer/src/config"
-	"github.com/filipemolina/chore-completer/src/constants"
-	"github.com/filipemolina/chore-completer/src/keys"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/confirmmodal"
+	"github.com/filipemolina/chore-crusher/src/components/detailsmodal"
+	"github.com/filipemolina/chore-crusher/src/components/helpoverlay"
+	"github.com/filipemolina/chore-crusher/src/components/listnamemodal"
+	"github.com/filipemolina/chore-crusher/src/components/searchpicker"
+	"github.com/filipemolina/chore-crusher/src/components/themepickermodal"
+	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/chore-crusher/src/keys"
 )
 
 // Update handles every message. The shape mirrors stack-stitcher's: ctrl+c
@@ -73,7 +73,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Global.ToggleListsPanel):
 			m.listsPanelVisible = !m.listsPanelVisible
 			m.bodyLayout = m.calculateBodyLayout()
-			finalCmds = append(finalCmds, m.broadcastBodyLayout())
+			finalCmds = append(finalCmds, m.broadcastBodyLayout(), m.footerContextCmd())
 			// A panel leaving the layout cannot keep the focus: fall back
 			// to the task tree. A panel entering it is not focused either —
 			// focus stays where it is until tab moves it.
@@ -102,7 +102,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.terminalWidth = msg.Width
 		m.terminalHeight = msg.Height
 		m.bodyLayout = m.calculateBodyLayout()
-		finalCmds = append(finalCmds, m.broadcastBodyLayout())
+		finalCmds = append(finalCmds, m.broadcastBodyLayout(), m.footerContextCmd())
 
 	// The poll tick re-issues itself here, which is what makes the poll
 	// recurring for the life of the app (docs/DESIGN.md §7).
@@ -125,11 +125,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeListID = msg.Lists[0].List.ID
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
+		finalCmds = append(finalCmds, m.footerContextCmd())
 
 	case cmds.RefreshTasksMsg:
 		if msg.Err != nil {
 			m.lastError = msg.Err.Error()
+			break
 		}
+		finalCmds = append(finalCmds, m.footerContextCmd())
 
 	case cmds.OpenHelpModalMsg:
 		m.activeModal = helpoverlay.New(m.helpContext(), m.terminalWidth)
@@ -194,23 +197,26 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Forward the message to every zone. Each component answers to a
-	// subset (SetBodyLayoutMsg and SetFocusMsg go to all three;
-	// RefreshListsMsg to the lists panel; RefreshTasksMsg to the task tree)
-	// and ignores the rest.
-	var listsCmd, treeCmd, inputCmd tea.Cmd
+	// Forward the message to every component. Each one answers to a subset
+	// (SetBodyLayoutMsg and SetFocusMsg reach all of them; RefreshListsMsg
+	// to the lists panel; RefreshTasksMsg to the task tree) and ignores the
+	// rest.
+	var menuCmd, barCmd, listsCmd, treeCmd, inputCmd tea.Cmd
+	m.components.MainMenu, menuCmd = m.components.MainMenu.Update(msg)
+	m.components.KeybindingBar, barCmd = m.components.KeybindingBar.Update(msg)
 	m.components.ListsPanel, listsCmd = m.components.ListsPanel.Update(msg)
 	m.components.TaskTree, treeCmd = m.components.TaskTree.Update(msg)
 	m.components.AddInput, inputCmd = m.components.AddInput.Update(msg)
-	finalCmds = append(finalCmds, listsCmd, treeCmd, inputCmd)
+	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, treeCmd, inputCmd)
 
 	return m, tea.Batch(finalCmds...)
 }
 
 // calculateBodyLayout returns the exact box each body zone must render
-// into: ListsWidth + BODY_GUTTER_WIDTH + MainWidth == the terminal width,
-// and TreeHeight + InputHeight == Height (the add input pinned to the
-// bottom at ADD_INPUT_HEIGHT, docs/DESIGN.md §5).
+// into. Width: ListsWidth + BODY_GUTTER_WIDTH + MainWidth == the terminal
+// width when the sidebar is visible. Height: the remaining rows after the
+// header and footer, with TreeHeight + InputHeight == Height (the add input
+// pinned to the bottom at ADD_INPUT_HEIGHT, docs/DESIGN.md §5).
 //
 // The lists panel gets LEFT_PANEL_WIDTH of the row (after the gutter is
 // taken out) and the main panel gets whatever is left, so rounding can
@@ -221,7 +227,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // lists panel yields rather than rendering at a degenerate width, and L
 // still brings it back when the terminal grows.
 func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
-	height := max(0, m.terminalHeight)
+	height := max(0, m.terminalHeight-constants.HEADER_HEIGHT-constants.FOOTER_HEIGHT)
 	available := max(0, m.terminalWidth)
 
 	inputHeight := constants.ADD_INPUT_HEIGHT
@@ -229,11 +235,12 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 
 	if !m.listsPanelVisible {
 		return cmds.SetBodyLayoutMsg{
-			Height:      height,
-			ListsWidth:  0,
-			MainWidth:   available,
-			TreeHeight:  treeHeight,
-			InputHeight: inputHeight,
+			Height:        height,
+			ListsWidth:    0,
+			MainWidth:     available,
+			TreeHeight:    treeHeight,
+			InputHeight:   inputHeight,
+			TerminalWidth: available,
 		}
 	}
 
@@ -253,11 +260,12 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 	}
 
 	return cmds.SetBodyLayoutMsg{
-		Height:      height,
-		ListsWidth:  listsWidth,
-		MainWidth:   mainWidth,
-		TreeHeight:  treeHeight,
-		InputHeight: inputHeight,
+		Height:        height,
+		ListsWidth:    listsWidth,
+		MainWidth:     mainWidth,
+		TreeHeight:    treeHeight,
+		InputHeight:   inputHeight,
+		TerminalWidth: available,
 	}
 }
 
@@ -289,8 +297,8 @@ func (m *AppModel) ChangeFocus(delta int) tea.Cmd {
 }
 
 // broadcastBodyLayout returns a command that sends the current body layout
-// to the zones.
+// to all chrome and body components.
 func (m AppModel) broadcastBodyLayout() tea.Cmd {
 	l := m.bodyLayout
-	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.MainWidth, l.TreeHeight, l.InputHeight)
+	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.MainWidth, l.TreeHeight, l.InputHeight, l.TerminalWidth)
 }

@@ -78,8 +78,8 @@ func TestExecuteExitCodes(t *testing.T) {
 	if code, _, _ := runCLI(t, data, "--version"); code != 0 {
 		t.Errorf("--version: exit %d, want 0", code)
 	}
-	if _, out, _ := runCLI(t, data, "--version"); !strings.HasPrefix(out, "complete ") {
-		t.Errorf("--version: stdout %q, want a 'complete <version>' line", out)
+	if _, out, _ := runCLI(t, data, "--version"); !strings.HasPrefix(out, "crush ") {
+		t.Errorf("--version: stdout %q, want a 'crush <version>' line", out)
 	}
 	if code, _, _ := runCLI(t, data, "--help"); code != 0 {
 		t.Errorf("--help: exit %d, want 0", code)
@@ -139,24 +139,24 @@ func TestJSONErrorShape(t *testing.T) {
 }
 
 // TestHumanErrorGoesToStderr pins the human-mode failure shape: one
-// "complete: ..." line on stderr, nothing on stdout, exit 1.
+// "crush: ..." line on stderr, nothing on stdout, exit 1.
 func TestHumanErrorGoesToStderr(t *testing.T) {
 	data := t.TempDir()
 	code, out, errOut := runCLI(t, data, "show", "nope")
 	if code != 1 || out != "" {
 		t.Errorf("exit %d stdout %q, want exit 1 with empty stdout", code, out)
 	}
-	if !strings.HasPrefix(errOut, "complete: ") {
-		t.Errorf("stderr %q, want a 'complete: ' prefix", errOut)
+	if !strings.HasPrefix(errOut, "crush: ") {
+		t.Errorf("stderr %q, want a 'crush: ' prefix", errOut)
 	}
 }
 
-// TestVersionMatchesPhaseZero keeps the phase-0 output shape ("complete
+// TestVersionMatchesPhaseZero keeps the phase-0 output shape ("crush
 // <version>") now that Cobra owns the flag — docs/plans/phase-2-cli.md step 6.
 func TestVersionMatchesPhaseZero(t *testing.T) {
 	data := t.TempDir()
 	_, out, _ := runCLI(t, data, "--version")
-	if !strings.HasPrefix(out, "complete ") || strings.Contains(out, "version") {
-		t.Errorf("--version output %q should be 'complete <version>' (phase-0 shape)", out)
+	if !strings.HasPrefix(out, "crush ") || strings.Contains(out, "version") {
+		t.Errorf("--version output %q should be 'crush <version>' (phase-0 shape)", out)
 	}
 }

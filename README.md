@@ -1,15 +1,15 @@
-# Chore Completer
+# Chore Crusher
 
 **A terminal to-do list you can watch — and your coding agent can drive.**
 
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-scaffolding-lightgrey)
+![Status](https://img.shields.io/badge/status-v0.1.0-blue)
 
-Chore Completer is a keyboard-driven terminal UI for to-do lists, paired with a
+Chore Crusher is a keyboard-driven terminal UI for to-do lists, paired with a
 full command-line interface for the exact same operations. Leave the TUI open
 in a pane while an agent — Claude Code, Pi, a shell script, whatever runs
-`complete` — adds, completes, and updates tasks from the command line, and
+`crush` — adds, completes, and updates tasks from the command line, and
 watch it happen live. Nothing here is agent-specific plumbing bolted onto a
 human app, or a human UI bolted onto an agent tool: the TUI and the CLI are two
 views of one store, and every state change either can make, the other can see
@@ -79,11 +79,11 @@ selected task per keystroke of travel; see
 for the exact rule, because "one level" turned out to need a precise
 definition once someone builds it.
 
-**A status model richer than a checkbox.** A task is `pending`, `complete`, or
+**A status model richer than a checkbox.** A task is `pending`, `crush`, or
 `in_progress` — and `in_progress` comes in three flavors: a plain flag, a
 user-set percentage, or a percentage *derived from its subtasks*
 (`completed / total`, and reaching 100% that way promotes the task straight to
-`complete`). Full rules, including what happens when a derived task has no
+`crush`). Full rules, including what happens when a derived task has no
 subtasks yet, are in `docs/DESIGN.md` — this is the part most likely to be
 implemented wrong from a one-line description, so it isn't left as one.
 
@@ -97,7 +97,7 @@ and the task.
 
 **Fourteen themes**, ported from stack-stitcher's registry — same hex values,
 same live-preview picker (`T`), same persisted choice
-(`~/.config/complete/config.yaml`).
+(`~/.config/chore-crusher/config.yaml`).
 
 ## The CLI
 
@@ -105,15 +105,15 @@ Every read and write the TUI can do, the CLI can do in one invocation — this
 is the point of the project, not an add-on:
 
 ```bash
-complete                                    # opens the TUI
-complete lists                              # id, name, pending/complete counts
-complete lists add "Home renovation"        # prints the new list's id
-complete tasks <list-id>                    # tree view, indented
-complete add <list-id> "Buy paint" --parent <task-id>
-complete show <task-id> --json              # title, notes, status, progress, children
-complete complete <task-id>                 # marks complete, cascades to subtasks
-complete progress <task-id> --mode percentage --percent 60
-complete search "paint" --json
+crush                                       # opens the TUI
+crush lists                                 # id, name, pending/complete counts
+crush lists add "Home renovation"           # prints the new list's id
+crush tasks <list-id>                       # tree view, indented
+crush add <list-id> "Buy paint" --parent <task-id>
+crush show <task-id> --json                 # title, notes, status, progress, children
+crush <task-id>                             # marks complete, cascades to subtasks
+crush progress <task-id> --mode percentage --percent 60
+crush search "paint" --json
 ```
 
 `--json` on every read command, on both success and failure, so a script or
@@ -122,32 +122,31 @@ an agent parses one shape either way. Full contract:
 
 ## Status
 
-Scaffolding only — phase 0 of `docs/ROADMAP.md`. `go build ./...`, `go vet
-./...`, and `go test ./...` all pass against a placeholder `main.go` that
-answers `--version` and nothing else; there is no database, no CLI surface
-beyond that, and no TUI yet. What exists is the plan a contributor (human or
-agent) builds the rest from:
+Alpha shipped — phases 0–9 of `docs/ROADMAP.md` are complete and tagged
+`v0.1.0`. The TUI, the CLI, and the MCP server wrapper all talk to the same
+SQLite store; choose whichever surface fits the caller.
 
 - [`docs/DESIGN.md`](docs/DESIGN.md) — the data model, the state machine, the
-  keybinding and focus contract, theming, storage, and the full CLI spec.
-  *Why* things are shaped the way they are.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — the ordered phases from an empty repo
-  to a usable alpha, and the decisions already settled that a phase should not
-  re-open.
-- [`docs/plans/`](docs/plans/) — one file per phase, step by step.
+  keybinding and focus contract, theming, storage, the CLI contract, and the
+  MCP server. *Why* things are shaped the way they are.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — the shipped alpha and the live
+  post-alpha backlog.
+- [`docs/plans/`](docs/plans/) — one file per shipped phase, step by step.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — the build/test loop and the rules
   that keep a contributor (especially an unsupervised one) from drifting from
   the plan above.
 
-## Built with (planned)
+## Built with
 
 Go, [Bubble Tea](https://github.com/charmbracelet/bubbletea) /
 [Lip Gloss](https://github.com/charmbracelet/lipgloss) for the UI,
-[Cobra](https://github.com/spf13/cobra) for the CLI surface, and
+[Cobra](https://github.com/spf13/cobra) for the CLI surface,
 [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) (pure Go, no CGO) for
-storage — one file, one schema, safe under a TUI and a CLI process touching it
-at once. See `docs/DESIGN.md` for why each of these and not the obvious
-alternative.
+storage, and the
+[Model Context Protocol Go SDK](https://github.com/modelcontextprotocol/go-sdk)
+for the MCP server — one file, one schema, safe under a TUI, a CLI process,
+and an MCP client touching it at once. See `docs/DESIGN.md` for why each of
+these and not the obvious alternative.
 
 ## License
 

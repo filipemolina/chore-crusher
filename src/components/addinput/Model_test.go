@@ -6,11 +6,11 @@ import "testing"
 // docs/plans/phase-5-add-input.md §2.
 func TestNextOffset(t *testing.T) {
 	tests := []struct {
-		name            string
-		selectedDepth   int
-		currentOffset   int
-		key             string
-		expectedOffset  int
+		name           string
+		selectedDepth  int
+		currentOffset  int
+		key            string
+		expectedOffset int
 	}{
 		{"root at default, tab", 0, 0, "tab", 1},
 		{"root at default, shift+tab", 0, 0, "shift+tab", 0},

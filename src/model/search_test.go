@@ -3,8 +3,8 @@ package model
 import (
 	"testing"
 
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/tasktree"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/tasktree"
 )
 
 // selectedID reports the task tree's current selection, which the picker's

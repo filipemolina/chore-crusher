@@ -2,15 +2,17 @@ package model
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-completer/src/apptypes"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/addinput"
-	"github.com/filipemolina/chore-completer/src/components/listspanel"
-	"github.com/filipemolina/chore-completer/src/components/tasktree"
-	"github.com/filipemolina/chore-completer/src/config"
-	"github.com/filipemolina/chore-completer/src/constants"
-	"github.com/filipemolina/chore-completer/src/keys"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/addinput"
+	"github.com/filipemolina/chore-crusher/src/components/keybindingbar"
+	"github.com/filipemolina/chore-crusher/src/components/listspanel"
+	"github.com/filipemolina/chore-crusher/src/components/mainmenu"
+	"github.com/filipemolina/chore-crusher/src/components/tasktree"
+	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // AppModel is the top-level Bubble Tea model: it owns the store handle, the
@@ -33,9 +35,11 @@ type AppModel struct {
 	lastError         string
 
 	components struct {
-		ListsPanel tea.Model
-		TaskTree   tea.Model
-		AddInput   tea.Model
+		MainMenu      tea.Model
+		KeybindingBar tea.Model
+		ListsPanel    tea.Model
+		TaskTree      tea.Model
+		AddInput      tea.Model
 	}
 }
 
@@ -50,20 +54,37 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 		focusedZone:       constants.COMPONENT_TASK_TREE,
 		listsPanelVisible: false,
 	}
+	m.components.MainMenu = mainmenu.New()
+	m.components.KeybindingBar = keybindingbar.New()
 	m.components.ListsPanel = listspanel.New()
 	m.components.TaskTree = tasktree.New()
 	m.components.AddInput = addinput.New(s, "")
 	return m
 }
 
-// helpContext snapshots what the help overlay needs to dim the keys that do
-// nothing right now. Phase 3 has no per-zone key groups yet, so the overlay
-// is driven by the focus and visibility facts alone; phases 4-6 fill the
-// rest in (src/keys.Keys.go Context).
+// helpContext snapshots what the help overlay and keybinding bar need to
+// know about the screen. Keeping it in one place keeps the footer and the
+// overlay in lockstep.
 func (m AppModel) helpContext() keys.Context {
 	return keys.Context{
 		Focused:           m.focusedZone,
 		ListsPanelVisible: m.listsPanelVisible,
+		TaskTreeEmpty:     m.taskTreeEmpty(),
 		HasActiveList:     m.activeListID != "",
 	}
+}
+
+// taskTreeEmpty reports whether the task tree has no rows right now. It is
+// conservative: before the first refresh there are no rows, so the footer
+// advertises the add-input keys rather than navigation keys.
+func (m AppModel) taskTreeEmpty() bool {
+	tree, ok := m.components.TaskTree.(interface{ IsEmpty() bool })
+	return !ok || tree.IsEmpty()
+}
+
+// footerContextCmd returns the command that updates the footer with the
+// current context.
+func (m AppModel) footerContextCmd() tea.Cmd {
+	ctx := m.helpContext()
+	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList)
 }

@@ -11,7 +11,7 @@ package keys
 
 import (
 	"charm.land/bubbles/v2/key"
-	"github.com/filipemolina/chore-completer/src/constants"
+	"github.com/filipemolina/chore-crusher/src/constants"
 )
 
 // GlobalKeys work anywhere that no overlay owns the keyboard.
@@ -180,7 +180,7 @@ func Active(ctx Context) []key.Binding {
 		bindings = append(bindings, Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete)
 	}
 
-	if ctx.Focused == constants.COMPONENT_TASK_TREE {
+	if ctx.Focused == constants.COMPONENT_TASK_TREE && ctx.HasActiveList && !ctx.TaskTreeEmpty {
 		bindings = append(bindings, Tree.Navigate, Tree.Expand, Tree.Collapse, Tree.Toggle, Tree.OpenDetails)
 	}
 
@@ -188,9 +188,19 @@ func Active(ctx Context) []key.Binding {
 }
 
 // Globals are the always-available keys, pinned away from the
-// context-dependent ones.
+// context-dependent ones. These are the keys a user can press from anywhere
+// no modal owns the keyboard, so the footer advertises them on the right.
 func Globals() []key.Binding {
-	return []key.Binding{Global.NextPanel, Global.Help, Global.Quit}
+	return []key.Binding{
+		Global.NextPanel,
+		Global.PrevPanel,
+		Global.ToggleListsPanel,
+		Global.Filter,
+		Global.Picker,
+		Global.Theme,
+		Global.Help,
+		Global.Quit,
+	}
 }
 
 // Scope is one group of related keys in the help overlay.

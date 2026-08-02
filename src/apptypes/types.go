@@ -4,7 +4,7 @@
 // apptypes does not import database/sql. See docs/DESIGN.md §10.
 package apptypes
 
-import "github.com/filipemolina/chore-completer/src/store"
+import "github.com/filipemolina/chore-crusher/src/store"
 
 // Status is a task's lifecycle state, mirroring store.Status. The values are
 // the literal strings stored in the database; docs/DESIGN.md §3 is the

@@ -7,10 +7,10 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
-	"github.com/filipemolina/chore-completer/src/cmds"
-	"github.com/filipemolina/chore-completer/src/components/chrome"
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 const (
@@ -20,21 +20,21 @@ const (
 
 // Model is the details screen modal for editing task notes and progress.
 type Model struct {
-	taskID              string
-	title               string
-	listID              string
-	store               *store.Store
-	notes               textarea.Model
-	origNotes           string
-	progressKind        store.ProgressKind
-	origProgressKind    store.ProgressKind
-	percentInput        string
-	origPercentInput    string
-	derivedPct          int
-	displayAsSimple     bool
-	focus               int
-	errMsg              string
-	confirmingDiscard   bool
+	taskID            string
+	title             string
+	listID            string
+	store             *store.Store
+	notes             textarea.Model
+	origNotes         string
+	progressKind      store.ProgressKind
+	origProgressKind  store.ProgressKind
+	percentInput      string
+	origPercentInput  string
+	derivedPct        int
+	displayAsSimple   bool
+	focus             int
+	errMsg            string
+	confirmingDiscard bool
 }
 
 // New creates a new details modal for the given task. It loads the task from

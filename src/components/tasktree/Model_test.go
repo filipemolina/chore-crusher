@@ -3,7 +3,7 @@ package tasktree
 import (
 	"testing"
 
-	"github.com/filipemolina/chore-completer/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 )
 
 // rows builds a flat list of n root tasks with ids "1".."n".

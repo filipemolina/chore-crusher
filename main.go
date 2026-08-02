@@ -1,4 +1,4 @@
-// Command complete is a terminal to-do list manager with a CLI surface an
+// Command crush is a terminal to-do list manager with a CLI surface an
 // agent can drive. Phase 2 (docs/plans/phase-2-cli.md) replaced phase 0's
 // hand-rolled flag handling with Cobra: the root command dispatches every
 // subcommand in docs/DESIGN.md §9, and with no subcommand it will launch the
@@ -8,7 +8,7 @@ package main
 import (
 	"os"
 
-	"github.com/filipemolina/chore-completer/src/cli"
+	"github.com/filipemolina/chore-crusher/src/cli"
 )
 
 func main() {

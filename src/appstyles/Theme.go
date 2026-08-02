@@ -203,7 +203,7 @@ func srgbLinearize(v float64) float64 {
 
 // DefaultTheme is the theme a fresh AppModel starts with. It is the renamed
 // stitcher-dark: same hex values, new name (docs/DESIGN.md §11).
-const DefaultTheme = "complete-dark"
+const DefaultTheme = "crush-dark"
 
 // Themes is the registry the theme picker chooses from. Every entry is built
 // through newTheme rather than a bare struct literal, so a registered theme
@@ -212,8 +212,8 @@ const DefaultTheme = "complete-dark"
 // a background-bleed bug. See src/appstyles/Theme_test.go and
 // src/appstyles/Background_test.go.
 var Themes = map[string]Theme{
-	"complete-dark": newTheme(themeParams{
-		Name:   "complete-dark",
+	"crush-dark": newTheme(themeParams{
+		Name:   "crush-dark",
 		Dark:   true,
 		Accent: lipgloss.Color("#BC3FBC"),
 		Text:   lipgloss.Color("#FAFAFA"),
@@ -227,11 +227,11 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#EB4268"),
 	}),
 
-	// complete-ember is a dark theme with a warm brown-black base and an
+	// crush-ember is a dark theme with a warm brown-black base and an
 	// amber accent. The same shared status/danger colors keep the task-state
 	// vocabulary consistent across themes.
-	"complete-ember": newTheme(themeParams{
-		Name:   "complete-ember",
+	"crush-ember": newTheme(themeParams{
+		Name:   "crush-ember",
 		Dark:   true,
 		Accent: lipgloss.Color("#E8A44A"),
 		Text:   lipgloss.Color("#F5EDE4"),
@@ -245,10 +245,10 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#EB4268"),
 	}),
 
-	// complete-slate is a refined dark theme with golden accents on a blue-
+	// crush-slate is a refined dark theme with golden accents on a blue-
 	// black base - understated elegance with a warm metallic shimmer.
-	"complete-slate": newTheme(themeParams{
-		Name:   "complete-slate",
+	"crush-slate": newTheme(themeParams{
+		Name:   "crush-slate",
 		Dark:   true,
 		Accent: lipgloss.Color("#cca43b"),
 		Text:   lipgloss.Color("#e5e5e5"),
@@ -262,14 +262,14 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#EB4268"),
 	}),
 
-	// complete-day is complete-dark inverted: the same #BC3FBC magenta on a
+	// crush-day is crush-dark inverted: the same #BC3FBC magenta on a
 	// warm off-white rather than a violet near-black. The neutral carries a
 	// faint magenta bias so the greys read as chosen rather than as default
 	// terminal grey, and the status colors are darkened from their dark-theme
 	// values because a #67C58A green that reads on a near-black panel washes
 	// out entirely on a near-white one.
-	"complete-day": newTheme(themeParams{
-		Name:   "complete-day",
+	"crush-day": newTheme(themeParams{
+		Name:   "crush-day",
 		Dark:   false,
 		Accent: lipgloss.Color("#BC3FBC"),
 		Text:   lipgloss.Color("#241F2B"),

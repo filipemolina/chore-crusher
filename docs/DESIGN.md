@@ -1,6 +1,6 @@
 # Design
 
-The guiding decisions of Chore Completer, written down so a contributor —
+The guiding decisions of Chore Crusher, written down so a contributor —
 human or agent — has a north star instead of a one-line feature description to
 extrapolate from. Where a rule below looks oddly specific, it is specific on
 purpose: it was written to close off a plausible wrong implementation, not to
@@ -16,7 +16,7 @@ made the rule necessary.
 
 ## 1. What this app is, and isn't
 
-Chore Completer is a to-do list manager with two front ends over one store: a
+Chore Crusher is a to-do list manager with two front ends over one store: a
 terminal UI for a human, and a CLI for scripts and coding agents. Neither is
 secondary. The TUI does not shell out to the CLI, and the CLI is not a
 read-only reporting layer bolted onto a TUI-owned database — both talk to the
@@ -68,7 +68,7 @@ Task
 ```
 
 Why ULIDs and not autoincrement integers: task and list ids are handed to the
-CLI as arguments (`complete complete <task-id>`) and printed by `add`. A ULID
+CLI as arguments (`crush <task-id>`) and printed by `add`. A ULID
 is a stable, copy-pasteable, sortable-by-creation-time string that never
 collides across a `list add` and a concurrent `task add` from two processes —
 an autoincrement id needs the database to hand it out, which is fine, but a
@@ -76,7 +76,7 @@ ULID lets `store.NewTaskID()` be generated before the transaction opens,
 which matters for §7's transaction-shape rule. Ids are **not** meant to be
 typed from memory; the CLI accepts an unambiguous *prefix* of an id
 (§9, `resolveID`) so a human or an agent copying an 8-character prefix from
-`complete tasks` output doesn't have to paste the full 26 characters.
+`crush tasks` output doesn't have to paste the full 26 characters.
 
 Nesting depth is **not** capped in the schema. `parent_id` is self-referential
 and a task can have a task at any depth as its parent. What *is* constrained
@@ -92,9 +92,9 @@ from what's written here. Intuition gets some of it right and a few of the
 edges wrong, so read the whole thing before writing `store` code that touches
 `status` or `progress_kind`.
 
-**States.** A task's `status` is one of `pending`, `in_progress`, `complete`.
+**States.** A task's `status` is one of `pending`, `in_progress`, `crush`.
 `progress_kind` only has meaning while `status = in_progress`; it is `none`
-for `pending` and `complete` tasks (§3 keeps this an invariant the store
+for `pending` and `crush` tasks (§3 keeps this an invariant the store
 enforces, not a convention callers remember).
 
 **The three flavors of `in_progress`:**
@@ -122,12 +122,12 @@ intent the next time they check the details screen.
 **Auto-completion is asymmetric between the two derived-vs-declared kinds,
 and this is deliberate:**
 
-- `subtasks` reaching 100% (every direct child `complete`) **promotes the
-  parent to `complete` automatically.** This is a verified fact — if every
+- `subtasks` reaching 100% (every direct child `crush`) **promotes the
+  parent to `crush` automatically.** This is a verified fact — if every
   child is done, the parent claiming otherwise would be a lie the store can
   see through — so the store does not wait for a human or a script to say so.
   This check re-runs on every child completion and must walk upward: completing
-  a leaf can complete its parent, which can complete *its* parent, and so on.
+  a leaf can crush its parent, which can crush *its* parent, and so on.
   Implement this as a single `recomputeAncestors(taskID)` walk after any
   status write, not as a special case bolted onto `Complete()` alone —
   `Reopen()` and `SetProgress()` can also change whether a parent's derived
@@ -135,19 +135,19 @@ and this is deliberate:**
 - `percentage` reaching 100 **does not** auto-complete. It's a claim, not a
   verified fact, and the store has no way to distinguish "I meant it" from
   "I typed 100 out of habit." Completing is a separate, explicit action
-  (`space` in the TUI, `complete complete <id>` on the CLI) even at 100%.
+  (`space` in the TUI, `crush <id>` on the CLI) even at 100%.
   If this surprises a future contributor enough to want to change it, that's
   a product decision to raise, not a bug to silently fix — it was chosen
   specifically to keep the one auto-promotion path (verified subtask
   completion) the only one, rather than accumulating several slightly
   different auto-complete triggers that a reader has to hold in their head.
 
-**Completing cascades down; reopening does not.** Marking a task `complete`
-(`space`, or `complete complete <id>`) sets every descendant, at every depth,
-to `complete` too — a `complete` task with a `pending` grandchild is a state
+**Completing cascades down; reopening does not.** Marking a task `crush`
+(`space`, or `crush <id>`) sets every descendant, at every depth,
+to `crush` too — a `crush` task with a `pending` grandchild is a state
 this app does not allow to exist, because the two-list split (§6) would then
 have to explain why a "done" tree still has visibly undone rows in it.
-Reopening a task (`complete reopen <id>`, or `space` again on an already
+Reopening a task (`crush reopen <id>`, or `space` again on an already
 complete task) does **not** cascade to children — it returns *only that task*
 to `pending`. This is intentionally lossy: the task's prior `progress_kind`
 and `progress_pct` are not restored, because tracking "what it was before
@@ -298,9 +298,9 @@ top to bottom, `Pending` first.
 `status != complete` renders (with its whole visible subtree) under
 `Pending`; a root-level task with `status = complete` renders under
 `Complete`. Because completing cascades to every descendant (§3), a tree
-under `Complete` is, by invariant, 100% complete rows all the way down — the
+under `Complete` is, by invariant, 100% crush rows all the way down — the
 section header is a true claim, not an approximation. A tree under `Pending`
-can and will contain a mix: a `pending` parent can have `complete` children
+can and will contain a mix: a `pending` parent can have `crush` children
 sitting inline (checked, perhaps struck through) underneath it, still nested
 in place. **Do not move a completed subtask out to the `Complete` section
 while its parent is still pending** — that would separate a task from the
@@ -342,7 +342,7 @@ poll is a `SELECT`, full stop. All writes — from the TUI's own keypress
 handlers as much as from an external CLI invocation — go through the same
 `store` functions the CLI uses (§8), each wrapping one short transaction that
 opens, writes, commits, and returns, so a rapid-fire agent loop calling
-`complete complete` in a shell `for` loop is never waiting behind the TUI, and
+crush <task-id> in a shell `for` loop is never waiting behind the TUI, and
 the TUI is never waiting behind it either. SQLite's WAL mode (§8) is what
 makes concurrent readers and a writer not block each other; do not disable it.
 
@@ -356,8 +356,8 @@ more common choice by download count, but it would make this the one thing
 in the whole toolchain that needs a C compiler to cross-compile, for no
 capability this app uses that the pure-Go driver lacks.
 
-**One file:** `$XDG_DATA_HOME/complete/complete.db` (falling back to
-`~/.local/share/complete/complete.db`), opened in WAL journal mode. WAL is
+**One file:** `$XDG_DATA_HOME/chore-crusher/chore-crusher.db` (falling back to
+`~/.local/share/chore-crusher/chore-crusher.db`), opened in WAL journal mode. WAL is
 what lets the TUI's long-lived read connection and a CLI process's short
 write transaction coexist without either blocking the other — the default
 rollback-journal mode takes an exclusive lock for the duration of a write,
@@ -380,12 +380,12 @@ stack-stitcher applies to compose-file discovery: one function decides the
 schema is current, called from one place, rather than each caller assuming
 someone else already did it.
 
-**Config** (`~/.config/complete/config.yaml`, or `$XDG_CONFIG_HOME`) holds
+**Config** (`~/.config/chore-crusher/config.yaml`, or `$XDG_CONFIG_HOME`) holds
 exactly two fields at launch, in the same struct-designed-to-grow shape as
 stack-stitcher's `config.Config`:
 
 ```yaml
-theme: complete-dark
+theme: crush-dark
 poll_interval_ms: 1000
 ```
 
@@ -406,10 +406,9 @@ errors without reading the rest.
 
 **Output shape, human mode (default):** a write command that succeeds prints
 nothing but the one piece of information a script might want to capture
-(`complete lists add` prints the new list's id and nothing else; `complete
-add` prints the new task's id and nothing else). A read command prints a
+(`crush lists add` prints the new list's id and nothing else; `crush add` prints the new task's id and nothing else). A read command prints a
 formatted table or tree to stdout. Any failure prints one line to stderr,
-prefixed `complete: `, and the process exits non-zero.
+prefixed `crush: `, and the process exits non-zero.
 
 **Output shape, `--json` mode:** stdout is **always exactly one JSON value**,
 whether the command succeeded or failed — `{"error": "list not found:
@@ -434,7 +433,7 @@ domain error (exit `1`), not a silent pick of the first match — silently
 guessing which task an agent meant is exactly the kind of behavior this
 project exists to not have.
 
-**Destructive commands need `--force`.** `complete lists rm` and `complete rm`
+**Destructive commands need `--force`.** `crush lists rm` and `crush rm`
 (task) refuse to run without `--force`. The TUI's equivalent actions go
 through a confirm modal (the same pattern as stack-stitcher's
 `ConfirmModal`); the CLI has no modal to route through and no human to ask,
@@ -447,31 +446,41 @@ prompt at all.
 prefix (see above) throughout.
 
 ```
-complete                                          launch the TUI
-complete lists                                    list all lists
-complete lists add <name>                         create a list; prints its id
-complete lists rename <list-id> <name>            rename a list
-complete lists rm <list-id> --force               delete a list and its tasks
+crush                                          launch the TUI
+crush lists                                    list all lists
+crush lists add <name>                         create a list; prints its id
+crush lists rename <list-id> <name>            rename a list
+crush lists rm <list-id> --force               delete a list and its tasks
 
-complete tasks <list-id> [--status pending|in_progress|complete|all] [--flat]
+crush tasks <list-id> [--status pending|in_progress|complete|all] [--flat]
                                                    list tasks (tree by default)
-complete add <list-id> <title> [--parent <task-id>] [--notes <text>]
+crush add <list-id> <title> [--parent <task-id>] [--notes <text>]
                                                    add a task; prints its id
-complete show <task-id>                           title, notes, status, progress, children
-complete rename <task-id> <title>                 rename a task
-complete notes <task-id> <text>                   replace a task's notes (whole text, not append)
-complete complete <task-id>                       mark complete (cascades to descendants)
-complete reopen <task-id>                         mark pending (does not cascade)
-complete toggle <task-id>                         complete <-> reopen, whichever applies
-complete progress <task-id> --mode simple
-complete progress <task-id> --mode percentage --percent <0-100>
-complete progress <task-id> --mode subtasks
-complete mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
-complete rm <task-id> --force                     delete a task and its descendants
-complete search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
+crush show <task-id>                           title, notes, status, progress, children
+crush rename <task-id> <title>                 rename a task
+crush notes <task-id> <text>                   replace a task's notes (whole text, not append)
+crush <task-id>                                mark complete (cascades to descendants)
+crush reopen <task-id>                         mark pending (does not cascade)
+crush toggle <task-id>                         complete <-> reopen, whichever applies
+crush progress <task-id> --mode simple
+crush progress <task-id> --mode percentage --percent <0-100>
+crush progress <task-id> --mode subtasks
+crush mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
+crush rm <task-id> --force                     delete a task and its descendants
+crush search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
-complete --version
+crush mcp                                      run the MCP server on stdin/stdout
+
+crush --version
 ```
+
+**`crush mcp`** runs a Model Context Protocol server over stdin/stdout. The
+tools it exposes mirror the CLI subcommands and return the same JSON shapes
+that `--json` would emit on the command line, so an agent host can call
+`crush` operations as native tool calls instead of spawning the CLI per
+operation. The server is a thin adapter over `src/store` in
+`src/mcpserver`, not a layer on `src/cli`, preserving the "two front ends
+over one store" rule from §1 and §10.
 
 **Output shapes, pinned.** The subcommand list above fixes *which* commands
 and flags exist; this fixes *what each prints*. The shapes below were
@@ -532,7 +541,7 @@ distinguish "no data" from "failed" reads the exit code, never the bytes.
 - **Human output is plain text — no ANSI escapes** — so a script can capture
   any read command's stdout without stripping styling.
 
-`complete mv <task-id> [--parent <task-id>]` (re-parent a task) is the one
+`crush mv <task-id> [--parent <task-id>]` (re-parent a task) is the one
 CLI re-parent, without the ±1-level restriction §4 puts on the TUI's *add*
 flow — a CLI re-parent is a deliberate restructure, not the inline-add
 gesture that rule exists to keep predictable. The task stays in its current
@@ -567,19 +576,22 @@ src/
 │                     # the only package that imports database/sql
 ├── cli/             # one file per subcommand group; each is a thin adapter from
 │                     # cobra flags to a store call and a --json-aware printer
+├── mcpserver/       # Model Context Protocol server; tools mirror the CLI but
+│                     # talk directly to src/store, not to src/cli
 ├── appstyles/       # Theme type + the 14-theme registry, ported from stack-stitcher
-├── config/          # ~/.config/complete/config.yaml
+├── config/          # ~/.config/chore-crusher/config.yaml
 └── constants/       # layout widths, focusable-zone ids, branding
 ```
 
 **`src/store` is the only package that imports `database/sql` or
-`modernc.org/sqlite`.** Both `src/model` (the TUI) and `src/cli` (the CLI)
-depend on `store` and nothing deeper; neither ever builds a SQL string.
-**`src/cli` never imports `src/model`, and `src/model` never imports
-`src/cli`** — they are siblings over the same `store`, not layered on each
-other, which is the structural expression of "neither front end is
-secondary" from §1. `main.go` is the one file that imports both, to decide
-which to run.
+`modernc.org/sqlite`.** `src/model` (the TUI), `src/cli` (the CLI), and
+`src/mcpserver` (the MCP server) all depend on `store` and nothing deeper;
+none of them ever builds a SQL string. **`src/cli`, `src/model`, and
+`src/mcpserver` are siblings over the same `store`, not layered on each
+other**, which is the structural expression of "neither front end is
+secondary" from §1. `main.go` is the one file that imports the CLI and TUI
+to decide which to run, and `src/mcpserver` is reached through the
+`crush mcp` subcommand.
 
 ## 11. Theming
 
@@ -595,7 +607,7 @@ been tuned across 14 imported palettes (see stack-stitcher's `docs/DESIGN.md`
 **What changes:** the four status-color fields are domain colors, so they're
 renamed to match this app's domain instead of Docker's:
 
-| stack-stitcher | Chore Completer | Same hex per theme |
+| stack-stitcher | Chore Crusher | Same hex per theme |
 | --- | --- | --- |
 | `StatusRunning` | `StatusComplete` | yes |
 | `StatusStopped` | `StatusPending` | yes |
@@ -608,8 +620,8 @@ carries over unchanged — same accent, same text/panel/modal bases, same
 status colors under their new field names. This is deliberate: a person who
 runs both apps should see the same "Tokyo Night" render the same way in
 either, because it's the same theme, not a reinterpretation of one.
-`DefaultTheme` becomes `"complete-dark"` (the renamed `stitcher-dark`); adjust
-every `Name` string and registry key from `stitcher-*` to `complete-*`
+`DefaultTheme` becomes `"crush-dark"` (the renamed `stitcher-dark`); adjust
+every `Name` string and registry key from `stitcher-*` to `crush-*`
 accordingly, since the name is user-visible in the theme picker.
 
 ## 12. Visual coherence: the UI contract
@@ -728,7 +740,7 @@ one is needed, it's added here first.
 | --- | --- | --- |
 | Task: pending | `[ ]` | |
 | Task: in progress | `[~]` | Used for all three progress kinds (§3) alike — the trailing percentage (below), not the checkbox, is what distinguishes them. |
-| Task: complete | `[x]` | Title renders in `TextMuted`, not `TextPrimary`, once complete — see Typography below. |
+| Task: crush | `[x]` | Title renders in `TextMuted`, not `TextPrimary`, once crush — see Typography below. |
 | Node has children, expanded | `▾` | One column wide, placed immediately before the checkbox. |
 | Node has children, collapsed | `▸` | Same column. |
 | Node is a leaf | *(one blank space)* | Occupies the same column so every row's checkbox lands in the same position regardless of whether the row above or below it has an expand glyph. |

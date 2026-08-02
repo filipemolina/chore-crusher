@@ -4,7 +4,7 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
 // WrapperStyle is the frame every zone renders inside: Padding(1, 2), fixed.

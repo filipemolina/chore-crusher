@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-completer/src/store"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // listJSON is the --json shape of one list row (docs/DESIGN.md §9): the
@@ -100,7 +100,7 @@ func runListsAdd(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		// Human mode prints only the id — an agent capturing
-		// `id=$(complete lists add …)` strips nothing (§9).
+		// `id=$(crush lists add …)` strips nothing (§9).
 		printResult(jsonMode, func() { fmt.Println(id) }, idJSON{id})
 		return nil
 	})

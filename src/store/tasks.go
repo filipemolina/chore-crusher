@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -308,14 +309,15 @@ func (s *Store) DeleteTask(id string) error {
 // ListTasks returns every task in listID as flat rows, each carrying its own
 // ParentID — building the tree shape is the caller's job (src/apptypes in a
 // later phase), so the CLI's flat mode and the TUI's tree renderer read the
-// exact same query. Rows are ordered by sibling position (creation order),
-// then creation time.
+// exact same query. Rows are returned in depth-first preorder: roots ordered
+// by position, then creation time, and every parent's children ordered the
+// same way before the next root or sibling subtree. This keeps parents before
+// their children and siblings in their stored position order.
 func (s *Store) ListTasks(listID string) ([]Task, error) {
 	rows, err := s.db.Query(
 		`SELECT id, list_id, parent_id, title, notes, status, progress_kind, progress_pct,
 		        position, created_at, updated_at, completed_at
-		 FROM Task WHERE list_id = ?
-		 ORDER BY position, created_at, id`,
+		 FROM Task WHERE list_id = ?`,
 		listID,
 	)
 	if err != nil {
@@ -331,7 +333,48 @@ func (s *Store) ListTasks(listID string) ([]Task, error) {
 		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	children := make(map[string][]*Task)
+	var roots []*Task
+	for i := range out {
+		t := &out[i]
+		if t.ParentID == nil {
+			roots = append(roots, t)
+			continue
+		}
+		children[*t.ParentID] = append(children[*t.ParentID], t)
+	}
+
+	taskLess := func(a, b *Task) bool {
+		if a.Position != b.Position {
+			return a.Position < b.Position
+		}
+		if a.CreatedAt != b.CreatedAt {
+			return a.CreatedAt < b.CreatedAt
+		}
+		return a.ID < b.ID
+	}
+	sort.Slice(roots, func(i, j int) bool { return taskLess(roots[i], roots[j]) })
+	for _, cs := range children {
+		sort.Slice(cs, func(i, j int) bool { return taskLess(cs[i], cs[j]) })
+	}
+
+	ordered := make([]Task, 0, len(out))
+	var walk func(*Task)
+	walk = func(t *Task) {
+		ordered = append(ordered, *t)
+		for _, c := range children[t.ID] {
+			walk(c)
+		}
+	}
+	for _, r := range roots {
+		walk(r)
+	}
+
+	return ordered, nil
 }
 
 // taskColumns is shared by every query that reads a full Task row.

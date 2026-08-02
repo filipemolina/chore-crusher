@@ -3,23 +3,25 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-completer/src/appstyles"
-	"github.com/filipemolina/chore-completer/src/constants"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/constants"
 )
 
-// View renders the whole screen. The zones render through their own
-// chrome.PanelFrame calls; this function composes them, seals the tier-2
-// background, and composites the modal on top.
+// View renders the whole screen. The header, body zones, and footer compose
+// on a tier-2 background; the modal, if any, is layered on top.
 func (m AppModel) View() tea.View {
-	layout := m.renderBody()
+	header := m.components.MainMenu.View().Content
+	body := m.renderBody()
+	footer := m.components.KeybindingBar.View().Content
 
-	// Seal the frame against tier 2. JoinVertical/JoinHorizontal pad the
-	// narrower pieces out to the body width with unstyled spaces, and an
-	// outer Background() style cannot fix that — it only paints the padding
-	// it adds itself. This is the outermost tier, so it must run last: every
-	// inner tier (each panel's PanelFrame) has already sealed its own
-	// region, which leaves no unpainted cell inside a panel for this pass to
-	// reach (see appstyles.FillBackground).
+	layout := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+
+	// Seal the frame against tier 2. JoinVertical pads the narrower pieces
+	// out to the terminal width with unstyled spaces, and an outer
+	// Background() style cannot fix that — it only paints the padding it adds
+	// itself. This is the outermost tier, so it must run last: every inner
+	// tier (header, footer, and each panel's PanelFrame) has already sealed
+	// its own region, which leaves no unpainted cell for this pass to reach.
 	layout = appstyles.FillBackground(appstyles.Active.BackgroundContent, layout)
 
 	// Wrap the full layout in a style that fills the terminal width with
@@ -51,7 +53,9 @@ func (m AppModel) View() tea.View {
 // input) and, while the lists panel is visible, the sidebar with a thin
 // tier-2 gutter between them. The gutter's width is the same constant the
 // layout subtracted from the row before sizing the panels, so the three
-// pieces add up to the terminal width exactly.
+// pieces add up to the terminal width exactly. Before the first
+// WindowSizeMsg the body height is 0 and the components have not yet been
+// sized; render nothing so the header and footer alone define the frame.
 func (m AppModel) renderBody() string {
 	layout := m.bodyLayout
 
