@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-completer/src/appstyles"
+	"github.com/filipemolina/chore-completer/src/cmds"
 	"github.com/filipemolina/chore-completer/src/config"
 	"github.com/filipemolina/chore-completer/src/constants"
 )
@@ -154,6 +155,40 @@ func firstBleedLine(block string) string {
 		}
 	}
 	return ""
+}
+
+// The task tree is the startup focus zone and must be functionally focused
+// from the first frame — its keys would be ignored at launch if Init never
+// broadcast the initial focus (the zone's flag reads false until the first
+// ctrl+arrow). This pins that Init's command batch carries the broadcast.
+func TestInitBroadcastsTaskTreeFocus(t *testing.T) {
+	// Init runs its RefreshLists command against the real store, so give the
+	// model one (newTestModel) rather than nil.
+	m := newTestModel(t, t.TempDir())
+	var msgs []tea.Msg
+	expandBatch(m.Init(), &msgs)
+	for _, msg := range msgs {
+		if sf, ok := msg.(cmds.SetFocusMsg); ok && int(sf) == constants.COMPONENT_TASK_TREE {
+			return
+		}
+	}
+	t.Errorf("Init command batch does not broadcast SetFocus(TASK_TREE)")
+}
+
+// expandBatch flattens a command (expanding tea.BatchMsg into its parts) into
+// the list of messages it would deliver to the loop.
+func expandBatch(cmd tea.Cmd, acc *[]tea.Msg) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			expandBatch(c, acc)
+		}
+		return
+	}
+	*acc = append(*acc, msg)
 }
 
 // The layout broadcast and the SetFocusMsg both reach every zone, so the

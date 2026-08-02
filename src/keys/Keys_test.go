@@ -21,8 +21,8 @@ func TestGlobalBindingsAreFixed(t *testing.T) {
 		{"Theme", Global.Theme, "T"},
 		{"Filter", Global.Filter, "/"},
 		{"Picker", Global.Picker, "F"},
-		{"NextPanel", Global.NextPanel, "tab"},
-		{"PrevPanel", Global.PrevPanel, "shift+tab"},
+		{"NextPanel", Global.NextPanel, "ctrl+right"},
+		{"PrevPanel", Global.PrevPanel, "ctrl+left"},
 	}
 
 	for _, tc := range cases {

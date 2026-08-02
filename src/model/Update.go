@@ -176,6 +176,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, cmds.SetSelection(msg.NewID, msg.Depth))
 		}
 
+	case cmds.ToggleTaskMsg:
+		if err := m.store.Toggle(msg.TaskID); err != nil {
+			m.lastError = err.Error()
+			break
+		}
+		if m.activeListID != "" {
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+		}
+
 	case cmds.SelectListMsg:
 		// Lists panel selected a different list; switch to it immediately
 		// rather than waiting for the next poll tick.

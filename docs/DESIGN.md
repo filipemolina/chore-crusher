@@ -221,12 +221,20 @@ sidebar that can be entirely absent from the cycle:
 - **Add input** — fixed to the bottom of the main panel, always visible,
   always reachable, never a modal.
 
-`tab`/`shift+tab` cycle **only through the zones currently visible** — the
-lists panel is skipped entirely from the cycle while hidden, the same way
+`ctrl+right`/`ctrl+left` cycle **only through the zones currently visible** —
+the lists panel is skipped entirely from the cycle while hidden, the same way
 stack-stitcher's nav bar is permanently absent from its own cycle
 (`constants.FocusableComponents`) rather than being a focusable-but-inert
-stop. Do not implement "hidden but still tabbable to an invisible panel";
-that produces a focus ring with a silent dead stop in it.
+stop. Do not implement "hidden but still ctrl+arrowable to an invisible
+panel"; that produces a focus ring with a silent dead stop in it.
+
+`tab`/`shift+tab` are deliberately **not** the focus cycle: they belong to the
+add input's level selector (§4), and pinning the cycle to non-editable
+`ctrl+left`/`ctrl+right` means focus never competes with the two places bare
+arrow keys already mean something (expand/collapse on the tree, cursor
+movement inside the input's own text field). The tree is the startup focus
+and is broadcast as such on every launch (phase-3 Init), so its keys work
+from the first frame rather than only after a focus change.
 
 **Vim and arrow bindings both work, always, on the task tree:** `↑`/`k` up,
 `↓`/`j` down (moving the cursor across every *visible* row — a collapsed

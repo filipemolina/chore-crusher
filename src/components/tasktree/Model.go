@@ -341,16 +341,15 @@ func (m *Model) findRow(taskID string) *apptypes.Row {
 	return nil
 }
 
-// toggleComplete marks the selected task complete/pending and returns a command.
-// TODO(phase 4): Integrate with store to persist changes.
+// toggleComplete asks AppModel to toggle the selected task. The actual
+// store.Toggle call lives in AppModel so the tree stays decoupled from the
+// store; AppModel refreshes the rows immediately after a successful toggle
+// (docs/DESIGN.md §5, §9).
 func (m *Model) toggleComplete() tea.Cmd {
-	row := m.findRow(m.selectedID)
-	if row == nil {
+	if m.selectedID == "" {
 		return nil
 	}
-	// For now, just return nil. Phase 4 needs to call store.Complete/Reopen
-	// and immediately refresh the tree (not wait for the poll tick).
-	return nil
+	return cmds.ToggleTask(m.selectedID)
 }
 
 // filterMatches returns the rows the /-filter keeps visible for a query: every

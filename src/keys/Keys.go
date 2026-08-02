@@ -16,8 +16,11 @@ import (
 
 // GlobalKeys work anywhere that no overlay owns the keyboard.
 type GlobalKeys struct {
-	// NextPanel/PrevPanel are tab/shift+tab, cycling only through the zones
-	// currently visible (docs/DESIGN.md §5).
+	// NextPanel/PrevPanel are ctrl+right / ctrl+left, cycling only through
+	// the zones currently visible (docs/DESIGN.md §5). The cycle is not tab:
+	// tab and shift+tab belong to the add input's level selector
+	// (docs/DESIGN.md §4), and ctrl+arrows keep the cycle on keys the tree
+	// (bare arrows) and the input's own text field cannot swallow.
 	NextPanel key.Binding
 	PrevPanel key.Binding
 	// ToggleListsPanel is L (shift+l). Lowercase l is the task tree's
@@ -102,8 +105,8 @@ type OverlayKeys struct {
 }
 
 var Global = GlobalKeys{
-	NextPanel: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
-	PrevPanel: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev")),
+	NextPanel: key.NewBinding(key.WithKeys("ctrl+right"), key.WithHelp("ctrl+right", "next")),
+	PrevPanel: key.NewBinding(key.WithKeys("ctrl+left"), key.WithHelp("ctrl+left", "prev")),
 	// Uppercase, per docs/DESIGN.md §5: the task tree owns lowercase l.
 	ToggleListsPanel: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "lists")),
 	Quit:             key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
