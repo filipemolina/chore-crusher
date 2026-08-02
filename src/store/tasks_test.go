@@ -193,6 +193,180 @@ func TestCreateTaskAfterInsertsBetweenSiblings(t *testing.T) {
 	}
 }
 
+func TestReparentMovesWithinTree(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	root := mustTask(t, s, lid, "root", nil)
+	child := mustTask(t, s, lid, "child", &root)
+	other := mustTask(t, s, lid, "other", nil)
+
+	if err := s.Reparent(other, &child); err != nil {
+		t.Fatalf("Reparent(other under child): %v", err)
+	}
+	task, err := s.GetTask(other)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.ParentID == nil || *task.ParentID != child {
+		t.Fatalf("other's parent = %v, want %s", task.ParentID, child)
+	}
+	if task.ListID != lid {
+		t.Fatalf("reparent changed the task's list to %s", task.ListID)
+	}
+}
+
+// TestReparentCollapsesPositionsAndAppends checks that Reparent closes the
+// gap in the old sibling run and appends to the end of the new parent's
+// children — no position holes, and reordering comes only from later moves.
+func TestReparentClosesGapsAndAppends(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	a := mustTask(t, s, lid, "a", nil)
+	b := mustTask(t, s, lid, "b", nil)
+	c := mustTask(t, s, lid, "c", nil)
+
+	// Move the middle root b under a.
+	if err := s.Reparent(b, &a); err != nil {
+		t.Fatalf("Reparent: %v", err)
+	}
+
+	tasks, err := s.ListTasks(lid)
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	pos := map[string]int{}
+	for _, task := range tasks {
+		pos[task.ID] = task.Position
+	}
+	// b left its root slot; the roots a and c are renumbered 0, 1.
+	if pos[a] != 0 || pos[c] != 1 {
+		t.Errorf("root positions = a:%d c:%d; want 0 and 1 after the gap closes", pos[a], pos[c])
+	}
+	bb, err := s.GetTask(b)
+	if err != nil {
+		t.Fatalf("GetTask(b): %v", err)
+	}
+	if bb.ParentID == nil || *bb.ParentID != a {
+		t.Errorf("b's parent = %v after move, want a", bb.ParentID)
+	}
+
+	// Appending: a second reparent under a lands after b.
+	d := mustTask(t, s, lid, "d", nil)
+	if err := s.Reparent(d, &a); err != nil {
+		t.Fatalf("Reparent(d under a): %v", err)
+	}
+	dd, _ := s.GetTask(d)
+	bb2, _ := s.GetTask(b)
+	if bb2.Position >= dd.Position {
+		t.Errorf("b (pos %d) should precede d (pos %d) under a", bb2.Position, dd.Position)
+	}
+}
+
+func TestReparentToRoot(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	_, child, grand := threeLevelTree(t, s, lid)
+
+	// Move the grandchild to the list root (nil parent).
+	if err := s.Reparent(grand, nil); err != nil {
+		t.Fatalf("Reparent(grand, nil): %v", err)
+	}
+	task, err := s.GetTask(grand)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.ParentID != nil {
+		t.Fatalf("grand's parent = %v after moving to root, want nil", task.ParentID)
+	}
+	if _, err := s.GetTask(child); err != nil {
+		t.Fatalf("child should survive, got %v", err)
+	}
+}
+
+func TestReparentCycleRejected(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	root, child, grand := threeLevelTree(t, s, lid)
+
+	// Moving root under its own descendant grand would loop forever.
+	if err := s.Reparent(root, &grand); err == nil {
+		t.Fatal("Reparent root under its own descendant succeeded; must reject a cycle")
+	}
+	// Moving child under its own descendant grand is the same cycle.
+	if err := s.Reparent(child, &grand); err == nil {
+		t.Fatal("Reparent child under its own descendant succeeded; must reject a cycle")
+	}
+	if err := s.Reparent(root, &root); err == nil {
+		t.Fatal("Reparent task under itself succeeded")
+	}
+
+	// A rejected move must not have mutated anything.
+	tree, err := s.GetTask(root)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if tree.ParentID != nil || tree.Position != 0 {
+		t.Fatalf("rejected move mutated root: parent %v position %d", tree.ParentID, tree.Position)
+	}
+}
+
+func TestReparentCrossListRejected(t *testing.T) {
+	s := newTestStore(t)
+	l1 := mustList(t, s, "one")
+	l2 := mustList(t, s, "two")
+	task := mustTask(t, s, l1, "task", nil)
+	parent := mustTask(t, s, l2, "parent", nil)
+
+	if err := s.Reparent(task, &parent); err == nil || !strings.Contains(err.Error(), "different list") {
+		t.Fatalf("Reparent across lists error = %v, want a different-list error", err)
+	}
+}
+
+// TestReparentCompleteParentRuledOut pins docs/DESIGN.md §3's hard invariant:
+// a complete ancestor may not gain a pending descendant, and reparent — a
+// deliberate restructure, not an add — must not create that state silently.
+func TestReparentCompleteParentRejected(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	done := mustTask(t, s, lid, "done", nil)
+	if err := s.Complete(done); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	task := mustTask(t, s, lid, "still working", nil)
+
+	err := s.Reparent(task, &done)
+	if err == nil || !strings.Contains(err.Error(), "complete it first") {
+		t.Fatalf("moving a pending task under a complete parent error = %v, want a complete-first error", err)
+	}
+	// A complete subtree may move under a complete parent (both sides complete).
+	doneSub := mustTask(t, s, lid, "done subtree", nil)
+	if err := s.Complete(doneSub); err != nil {
+		t.Fatalf("Complete(doneSub): %v", err)
+	}
+	if err := s.Reparent(doneSub, &done); err != nil {
+		t.Fatalf("moving a complete subtree under a complete parent should be allowed: %v", err)
+	}
+}
+
+func TestReparentNoOpSameParent(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	root := mustTask(t, s, lid, "root", nil)
+	child := mustTask(t, s, lid, "child", &root)
+
+	if err := s.Reparent(child, &root); err != nil {
+		t.Fatalf("reparenting to the current parent: %v", err)
+	}
+	task, err := s.GetTask(child)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.ParentID == nil || *task.ParentID != root {
+		t.Fatalf("no-op reparent changed the parent to %v", task.ParentID)
+	}
+}
+
+
 func TestCreateTaskAfterWithNoAfterIDAppends(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")

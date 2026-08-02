@@ -458,6 +458,7 @@ complete toggle <task-id>                         complete <-> reopen, whichever
 complete progress <task-id> --mode simple
 complete progress <task-id> --mode percentage --percent <0-100>
 complete progress <task-id> --mode subtasks
+complete mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
 complete rm <task-id> --force                     delete a task and its descendants
 complete search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
@@ -523,12 +524,18 @@ distinguish "no data" from "failed" reads the exit code, never the bytes.
 - **Human output is plain text — no ANSI escapes** — so a script can capture
   any read command's stdout without stripping styling.
 
-`complete mv <task-id> --parent <task-id-or-empty>` (re-parent a task,
-without the ±1-level restriction §4 puts on the TUI's *add* flow — a CLI
-re-parent is a deliberate restructure, not the inline-add gesture that rule
-exists to keep predictable) is useful but not required for a first alpha; it
-is scheduled as phase 9, not blocking anything before it. See
-`docs/ROADMAP.md`.
+`complete mv <task-id> [--parent <task-id>]` (re-parent a task) is the one
+CLI re-parent, without the ±1-level restriction §4 puts on the TUI's *add*
+flow — a CLI re-parent is a deliberate restructure, not the inline-add
+gesture that rule exists to keep predictable. The task stays in its current
+list (a cross-list parent is rejected) and is appended to the end of the
+new parent's children, closing the gap it leaves behind. **An empty
+`--parent` — the flag's default, so omitting it entirely — moves the task to
+the list root**; that is the documented representation of "no parent". `mv`
+rejects a target that would create a cycle (reparenting a task under its own
+descendant, which would break the tree walks in `store`), and moving a
+non-complete task under a complete parent, which §3 forbids to exist —
+complete the task first, then move.
 
 ## 10. Package layout
 
@@ -692,6 +699,17 @@ What phase 9 still owns: *shedding whole optional elements* (a trailing
 percentage, a key-hint) under extreme narrowness, which is a different,
 coarser mechanism layered on top of truncation, not a replacement for having
 truncation from the start.
+
+Phase 9 implements that for the task-tree row as an explicit drop order
+(`tasktree.taskRowDropOrder`, enforced by `tasktree.fitTitleAndSuffix`): the
+indent, collapse marker and checkbox are the row's identity and are never
+shed; the title is truncated grapheme-safely by `chrome.Truncate` and kept to
+the last; the trailing percentage is the one whole unit the row gives up, and
+it is **never** rendered as a fragment — when there is no room for the whole
+unit, its columns are handed back to the title, so a task's name always
+survives at least as well as its optional progress figure. `TUI`'s width-sweep
+test (`tasktree.View_test.go`) asserts, for a sweep of panel widths, that a row
+never overflows and the percentage is shed whole or not at all.
 
 ### The glyph vocabulary
 

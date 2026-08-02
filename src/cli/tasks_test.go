@@ -191,3 +191,44 @@ func TestRmRequiresForce(t *testing.T) {
 		t.Errorf("tasks after rm --force: %q, want empty", out)
 	}
 }
+
+func TestMoveReparents(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	root := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
+	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "Choose color", "--parent", root))
+	other := strings.TrimSpace(mustCLI(t, data, "add", lid, "Clean gutters"))
+
+	// `complete mv` is a deliberate restructure: move a root task under
+	// another task's subtree, with no ±1-level add-flow restriction.
+	mustCLI(t, data, "mv", other, "--parent", root)
+	var payload []taskRowJSON
+	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
+	if len(payload) != 3 || payload[0].ID != root || payload[1].ID != child || payload[2].ID != other {
+		t.Fatalf("after mv preorder = %s,%s,%s; want root, child, other", payload[0].ID, payload[1].ID, payload[2].ID)
+	}
+	for _, p := range payload[1:] {
+		if p.ParentID == nil || *p.ParentID != root {
+			t.Errorf("row %s parent = %v after mv, want root", p.ID, p.ParentID)
+		}
+	}
+
+	// An empty --parent (the flag default, i.e. omitting it) moves to root.
+	mustCLI(t, data, "mv", child, "--parent", "")
+	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
+	for _, p := range payload {
+		if p.ID == child && p.ParentID != nil {
+			t.Errorf("child parent = %v after moving to root, want nil", p.ParentID)
+		}
+	}
+
+	// Cycle and missing-parent failures are domain errors (exit 1).
+	code, _, errOut := runCLI(t, data, "mv", root, "--parent", other)
+	if code != 1 || !strings.Contains(errOut, "cycle") {
+		t.Errorf("moving a task under its own descendant: exit %d stderr %q", code, errOut)
+	}
+	code, _, _ = runCLI(t, data, "mv", root, "--parent", "01ARZ")
+	if code != 1 {
+		t.Errorf("mv to a missing parent: exit %d, want 1", code)
+	}
+}

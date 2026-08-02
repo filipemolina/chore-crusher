@@ -215,6 +215,86 @@ func (s *Store) SetNotes(id, notes string) error {
 	return requireAffected(res, "task", id)
 }
 
+// Reparent moves taskID under parentID within its current list. A nil
+// parentID moves the task to the list root — the CLI represents this as an
+// empty --parent flag (docs/DESIGN.md §9, documented there in the same
+// commit). Unlike the TUI's add flow (docs/DESIGN.md §4) there is no
+// ±1-level restriction: a CLI re-parent is a deliberate restructure, so any
+// valid target parent is accepted.
+//
+// The proposed parent must belong to the same list and must not be the task
+// itself or one of its own descendants — a parent task that is reached when
+// walking upward from the proposed parent would make parent_id chains loop
+// forever, breaking Flatten (src/apptypes) and every ancestor walk here
+// (recomputeAncestors). Moving a non-complete task under a complete parent
+// is also rejected: a "complete ancestor, pending descendant" state is one
+// docs/DESIGN.md §3 forbids to exist, and completing the task is the only
+// way to arrive there legitimately.
+func (s *Store) Reparent(taskID string, parentID *string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	task, err := getTask(tx, taskID)
+	if err != nil {
+		return err
+	}
+
+	// Reparenting to the current parent is a no-op.
+	if (parentID == nil && task.ParentID == nil) ||
+		(parentID != nil && task.ParentID != nil && *parentID == *task.ParentID) {
+		return nil
+	}
+
+	if parentID != nil {
+		if *parentID == taskID {
+			return fmt.Errorf("task %q cannot be its own parent", taskID)
+		}
+		parent, err := getTask(tx, *parentID)
+		if err != nil {
+			return err
+		}
+		if parent.ListID != task.ListID {
+			return fmt.Errorf("parent task %q belongs to a different list", *parentID)
+		}
+		if err := ensureNotDescendant(tx, *parentID, taskID); err != nil {
+			return err
+		}
+		if parent.Status == StatusComplete && task.Status != StatusComplete {
+			return fmt.Errorf("cannot move non-complete task %q under complete task %q; complete it first", taskID, *parentID)
+		}
+	}
+
+	// Close the gap the task leaves in its old sibling run.
+	if _, err := tx.Exec(
+		`UPDATE Task SET position = position - 1
+		 WHERE list_id = ? AND parent_id IS ? AND position > ?`,
+		task.ListID, task.ParentID, task.Position,
+	); err != nil {
+		return err
+	}
+
+	// Append the task to the end of its new parent's children.
+	var position int
+	if err := tx.QueryRow(
+		`SELECT COALESCE(MAX(position), -1) + 1 FROM Task WHERE list_id = ? AND parent_id IS ?`,
+		task.ListID, parentID,
+	).Scan(&position); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE Task SET parent_id = ?, position = ?, updated_at = ? WHERE id = ?`,
+		parentID, position, time.Now().Unix(), taskID,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // DeleteTask deletes the task and, via the parent_id foreign key's ON DELETE
 // CASCADE, every descendant at every depth. Sibling subtrees are untouched.
 func (s *Store) DeleteTask(id string) error {
@@ -293,6 +373,27 @@ func scanTask(r rowScanner) (Task, error) {
 		t.CompletedAt = &v
 	}
 	return t, nil
+}
+
+// ensureNotDescendant reports an error when ascending parent links from
+// proposedParent reach rootTask — i.e. proposedParent is already a descendant
+// of the task being moved — which is the cycle signal: reparenting under it
+// would make parent_id chains loop forever.
+func ensureNotDescendant(tx *sql.Tx, proposedParent, rootTask string) error {
+	cur := proposedParent
+	for {
+		par, err := getParentID(tx, cur)
+		if err != nil {
+			return err
+		}
+		if par == nil {
+			return nil
+		}
+		if *par == rootTask {
+			return fmt.Errorf("task %q is a descendant of proposed parent %q; cannot move without creating a cycle", rootTask, proposedParent)
+		}
+		cur = *par
+	}
 }
 
 // getParentID returns the parent of id, or nil for a root-level task.

@@ -149,8 +149,17 @@ func taskCommands() []*cobra.Command {
 	}
 	rmCmd.Flags().Bool("force", false, "delete without confirmation")
 
+	mvCmd := &cobra.Command{
+		Use:   "mv <task-id>",
+		Short: "re-parent a task under another task, or to the list root",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runMv,
+	}
+	mvCmd.Flags().String("parent", "",
+		"new parent task id (prefix accepted); an empty value moves the task to the list root")
+
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
-		completeCmd, reopenCmd, toggleCmd, progressCmd, rmCmd}
+		completeCmd, reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd}
 }
 
 func validStatusFilter(s string) bool {
@@ -560,6 +569,36 @@ func runProgress(cmd *cobra.Command, args []string) error {
 			percent = &p
 		}
 		if err := s.SetProgress(id, store.ProgressKind(mode), percent); err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {}, okPayload{true})
+		return nil
+	})
+}
+
+// runMv wires `complete mv` to store.Reparent. The --parent flag carries the
+// new parent's id (prefix accepted); an empty --parent — the flag's default,
+// so omitting it entirely — is how a caller asks to move a task to the list
+// root, recorded in docs/DESIGN.md §9 (docs/plans/phase-9-polish-release.md
+// step 1).
+func runMv(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("task", args[0])
+		if err != nil {
+			return err
+		}
+		parentPrefix, _ := cmd.Flags().GetString("parent")
+		var parent *string
+		if parentPrefix != "" {
+			resolved, err := s.ResolveID("task", parentPrefix)
+			if err != nil {
+				return err
+			}
+			parent = &resolved
+		}
+		if err := s.Reparent(id, parent); err != nil {
 			return err
 		}
 		printResult(jsonMode, func() {}, okPayload{true})
