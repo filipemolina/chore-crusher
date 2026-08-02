@@ -14,11 +14,13 @@ func TestGlobalBindingsAreFixed(t *testing.T) {
 		b    key.Binding
 		want string
 	}{
-		{"ToggleListsPanel", Global.ToggleListsPanel, "L"},
+		{"TogglePanels", Global.ToggleListsPanel, "L"},
 		{"Help", Global.Help, "?"},
 		{"Quit", Global.Quit, "q"},
 		{"ForceQuit", Global.ForceQuit, "ctrl+c"},
 		{"Theme", Global.Theme, "T"},
+		{"Filter", Global.Filter, "/"},
+		{"Picker", Global.Picker, "F"},
 		{"NextPanel", Global.NextPanel, "tab"},
 		{"PrevPanel", Global.PrevPanel, "shift+tab"},
 	}
@@ -57,6 +59,7 @@ func TestCatalogContainsEveryGlobalBinding(t *testing.T) {
 	for _, g := range []key.Binding{
 		Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
 		Global.Back, Global.Quit, Global.ForceQuit, Global.Help, Global.Theme,
+		Global.Filter, Global.Picker,
 	} {
 		if !containsBinding(bindings, g) {
 			t.Errorf("catalog is missing %q", g.Help().Key)

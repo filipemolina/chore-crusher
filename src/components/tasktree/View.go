@@ -26,6 +26,8 @@ func (m Model) View() tea.View {
 	var body string
 	if !m.activeList || len(m.rows) == 0 {
 		body = chrome.EmptyStateCard("Add a task to get started", width, height)
+	} else if m.filterActive() {
+		body = m.renderFiltered(width)
 	} else {
 		pending, complete := m.splitSections()
 		body = m.renderSections(pending, complete, width)
@@ -87,6 +89,51 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int) stri
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Top, lines...)
+}
+
+// renderFiltered renders the /-filter view: the filter bar over the flat
+// filtered row list. The Pending/Complete section headers are suppressed while
+// filtering — there is no honest way to split a half-filtered set into them
+// (docs/plans/phase-8-search.md step 1).
+func (m *Model) renderFiltered(width int) string {
+	rows, matched := matchVisible(m.rows, m.filterQuery)
+
+	lines := []string{m.renderFilterBar()}
+	if len(rows) == 0 {
+		lines = append(lines, chrome.EmptyStateCard("No tasks match", width, 3))
+	} else {
+		for _, row := range rows {
+			// Only dim ancestors of a real match; when the query is empty (the
+			// input is open but nothing typed yet) nothing is dimmed.
+			dimmed := m.filterQuery != "" && !matched[row.Task.ID]
+			lines = append(lines, m.renderFilterRow(row, width, dimmed))
+		}
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Top, lines...)
+}
+
+// renderFilterBar shows the live input while typing ([/ query]) or, once a
+// query is applied, a dimmed summary ([/ query — esc to clear]).
+func (m *Model) renderFilterBar() string {
+	slash := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Bold(true).Render("/")
+	dim := muted().Render
+	if m.filterTyping {
+		return slash + " " + m.filterInput.View()
+	}
+	return slash + " " + dim(m.filterQuery) + "  " + dim("esc to clear")
+}
+
+// renderFilterRow renders one filtered row. A directly-matched row renders like
+// a normal task row; an ancestor that only stays visible to anchor a match
+// renders dimmed so the two are distinguishable (docs/plans/phase-8-search.md
+// step 1's unmatched styling).
+func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool) string {
+	if dimmed {
+		indent := strings.Repeat("  ", row.Depth)
+		return dim().Render(chrome.Truncate(indent+"[…] "+row.Task.Title, width))
+	}
+	return m.renderRow(row, width)
 }
 
 // renderRow renders one task row with proper indent, glyph, checkbox, and title.

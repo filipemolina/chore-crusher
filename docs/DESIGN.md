@@ -255,6 +255,16 @@ changes; **`tab`** cycles between the notes editor and the progress selector;
 (`simple`/`subtasks`/`percentage`); `esc` closes with a discard-changes prompt
 if anything is unsaved.
 
+**`/?`** enters the task tree's local fuzzy filter (phase 8): a live input
+narrows the current list's rows in place to each match plus its ancestor
+chain, so a matched leaf never loses its parent rows. `enter` applies the
+query and leaves the filtered view active; `esc` clears it.
+
+**`F`** opens the cross-list search picker (phase 8): a text input searches
+every list live, ranking title matches before notes-only hits, and showing
+each result as `<list> › <task>`. `enter` on a result jumps to that task —
+switching the active list when the match lives elsewhere — and `esc` cancels.
+
 **Task renaming** in the TUI is not implemented yet — the details screen shows
 the title read-only. A rename gesture (if added to the TUI before phase 9) should
 be recorded here in §5 alongside the other task-tree keybindings.

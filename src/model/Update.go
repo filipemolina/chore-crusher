@@ -10,6 +10,7 @@ import (
 	"github.com/filipemolina/chore-completer/src/components/detailsmodal"
 	"github.com/filipemolina/chore-completer/src/components/helpoverlay"
 	"github.com/filipemolina/chore-completer/src/components/listnamemodal"
+	"github.com/filipemolina/chore-completer/src/components/searchpicker"
 	"github.com/filipemolina/chore-completer/src/components/themepickermodal"
 	"github.com/filipemolina/chore-completer/src/config"
 	"github.com/filipemolina/chore-completer/src/constants"
@@ -53,6 +54,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Global.Theme):
 			finalCmds = append(finalCmds, cmds.OpenThemePicker())
+
+		// / enters the task tree's local filter; F opens the cross-list picker.
+		// Both are global keys — they work whenever no modal owns the
+		// keyboard, focused zone notwithstanding (docs/DESIGN.md §5).
+		case key.Matches(msg, keys.Global.Filter):
+			finalCmds = append(finalCmds, cmds.ActivateFilter())
+
+		case key.Matches(msg, keys.Global.Picker):
+			finalCmds = append(finalCmds, cmds.OpenSearchPicker())
 
 		case key.Matches(msg, keys.Global.NextPanel):
 			finalCmds = append(finalCmds, m.ChangeFocus(1))
@@ -126,6 +136,21 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmds.OpenThemePickerMsg:
 		m.activeModal = themepickermodal.New(m.terminalHeight)
+
+	case cmds.OpenSearchPickerMsg:
+		m.activeModal = searchpicker.New(m.store, m.terminalHeight)
+
+	// The global picker jumped to a task, possibly in another list: switch
+	// the active list to the result's list (when different) and move the tree
+	// selection to the task. SelectTask is sent unconditionally — if the task
+	// is already in rows it selects immediately, and if the list just changed
+	// the task tree's pending-select lands it once those rows arrive.
+	case cmds.JumpToTaskMsg:
+		if m.activeListID != msg.ListID {
+			m.activeListID = msg.ListID
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+		}
+		finalCmds = append(finalCmds, cmds.SelectTask(msg.TaskID))
 
 	case cmds.OpenDetailsMsg:
 		m.activeModal = detailsmodal.New(msg.TaskID, m.activeListID, m.store)

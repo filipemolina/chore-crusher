@@ -41,6 +41,13 @@ type GlobalKeys struct {
 	// preview on cursor movement and persist-on-confirm. T (shift+t) so it
 	// does not collide with any lowercase t.
 	Theme key.Binding
+	// Filter enters (/) the task tree's local fuzzy filter: it narrows the
+	// current list's rows in place, showing each match's ancestor chain.
+	// F, by contrast, opens the cross-list picker.
+	Filter key.Binding
+	// Picker opens (F) the cross-list search picker: type a query, pick a
+	// task from any list, enter jumps to it and switches the active list.
+	Picker key.Binding
 }
 
 // TaskTreeKeys act on the task tree: navigation, expand/collapse, toggling
@@ -75,9 +82,9 @@ type ListsPanelKeys struct {
 // notes and progress editor zones, cycling progress modes, and entering
 // percentages. Phase 7 (docs/plans/phase-7-details-screen.md).
 type DetailsKeys struct {
-	Save         key.Binding
-	NextField    key.Binding
-	CycleMode    key.Binding
+	Save          key.Binding
+	NextField     key.Binding
+	CycleMode     key.Binding
 	CycleModeBack key.Binding
 }
 
@@ -108,6 +115,8 @@ var Global = GlobalKeys{
 	Back:      key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Theme:     key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme")),
+	Filter:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	Picker:    key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "search")),
 }
 
 var Tree = TaskTreeKeys{
@@ -129,7 +138,7 @@ var Details = DetailsKeys{
 	Save:          key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
 	NextField:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
 	CycleMode:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next mode")),
-	CycleModeBack:  key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev mode")),
+	CycleModeBack: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev mode")),
 }
 
 var Overlay = OverlayKeys{
@@ -215,7 +224,7 @@ func Catalog(ctx Context) []Scope {
 			Entries: entries(
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
 				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
-				Global.Theme,
+				Global.Theme, Global.Filter, Global.Picker,
 			),
 		},
 		{
@@ -245,6 +254,7 @@ func Catalog(ctx Context) []Scope {
 func pressableNow(ctx Context) []key.Binding {
 	live := append(Active(ctx), Globals()...)
 	live = append(live, Global.ForceQuit, Global.Theme, Global.ToggleListsPanel)
+	live = append(live, Global.Filter, Global.Picker)
 
 	// shift+tab is tab's twin: live wherever tab is.
 	if containsBinding(live, Global.NextPanel) {

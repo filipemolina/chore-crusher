@@ -79,6 +79,79 @@ func TestEmptyRefreshClearsSelection(t *testing.T) {
 	}
 }
 
+// A 3-level tree whose only title match is a leaf. The /-filter must keep the
+// leaf's whole ancestor chain visible even though none of them match, so the
+// leaf never floats with no visible parent (docs/plans/phase-8-search.md step 1).
+func TestFilterKeepsAncestorsOfMatchedLeaf(t *testing.T) {
+	root := apptypes.Row{Task: apptypes.Task{ID: "root", Title: "Project"}, Depth: 0, HasChildren: true}
+	sub := apptypes.Row{Task: apptypes.Task{ID: "sub", ParentID: strPtr("root"), Title: "Milestone"}, Depth: 1, HasChildren: true}
+	leaf := apptypes.Row{Task: apptypes.Task{ID: "leaf", ParentID: strPtr("sub"), Title: "Ship the zorb"}, Depth: 2}
+	other := apptypes.Row{Task: apptypes.Task{ID: "other", Title: "Unrelated task"}, Depth: 0}
+
+	m := Model{}
+	m.applyRows([]apptypes.Row{root, sub, leaf, other})
+	m.filterTyping = true
+	m.filterQuery = "zorb"
+
+	got := m.displayedRows()
+	wantIDs := []string{"root", "sub", "leaf"}
+	if len(got) != len(wantIDs) {
+		t.Fatalf("filtered rows = %d, want %d", len(got), len(wantIDs))
+	}
+	for i, want := range wantIDs {
+		if got[i].Task.ID != want {
+			t.Errorf("filtered[%d].ID = %q, want %q", i, got[i].Task.ID, want)
+		}
+	}
+}
+
+// An unrelated root task with no match — and no matched descendant — drops out
+// of the filtered view entirely.
+func TestFilterDropsUnrelatedRoots(t *testing.T) {
+	root := apptypes.Row{Task: apptypes.Task{ID: "root", Title: "Project"}, Depth: 0, HasChildren: true}
+	sub := apptypes.Row{Task: apptypes.Task{ID: "sub", ParentID: strPtr("root"), Title: "Milestone"}, Depth: 1}
+	m := Model{}
+	m.applyRows([]apptypes.Row{root, sub})
+	m.filterTyping = true
+	m.filterQuery = "nowhere-nothing"
+
+	got := m.displayedRows()
+	if len(got) != 0 {
+		t.Errorf("filtered rows = %d, want 0", len(got))
+	}
+}
+
+// An empty query shows everything: typing / and nothing yet is a no-op filter.
+func TestEmptyQueryDoesNotFilter(t *testing.T) {
+	root := apptypes.Row{Task: apptypes.Task{ID: "a", Title: "Alpha"}}
+	sub := apptypes.Row{Task: apptypes.Task{ID: "b", Title: "Beta"}}
+	m := Model{}
+	m.applyRows([]apptypes.Row{root, sub})
+	m.filterQuery = ""
+
+	got := m.displayedRows()
+	if len(got) != 2 {
+		t.Errorf("empty query filtered to %d rows, want 2", len(got))
+	}
+}
+
+// A directly-matched row is distinguishable from an ancestor-only row: only
+// real matches land in the matched set used to dim ancestors.
+func TestMatchedVisibleSeparatesMatchesFromAncestors(t *testing.T) {
+	root := apptypes.Row{Task: apptypes.Task{ID: "root", Title: "Project"}, HasChildren: true}
+	leaf := apptypes.Row{Task: apptypes.Task{ID: "leaf", ParentID: strPtr("root"), Title: "Zorble"}}
+
+	_, matched := matchVisible([]apptypes.Row{root, leaf}, "zorble")
+	if !matched["leaf"] {
+		t.Errorf("leaf should be a direct match")
+	}
+	if matched["root"] {
+		t.Errorf("root should not count as a direct match, only an ancestor")
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
 // A first load with no prior selection picks the first row.
 func TestFirstLoadSelectsFirstRow(t *testing.T) {
 	m := Model{}
