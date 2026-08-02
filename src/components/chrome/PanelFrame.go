@@ -7,7 +7,7 @@ import (
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
-const panelTitleChromeHeight = 2
+const panelTitleChromeHeight = 3
 
 // PanelFrame renders the shared Lists or Tasks surface: its accent title chip,
 // fixed (1, 2) padding, focus-lift background, and background seal. The frame
@@ -16,7 +16,7 @@ const panelTitleChromeHeight = 2
 func PanelFrame(title string, isFocused bool, width, height int, body string) string {
 	bg := PanelBg(isFocused)
 	titleRow := appstyles.NormalTitle().MarginLeft(2).Render(title)
-	content := appstyles.FillBackground(bg, lipgloss.JoinVertical(lipgloss.Left, titleRow, "", body))
+	content := appstyles.FillBackground(bg, lipgloss.JoinVertical(lipgloss.Left, "", titleRow, "", body))
 
 	return FitBox(WrapperStyle.Background(bg), width, height).Render(content)
 }

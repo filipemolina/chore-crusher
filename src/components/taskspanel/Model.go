@@ -1,6 +1,7 @@
-// Package taskspanel composes the task tree and add input into the one Tasks
-// surface. The children retain their keyboard behavior; this package owns only
-// their shared frame and the input's bottom-pinned placement.
+// Package taskspanel composes the task tree into the Tasks surface. Inline
+// creation (the "new task" row) lives inside the tree itself, so this package
+// owns only the tree and its shared panel frame — there is no bottom-pinned
+// add input. See docs/plan/task-row-redesign-and-inline-creation.md.
 package taskspanel
 
 import (
@@ -9,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/addinput"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
 	"github.com/filipemolina/chore-crusher/src/components/tasktree"
 	"github.com/filipemolina/chore-crusher/src/constants"
@@ -23,22 +23,17 @@ type treeView interface {
 	IsEmpty() bool
 }
 
-type inputView interface {
-	ViewInPanel(width, height int, bg color.Color) string
-}
-
-// Model owns the two keyboard controls inside the Tasks surface.
+// Model owns the task tree inside the Tasks surface. Inline creation is
+// handled by the tree, so there is no separate add-input component here.
 type Model struct {
 	focused bool
 	body    cmds.SetBodyLayoutMsg
 	tree    tea.Model
-	input   tea.Model
 }
 
 func New(st *store.Store, activeListID string) tea.Model {
 	return Model{
-		tree:  tasktree.New(),
-		input: addinput.New(st, activeListID),
+		tree: tasktree.New(),
 	}
 }
 
@@ -49,13 +44,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.body = layout
 	}
 	if focus, ok := msg.(cmds.SetFocusMsg); ok {
-		m.focused = int(focus) == constants.COMPONENT_TASK_TREE || int(focus) == constants.COMPONENT_ADD_INPUT
+		m.focused = int(focus) == constants.COMPONENT_TASK_TREE
 	}
 
-	var treeCmd, inputCmd tea.Cmd
+	var treeCmd tea.Cmd
 	m.tree, treeCmd = m.tree.Update(msg)
-	m.input, inputCmd = m.input.Update(msg)
-	return m, tea.Batch(treeCmd, inputCmd)
+	return m, treeCmd
 }
 
 func (m Model) View() tea.View {
@@ -63,11 +57,34 @@ func (m Model) View() tea.View {
 	height := chrome.PanelBodyHeight(m.body.Height)
 	bg := chrome.PanelBg(m.focused)
 
-	content := m.tree.(treeView).ViewInPanel(width, max(0, height-1), bg)
-	footer := m.input.(inputView).ViewInPanel(width, 1, bg)
-	body := chrome.PanelBodyWithFooter(width, height, bg, content, footer)
+	// The tree owns its full body height: with the add input removed there is
+	// no footer to reserve a row for. PanelBodyWithFooter treats an empty
+	// footer as zero-height, so this passes the tree's render through at full
+	// height (see chrome.PanelBodyWithFooter).
+	content := m.tree.(treeView).ViewInPanel(width, max(0, height), bg)
+	body := chrome.PanelBodyWithFooter(width, height, bg, content, "")
 
 	return tea.NewView(chrome.PanelFrame("Tasks", m.focused, m.body.MainWidth, m.body.Height, body))
+}
+
+// OwnsKeyboard reports whether the task tree has claimed the keyboard for
+// itself (inline creating, or typing a /-filter). AppModel uses this to
+// suppress global keys while the user is actively typing in the tree.
+func (m Model) OwnsKeyboard() bool {
+	if tree, ok := m.tree.(interface{ OwnsKeyboard() bool }); ok && tree.OwnsKeyboard() {
+		return true
+	}
+	return false
+}
+
+// KeepsEsc reports whether the task tree needs esc for itself (inline create
+// cancel, filter clear). AppModel's "back" checks this before it takes
+// focus away.
+func (m Model) KeepsEsc() bool {
+	if tree, ok := m.tree.(interface{ KeepsEsc() bool }); ok && tree.KeepsEsc() {
+		return true
+	}
+	return false
 }
 
 // IsEmpty reports whether the task tree has rows, for footer context.

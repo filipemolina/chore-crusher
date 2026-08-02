@@ -13,10 +13,10 @@ import (
 // no ordering between this command batch and the first WindowSizeMsg is
 // assumed — the layout broadcast waits for the real terminal size.
 func (m AppModel) Init() tea.Cmd {
-	// The task tree is the startup focus zone (docs/DESIGN.md §5); broadcast
-	// that immediately so its keys live from the first frame rather than only
+	// The task tree is the startup focus zone (see GetInitialModel); broadcast
+	// it immediately so its keys live from the first frame rather than only
 	// after the first ctrl+arrow. Without this the zone's focused flag reads
-	// false and every tree key (space, navigation) is ignored at launch.
+	// false and every tree key (space, navigation, n) is ignored at launch.
 	return tea.Batch(
 		cmds.PollTick(config.PollInterval(m.cfg)),
 		cmds.RefreshLists(m.store),

@@ -35,8 +35,7 @@ func (m Model) Init() tea.Cmd { return nil }
 // New builds the add input with an embedded textinput component.
 func New(st *store.Store, activeListID string) tea.Model {
 	ti := textinput.New()
-	sty := textinput.DefaultDarkStyles()
-	ti.SetStyles(sty)
+	ti.Prompt = ""
 	ti.Placeholder = "new task"
 
 	return &Model{
@@ -75,7 +74,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case cmds.SetBodyLayoutMsg:
 		m.body = msg
-		m.textinput.SetWidth(chrome.PanelBodyWidth(msg.MainWidth) - 4) // account for glyph + space + indent
+		m.textinput.SetWidth(chrome.PanelBodyWidth(msg.MainWidth) - 2) // account for glyph + space (removed indentation logic)
 
 	case cmds.SetFocusMsg:
 		m.focused = int(msg) == focusedZoneID
@@ -236,6 +235,19 @@ func glyphForOffset(offset int) string {
 	}
 }
 
+// OwnsKeyboard reports whether this component claims the keyboard,
+// used by AppModel to suppress global keys while the user is typing.
+func (m Model) OwnsKeyboard() bool {
+	return m.focused && m.textinput.Value() != ""
+}
+
+// KeepsEsc reports whether this component needs esc for itself: the add
+// input with text in it claims it next, so AppModel's "back" checks this
+// before it takes focus away.
+func (m Model) KeepsEsc() bool {
+	return m.focused && m.textinput.Value() != ""
+}
+
 // View renders raw content for Bubble Tea's Model contract. Taskspanel calls
 // ViewInPanel with the exact inner Tasks dimensions during normal composition.
 func (m Model) View() tea.View {
@@ -268,9 +280,3 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	return appstyles.FillBackground(bg, body)
 }
 
-// OwnsKeyboard reports whether this component claims esc, used by AppModel's
-// esc ladder (docs/DESIGN.md §5) to determine if the input should swallow esc
-// or let it propagate (docs/plans/phase-5-add-input.md §6).
-func (m Model) OwnsKeyboard() bool {
-	return m.textinput.Value() != ""
-}

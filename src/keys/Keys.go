@@ -11,6 +11,7 @@ package keys
 
 import (
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
 	"github.com/filipemolina/chore-crusher/src/constants"
 )
 
@@ -63,6 +64,8 @@ type TaskTreeKeys struct {
 	Collapse    key.Binding
 	Toggle      key.Binding
 	OpenDetails key.Binding
+	New         key.Binding
+	Delete      key.Binding
 }
 
 // AddInputKeys act inside the add-input zone: editing the draft, changing
@@ -128,6 +131,8 @@ var Tree = TaskTreeKeys{
 	Collapse:    key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "collapse")),
 	Toggle:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle")),
 	OpenDetails: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
+	New:         key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+	Delete:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete")),
 }
 
 var Lists = ListsPanelKeys{
@@ -135,6 +140,45 @@ var Lists = ListsPanelKeys{
 	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
 	Rename:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
 	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete list")),
+}
+
+// ListKeyMap is the keymap the lists panel installs on its inner bubbles
+// list, replacing list.DefaultKeyMap.
+//
+// The default map is written for a list that is the whole program, so it
+// claims keys this app spends elsewhere: / is the task tree's filter, esc
+// and ? are handled by AppModel, and q / ctrl+c are the app's quit keys.
+// The results were visible - pressing / both opened the filter and did nothing
+// useful in the lists panel - so the list has to be told which keys are not
+// its own.
+//
+// What stays is what only the list can answer: where its cursor is. Filtering
+// is worth keeping with many lists, but the lists panel currently has no
+// filter input, so it is unbound here.
+//
+// Keys the app owns are left with no keystrokes rather than removed, because
+// list.Model reads every field: an empty binding matches nothing, which is the
+// intent, whereas a missing one would be a nil-safe accident.
+func ListKeyMap() list.KeyMap {
+	unbound := key.NewBinding()
+
+	return list.KeyMap{
+		CursorUp:   key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
+		CursorDown: key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
+		PrevPage:   key.NewBinding(key.WithKeys("left", "pgup"), key.WithHelp("←/pgup", "prev page")),
+		NextPage:   key.NewBinding(key.WithKeys("right", "pgdown"), key.WithHelp("→/pgdn", "next page")),
+		GoToStart:  key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "first row")),
+		GoToEnd:    key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "last row")),
+
+		Filter:            unbound,
+		ClearFilter:       unbound,
+		CancelWhileFiltering: unbound,
+		AcceptWhileFiltering: unbound,
+		ShowFullHelp:      unbound,
+		CloseFullHelp:     unbound,
+		Quit:              unbound,
+		ForceQuit:         unbound,
+	}
 }
 
 var Details = DetailsKeys{
@@ -176,7 +220,7 @@ type Context struct {
 func Active(ctx Context) []key.Binding {
 	bindings := []key.Binding{Global.NextPanel}
 
-	if ctx.ListsPanelVisible && ctx.Focused == constants.COMPONENT_LISTS_PANEL {
+	if ctx.ListsPanelVisible {
 		bindings = append(bindings, Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete)
 	}
 

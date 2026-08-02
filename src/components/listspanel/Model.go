@@ -5,7 +5,6 @@ import (
 	"io"
 	"strconv"
 
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -20,17 +19,14 @@ import (
 // focusedZoneID is the zone id this component answers to.
 const focusedZoneID = constants.COMPONENT_LISTS_PANEL
 
-// Model is the lists-panel zone. Phase 3 renders the lists the store holds —
-// enough to verify the TUI and CLI share one store (docs/plans/phase-3-tui-shell.md
-// "Killing and restarting the TUI against the same database file shows the
-// same lists and counts phase 2's CLI created") — as plain rows inside the
-// shared frame. Phase 6 (docs/plans/phase-6-lists-panel.md) replaces the
-// body with the real bubbles list; the frame and focus handling below are
-// what it keeps.
+// Model is the lists-panel zone. It renders the store's lists as a bubbles
+// list with the same card-style rows and auto-select behavior as stack-stitcher's
+// groups list (docs/plans/stack-stitcher-sister-tui.md).
 type Model struct {
-	focused bool
-	body    cmds.SetBodyLayoutMsg
-	list    list.Model
+	focused       bool
+	body          cmds.SetBodyLayoutMsg
+	list          list.Model
+	listDelegate  listDelegate
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -42,6 +38,7 @@ func New() tea.Model {
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
 	l.SetShowFilter(false)
+	l.KeyMap = keys.ListKeyMap()
 	return Model{list: l}
 }
 
@@ -54,6 +51,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmds.SetFocusMsg:
 		m.focused = int(msg) == focusedZoneID
+		m.listDelegate.isParentFocused = m.focused
+		m.list.SetDelegate(m.listDelegate)
 
 	case cmds.RefreshListsMsg:
 		if msg.Err == nil {
@@ -62,19 +61,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				items[i] = l
 			}
 			m.list.SetItems(items)
-			if len(items) > 0 && m.list.Index() == 0 {
+			if len(items) > 0 && m.list.Index() < 0 {
+				m.list.Select(0)
 				m.selectList()
 			}
 		}
 
-	case tea.KeyMsg:
-		if m.focused && len(m.list.Items()) > 0 {
-			if m.matchesKey(msg, keys.Lists.Navigate) {
-				m.list, cmd = m.list.Update(msg)
-				m.selectList()
-				return m, cmd
-			}
+	case tea.KeyPressMsg:
+		if !m.focused {
+			break
 		}
+		previousIndex := m.list.Index()
+		m.list, cmd = m.list.Update(msg)
+		if m.list.Index() != previousIndex {
+			m.selectList()
+		}
+		return m, cmd
 	}
 
 	m.list, cmd = m.list.Update(msg)
@@ -92,18 +94,10 @@ func (m Model) selectList() tea.Cmd {
 	return nil
 }
 
-// matchesKey reports whether msg matches the binding.
-func (m Model) matchesKey(msg tea.KeyMsg, binding key.Binding) bool {
-	for _, k := range binding.Keys() {
-		if msg.String() == k {
-			return true
-		}
-	}
-	return false
-}
-
 // listDelegate renders each list as one row: name, then the pending/complete counts.
-type listDelegate struct{}
+type listDelegate struct {
+	isParentFocused bool
+}
 
 func (d listDelegate) Height() int                             { return 1 }
 func (d listDelegate) Spacing() int                            { return 0 }
@@ -115,25 +109,56 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 
-	nameStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
-	countStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim)
+	isSelected := index == m.Index()
+	rowBg := chrome.ListRowBg(isSelected, d.isParentFocused)
 
-	if index == m.Index() {
-		nameStyle = nameStyle.Foreground(appstyles.Active.Accent)
+	barColor := appstyles.Active.TextMuted
+	if isSelected && d.isParentFocused {
+		barColor = appstyles.Active.Accent
 	}
 
-	fmt.Fprint(w, nameStyle.Render(l.List.Name)+"  "+countStyle.Render(
-		strconv.Itoa(l.PendingCount)+" pending · "+strconv.Itoa(l.CompleteCount)+" done"))
+	nameStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(rowBg)
+	countStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(rowBg)
+
+	if isSelected && d.isParentFocused {
+		nameStyle = nameStyle.Bold(true)
+	} else if !d.isParentFocused {
+		nameStyle = nameStyle.Foreground(appstyles.Active.TextMuted)
+	}
+
+	content := nameStyle.Render(l.List.Name) + "  " + countStyle.Render(
+		strconv.Itoa(l.PendingCount)+" pending · "+strconv.Itoa(l.CompleteCount)+" done")
+
+	row := appstyles.FillBackground(rowBg, lipgloss.JoinHorizontal(lipgloss.Left,
+		chrome.BarColumn(barColor, rowBg, content), content))
+	fmt.Fprint(w, row)
 }
 
-// View renders each list as one row.
+// OwnsKeyboard reports whether the list is taking every keystroke for itself,
+// which it does while the user is typing a filter: n, d and q are letters then,
+// not commands. Only while typing - once a filter is applied and the cursor is
+// back in the rows, the panel keys mean what they always mean, and esc clears
+// the filter. See AppModel.keyboardOwned.
+func (m Model) OwnsKeyboard() bool {
+	return m.list.FilterState() == list.Filtering
+}
+
+// KeepsEsc reports whether the list needs esc for itself: an applied filter
+// is cleared by esc alone, and the key only reaches the list while the list
+// is focused. AppModel's "back" checks this before it takes focus away.
+func (m Model) KeepsEsc() bool {
+	return m.focused && m.list.FilterState() == list.FilterApplied
+}
+
+// View renders the lists panel.
 func (m Model) View() tea.View {
 	width := chrome.PanelBodyWidth(m.body.ListsWidth)
 	height := chrome.PanelBodyHeight(m.body.Height)
+	bg := chrome.PanelBg(m.focused)
 
 	var body string
 	if len(m.list.Items()) == 0 {
-		body = chrome.EmptyStateCard("no lists yet", width, height)
+		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height, bg)
 	} else {
 		body = m.list.View()
 	}

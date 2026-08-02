@@ -25,6 +25,12 @@ func selectedID(t *testing.T, m AppModel) string {
 // verification).
 func TestJumpToTaskSwitchesListAndSelects(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
+	// GetInitialModel creates a default list when the store is empty; remove it
+	// so this test's first list is the one it creates below.
+	lists, _ := m.store.ListLists()
+	if len(lists) > 0 {
+		m.store.DeleteList(lists[0].ID)
+	}
 
 	listA, err := m.store.CreateList("Alpha")
 	if err != nil {

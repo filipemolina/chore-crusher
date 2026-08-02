@@ -109,6 +109,12 @@ func treeSelectedID(m AppModel) string {
 // that has lists (docs/DESIGN.md §7: the poll reads real data via store).
 func TestFirstRefreshSelectsFirstList(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
+	// GetInitialModel creates a default list when the store is empty; remove it
+	// so this test's "first list" is the one it creates below.
+	lists, _ := m.store.ListLists()
+	if len(lists) > 0 {
+		m.store.DeleteList(lists[0].ID)
+	}
 	listID, err := m.store.CreateList("Errands")
 	if err != nil {
 		t.Fatalf("create list: %v", err)

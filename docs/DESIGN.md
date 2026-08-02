@@ -14,6 +14,16 @@ reasoning is written there in more depth than is repeated here. This file
 states the rule; that one, in several places, shows the failure mode that
 made the rule necessary.
 
+> Note (inline-creation refactor): several sections below — §4, §5, §6, and §12,
+> plus `docs/plans/phase-4-task-tree.md`, `docs/plans/phase-5-add-input.md`, and
+> `docs/plans/stack-stitcher-sister-tui.md` — describe the add input as a
+> **bottom-pinned footer** and `COMPONENT_ADD_INPUT` as a separate focus zone.
+> That design has been **superseded**: the add input is now an inline row inside
+> the task tree (see `docs/plan/task-row-redesign-and-inline-creation.md`),
+> startup focus is `COMPONENT_TASK_TREE`, and `addinput` is no longer composed by
+> `taskspanel`. Those sections are retained for history; implement against the
+> inline plan doc as the source of truth.
+
 ## 1. What this app is, and isn't
 
 Chore Crusher is a to-do list manager with two front ends over one store: a

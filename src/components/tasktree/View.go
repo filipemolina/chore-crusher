@@ -30,17 +30,22 @@ func (m Model) View() tea.View {
 func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	m.filterInput.SetWidth(max(0, width-6))
 
-	var body string
-	if !m.activeList || len(m.rows) == 0 {
-		body = chrome.EmptyStateCard("Add a task to get started", width, height)
-	} else if m.filterActive() {
-		body = m.renderFiltered(width, bg)
-	} else {
+	switch {
+	case !m.activeList:
+		body := chrome.EmptyStateCard("Add a task to get started", width, height, bg)
+		return appstyles.FillBackground(bg, body)
+	case m.creating:
+		// Inline creation mode: render the sections and splice the create row
+		// at the insertion point. On an empty list this renders just the
+		// create row, which is the empty state.
 		pending, complete := m.splitSections()
-		body = m.renderSections(pending, complete, width, bg)
+		return appstyles.FillBackground(bg, m.renderSections(pending, complete, width, bg))
+	case m.filterActive():
+		return appstyles.FillBackground(bg, m.renderFiltered(width, bg))
+	default:
+		pending, complete := m.splitSections()
+		return appstyles.FillBackground(bg, m.renderSections(pending, complete, width, bg))
 	}
-
-	return appstyles.FillBackground(bg, body)
 }
 
 // splitSections splits visible rows into Pending and Complete based on root task status.
@@ -71,31 +76,55 @@ func (m *Model) splitSections() (pending, complete []apptypes.Row) {
 }
 
 // renderSections renders Pending and Complete sections with their tasks.
+// renderSections renders the Pending and Complete sections, splicing the
+// inline create row in immediately after the selected task (its reference for
+// the new row's level) within whichever section that task lives. The create
+// row is never shown as a "no tasks yet" card: on an empty list it is the
+// only row, placed at the end.
 func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg color.Color) string {
 	var lines []string
+	placedCreate := false
 
 	if len(pending) > 0 {
-		lines = append(lines, primary(true).Render("Pending")+" "+
-			muted().Render("("+strconv.Itoa(len(pending))+")"))
-		for _, row := range pending {
-			lines = append(lines, m.renderRow(row, width, bg))
-		}
-	} else {
-		lines = append(lines, chrome.EmptyStateCard("No tasks yet", width, 3))
+		lines = append(lines, sectionHeader("Pending", len(pending)))
+		lines, placedCreate = m.appendSectionRows(lines, pending, width, bg, placedCreate)
+	}
+
+	if len(pending) > 0 && len(complete) > 0 {
+		lines = append(lines, "")
 	}
 
 	if len(complete) > 0 {
-		if len(pending) > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, primary(true).Render("Complete")+" "+
-			muted().Render("("+strconv.Itoa(len(complete))+")"))
-		for _, row := range complete {
-			lines = append(lines, m.renderRow(row, width, bg))
-		}
+		lines = append(lines, sectionHeader("Complete", len(complete)))
+		lines, placedCreate = m.appendSectionRows(lines, complete, width, bg, placedCreate)
+	}
+
+	if m.creating && !placedCreate {
+		lines = append(lines, m.renderCreateRow(width, bg))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Top, lines...)
+}
+
+// appendSectionRows renders each row of a section, inserting the create row
+// immediately after the row whose id matches createBeforeID (the insertion
+// reference) when in creating mode.
+func (m *Model) appendSectionRows(lines []string, rows []apptypes.Row, width int, bg color.Color, placed bool) ([]string, bool) {
+	for _, row := range rows {
+		lines = append(lines, m.renderRow(row, width, bg))
+		if m.creating && !placed && row.Task.ID == m.createBeforeID {
+			lines = append(lines, m.renderCreateRow(width, bg))
+			placed = true
+		}
+	}
+	return lines, placed
+}
+
+// sectionHeader renders a bold TextPrimary name followed by a dimmed count,
+// the same "name, then a muted count" shape the lists panel uses for a list
+// row (docs/DESIGN.md §12).
+func sectionHeader(name string, count int) string {
+	return primary(true).Render(name) + " " + muted().Render("("+strconv.Itoa(count)+")")
 }
 
 // renderFiltered renders the /-filter view: the filter bar over the flat
@@ -107,7 +136,7 @@ func (m *Model) renderFiltered(width int, bg color.Color) string {
 
 	lines := []string{m.renderFilterBar()}
 	if len(rows) == 0 {
-		lines = append(lines, chrome.EmptyStateCard("No tasks match", width, 3))
+		lines = append(lines, chrome.EmptyStateCard("No tasks match", width, 3, bg))
 	} else {
 		for _, row := range rows {
 			// Only dim ancestors of a real match; when the query is empty (the
@@ -143,7 +172,8 @@ func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, bg col
 	return m.renderRow(row, width, bg)
 }
 
-// renderRow renders one task row with proper indent, glyph, checkbox, and title.
+// renderRow renders one task row with proper indent, glyph, checkbox, title,
+// status, and progress columns. The layout is computed by renderTaskRowBase.
 func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 	indent := strings.Repeat(" ", 2*row.Depth)
 	glyph := " "
@@ -155,87 +185,196 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 		}
 	}
 
-	var checkbox string
-	textStyle := appstyles.Active.TextPrimary
+	checkbox := "[ ]"
+	textFg := appstyles.Active.TextPrimary
 	if row.Task.Status == apptypes.StatusComplete {
 		checkbox = "[x]"
-		textStyle = appstyles.Active.TextMuted
+		textFg = appstyles.Active.TextMuted
 	} else if row.Task.Status == apptypes.StatusInProgress {
 		checkbox = "[~]"
-	} else {
-		checkbox = "[ ]"
 	}
 
-	// Calculate available width for title + progress suffix
-	prefixWidth := len(indent) + 3 // indent + glyph + space + checkbox + space
+	title := row.Task.Title
+	if row.Task.Status == apptypes.StatusComplete {
+		title = lipgloss.NewStyle().Foreground(textFg).Render(title)
+	}
 
-	// Compute progress suffix if applicable
-	var progressSuffix string
-	if row.Task.Status == apptypes.StatusInProgress {
-		switch row.Task.ProgressKind {
-		case apptypes.ProgressPercentage:
-			if row.Task.ProgressPct != nil {
-				progressSuffix = fmt.Sprintf(" (%d%%)", *row.Task.ProgressPct)
-			}
-		case apptypes.ProgressSubtasks:
-			pct, displayAsSimple := apptypes.DerivedPercent(m.rows, row.Task.ID)
-			if !displayAsSimple {
-				progressSuffix = fmt.Sprintf(" (%d%%)", pct)
-			}
+	status := statusLabel(row.Task.Status)
+	progress := progressLabel(row, m.rows)
+
+	return m.renderTaskRowBase(indent, glyph, checkbox, title, status, progress,
+		3, width, bg, row.Task.ID == m.selectedID)
+}
+
+// renderCreateRow renders the inline "new task" row at its insertion point.
+// It reads like a task row: the level-offset glyph (-/+/^) in the checkbox
+// column, the typed text or "new task" placeholder in the title column, an
+// empty status/progress, and the selected-row background. Called only while
+// m.creating; the textinput is sized to the title column so the caret and
+// horizontal scrolling behave at panel width.
+func (m *Model) renderCreateRow(width int, bg color.Color) string {
+	glyph := "-"
+	switch m.createLevelOffset {
+	case +1:
+		glyph = "+"
+	case -1:
+		glyph = "^"
+	}
+
+	// Indent to where the new task will land: selected task depth + offset,
+	// clamped at zero so a parent-of-root offset (-1 at depth 0, which
+	// startCreatingAuto/zeroes to 0) never indents negative.
+	selectedDepth := 0
+	if m.selectedID != "" {
+		if row := m.findRow(m.selectedID); row != nil {
+			selectedDepth = row.Depth
 		}
 	}
+	indent := strings.Repeat(" ", max(0, 2*(selectedDepth+m.createLevelOffset)))
 
-	// Apply phase-9's drop order: give the title every column the panel can
-	// spare (truncating grapheme-safely); only shed the trailing percentage
-	// whole when the title would otherwise be crushed to zero width.
-	title, progressSuffix := fitTitleAndSuffix(row.Task.Title, progressSuffix, prefixWidth, width)
+	// prefix = indent + glyph(1) + space + checkbox(1) + space
+	prefixWidth := len(indent) + 1 + 1 + 1 + 1
+	m.createInput.SetWidth(max(1, width-prefixWidth))
 
-	if row.Task.Status == apptypes.StatusComplete {
-		title = muted().Render(title)
+	checkbox := lipgloss.NewStyle().
+		Foreground(appstyles.Active.Accent).
+		Render(glyph)
+
+	var title string
+	if m.createInput.Value() == "" {
+		title = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Render(m.createInput.Placeholder)
 	} else {
-		title = lipgloss.NewStyle().Foreground(textStyle).Render(title)
+		title = m.createInput.View()
 	}
 
-	// Render progress suffix in TextMuted
-	if progressSuffix != "" {
-		progressSuffix = muted().Render(progressSuffix)
+	return m.renderTaskRowBase(indent, " ", checkbox, title, "", "", 1, width, bg, true)
+}
+
+// taskRowCols describes the computed width of each column in a task row.
+type taskRowCols struct {
+	checkbox int
+	title    int
+	status   int
+	progress int
+}
+
+// computeTaskRowCols distributes tableWidth among the task row's columns.
+// checkbox is never dropped; title is never dropped; status and progress are
+// dropped whole (in that order) when the table is too narrow.
+func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string) taskRowCols {
+	cols := taskRowCols{checkbox: checkboxWidth}
+
+	statusW := 0
+	progressW := 0
+	if status != "" {
+		statusW = len(status) + 1 // +1 for trailing gap
+	}
+	if progress != "" {
+		progressW = len(progress) + 1 // +1 for trailing gap
 	}
 
-	isSelected := row.Task.ID == m.selectedID
+	// Drop order: progress first, then status
+	if progressW > 0 && tableWidth-statusW-progressW < 1 {
+		progressW = 0
+	}
+	if statusW > 0 && tableWidth-statusW-progressW < 1 {
+		statusW = 0
+	}
+
+	cols.status = statusW
+	cols.progress = progressW
+	cols.title = max(1, tableWidth-statusW-progressW)
+
+	return cols
+}
+
+// statusLabel returns the display label for a task status.
+func statusLabel(status apptypes.Status) string {
+	switch status {
+	case apptypes.StatusPending:
+		return "pending"
+	case apptypes.StatusInProgress:
+		return "in progress"
+	case apptypes.StatusComplete:
+		return "complete"
+	}
+	return ""
+}
+
+// progressLabel returns the display label for an in-progress task's progress,
+// or "" when the task has no progress to show.
+func progressLabel(row apptypes.Row, rows []apptypes.Row) string {
+	if row.Task.Status != apptypes.StatusInProgress {
+		return ""
+	}
+	switch row.Task.ProgressKind {
+	case apptypes.ProgressPercentage:
+		if row.Task.ProgressPct != nil {
+			return fmt.Sprintf("%d%%", *row.Task.ProgressPct)
+		}
+	case apptypes.ProgressSubtasks:
+		pct, displayAsSimple := apptypes.DerivedPercent(rows, row.Task.ID)
+		if !displayAsSimple {
+			return fmt.Sprintf("%d%%", pct)
+		}
+	}
+	return ""
+}
+
+// renderTaskRowBase renders a single task row with the shared column layout.
+func (m *Model) renderTaskRowBase(indent, glyph, checkbox, title, status, progress string,
+	checkboxWidth, width int, bg color.Color, isSelected bool) string {
+// prefix = indent + glyph(1) + space + checkbox + space. The glyph (▾/▸/
+// blank) is a single display cell, so it is counted here rather than with
+// len() (▾ is multi-byte). prefixWidth must equal the columns JoinHorizontal
+// spends on the fixed left side, or the table budget over-runs the panel.
+	glyphWidth := 1
+	prefixWidth := len(indent) + glyphWidth + 1 + checkboxWidth + 1
+	tableWidth := width - prefixWidth
+	if tableWidth < 1 {
+		tableWidth = 1
+	}
+
+	hasStatus := status != ""
+	hasProgress := progress != ""
+	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress)
+
+	checkboxCell := lipgloss.NewStyle().Width(cols.checkbox).Render(checkbox)
+
+	titleText := chrome.Truncate(title, max(1, cols.title-1))
+	titleCell := lipgloss.NewStyle().Width(cols.title).Render(titleText)
+
+	var statusCell, progressCell string
+	if cols.status > 0 && hasStatus {
+		statusCell = lipgloss.NewStyle().
+			Foreground(appstyles.Active.TextMuted).
+			Width(cols.status).
+			Render(chrome.Truncate(status, max(1, cols.status-1)))
+	}
+	if cols.progress > 0 && hasProgress {
+		progressCell = lipgloss.NewStyle().
+			Foreground(appstyles.Active.TextDim).
+			Width(cols.progress).
+			Render(chrome.Truncate(progress, max(1, cols.progress-1)))
+	}
+
+	rowContent := lipgloss.JoinHorizontal(lipgloss.Left,
+		indent,
+		glyph,
+		" ",
+		checkboxCell,
+		" ",
+		titleCell,
+		statusCell,
+		progressCell,
+	)
+
 	rowStyle := lipgloss.NewStyle()
 	if isSelected {
 		rowStyle = rowStyle.Background(appstyles.Active.ModalBg)
 	}
 
-	content := indent + glyph + " " + checkbox + " " + title + progressSuffix
-	return rowStyle.Render(appstyles.FillBackground(bg, content))
-}
-
-// taskRowDropOrder is phase-9's declared order in which a task row's units
-// are shed when the panel narrows (docs/DESIGN.md §12 "Truncation" — shed
-// whole units, never fragments, ever a trailing optional percentage under
-// extreme narrowness). The indent, collapse marker and checkbox are the
-// row's identity and are never shed; the title is truncated grapheme-safely
-// and kept to the last; the trailing progress percentage is the only whole
-// unit a row actively gives up.
-var taskRowDropOrder = []string{"prefix", "title", "progress-pct"}
-
-// fitTitleAndSuffix implements that drop order for the two units that share
-// the panel's remaining columns. The title gets every column minus the fixed
-// prefix and the suffix; chrome.Truncate shortens it grapheme-safely. Only
-// when the title would otherwise be starved to a zero width does the trailing
-// percentage get shed whole — never as a fragment — and its columns handed
-// back to the title, so a task's name always survives at least as well as its
-// optional progress figure.
-func fitTitleAndSuffix(title, suffix string, prefixWidth, width int) (string, string) {
-	titleWidth := width - prefixWidth - len(suffix)
-	if titleWidth < 1 {
-		// progress-pct sheds first, whole ("%" order above); reclaim its width
-		// for the title that almost lost its columns to it.
-		suffix = ""
-		titleWidth = width - prefixWidth
-	}
-	return chrome.Truncate(title, titleWidth), suffix
+	return rowStyle.Render(appstyles.FillBackground(bg, rowContent))
 }
 
 func primary(bold bool) lipgloss.Style {

@@ -33,6 +33,12 @@ type AppModel struct {
 	activeModal       tea.Model
 	lastError         string
 
+	// createDraft is an inline creation the tree has submitted but AppModel has
+	// not yet written. It is resolved against the next RefreshTasksMsg's rows
+	// (fresh from the store) so an insert or delete during typing can't anchor
+	// the new task to a stale selection.
+	createDraft *cmds.CreateTaskFromInputMsg
+
 	components struct {
 		MainMenu      tea.Model
 		KeybindingBar tea.Model
@@ -41,21 +47,37 @@ type AppModel struct {
 	}
 }
 
-// GetInitialModel builds the app model. The lists panel starts hidden
-// (toggled by L), and the task tree starts focused — the app's premise is
-// "spend your time in one list" (docs/DESIGN.md §5), so the tree is where
-// the cursor lands.
+// GetInitialModel builds the app model. The lists panel starts visible,
+// and if the store has no lists yet a default "New List" is created so the
+// add input always has somewhere to create its first task. The task tree is
+// the startup focus zone — the app's premise is "spend your time in one
+// list" (docs/DESIGN.md §5) — so the tree's keys live from the first frame
+// and inline creation can begin before any focus change.
 func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
+	activeListID := ""
+	if s != nil {
+		if lists, err := s.ListLists(); err == nil {
+			if len(lists) > 0 {
+				activeListID = lists[0].List.ID
+			} else {
+				if id, err := s.CreateList("New List"); err == nil {
+					activeListID = id
+				}
+			}
+		}
+	}
+
 	m := AppModel{
 		store:             s,
 		cfg:               cfg,
 		focusedZone:       constants.COMPONENT_TASK_TREE,
-		listsPanelVisible: false,
+		listsPanelVisible: true,
+		activeListID:      activeListID,
 	}
 	m.components.MainMenu = mainmenu.New()
 	m.components.KeybindingBar = keybindingbar.New()
 	m.components.ListsPanel = listspanel.New()
-	m.components.TaskPanel = taskspanel.New(s, "")
+	m.components.TaskPanel = taskspanel.New(s, activeListID)
 	return m
 }
 

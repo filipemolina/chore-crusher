@@ -2,9 +2,11 @@ package model
 
 import (
 	"slices"
+	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/components/confirmmodal"
 	"github.com/filipemolina/chore-crusher/src/components/detailsmodal"
@@ -43,6 +45,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// keyboardOwned reports whether a focused child component has claimed the
+	// keyboard for itself (add input with text, tree typing a /-filter, list
+	// typing a filter). While true, global keys that would steal focus or open
+	// overlays are suppressed so typing is not interrupted.
+	keyboardOwned := func() bool {
+		switch m.focusedZone {
+		case constants.COMPONENT_TASK_TREE:
+			if tasks, ok := m.components.TaskPanel.(interface{ OwnsKeyboard() bool }); ok {
+				return tasks.OwnsKeyboard()
+			}
+		case constants.COMPONENT_LISTS_PANEL:
+			if lists, ok := m.components.ListsPanel.(interface{ OwnsKeyboard() bool }); ok {
+				return lists.OwnsKeyboard()
+			}
+		}
+		return false
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
@@ -53,16 +73,22 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, cmds.OpenHelpModal())
 
 		case key.Matches(msg, keys.Global.Theme):
-			finalCmds = append(finalCmds, cmds.OpenThemePicker())
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, cmds.OpenThemePicker())
+			}
 
 		// / enters the task tree's local filter; F opens the cross-list picker.
 		// Both are global keys — they work whenever no modal owns the
 		// keyboard, focused zone notwithstanding (docs/DESIGN.md §5).
 		case key.Matches(msg, keys.Global.Filter):
-			finalCmds = append(finalCmds, cmds.ActivateFilter())
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, cmds.ActivateFilter())
+			}
 
 		case key.Matches(msg, keys.Global.Picker):
-			finalCmds = append(finalCmds, cmds.OpenSearchPicker())
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, cmds.OpenSearchPicker())
+			}
 
 		case key.Matches(msg, keys.Global.NextPanel):
 			finalCmds = append(finalCmds, m.ChangeFocus(1))
@@ -71,14 +97,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, m.ChangeFocus(-1))
 
 		case key.Matches(msg, keys.Global.ToggleListsPanel):
-			m.listsPanelVisible = !m.listsPanelVisible
-			m.bodyLayout = m.calculateBodyLayout()
-			finalCmds = append(finalCmds, m.broadcastBodyLayout(), m.footerContextCmd())
-			// A panel leaving the layout cannot keep the focus: fall back
-			// to the task tree. A panel entering it is not focused either —
-			// focus stays where it is until tab moves it.
-			if !m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL {
-				finalCmds = append(finalCmds, m.ChangeFocus(1))
+			if !keyboardOwned() {
+				m.listsPanelVisible = !m.listsPanelVisible
+				m.bodyLayout = m.calculateBodyLayout()
+				finalCmds = append(finalCmds, m.broadcastBodyLayout(), m.footerContextCmd())
+				// A panel leaving the layout cannot keep the focus: fall back
+				// to the task tree. A panel entering it is not focused either —
+				// focus stays where it is until tab moves it.
+				if !m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL {
+					finalCmds = append(finalCmds, m.ChangeFocus(1))
+				}
 			}
 
 		// List CRUD keys: only active when lists panel is visible and focused
@@ -119,11 +147,37 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.lists = msg.Lists
-		// First load (or a store emptied since): adopt the first list so
-		// the task tree has something to poll.
-		if m.activeListID == "" && len(msg.Lists) > 0 {
-			m.activeListID = msg.Lists[0].List.ID
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+		if m.activeListID == "" {
+			if len(msg.Lists) > 0 {
+				m.activeListID = msg.Lists[0].List.ID
+				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			} else if m.store != nil {
+				if id, err := m.store.CreateList("New List"); err == nil {
+					m.activeListID = id
+					finalCmds = append(finalCmds, cmds.RefreshLists(m.store))
+				}
+			}
+		} else {
+			// If the active list was deleted (e.g. by a test or the user),
+			// fall back to the first remaining list, or create a new one.
+			found := false
+			for _, l := range msg.Lists {
+				if l.List.ID == m.activeListID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				if len(msg.Lists) > 0 {
+					m.activeListID = msg.Lists[0].List.ID
+					finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+				} else if m.store != nil {
+					if id, err := m.store.CreateList("New List"); err == nil {
+						m.activeListID = id
+						finalCmds = append(finalCmds, cmds.RefreshLists(m.store))
+					}
+				}
+			}
 		}
 		finalCmds = append(finalCmds, m.footerContextCmd())
 
@@ -131,6 +185,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.lastError = msg.Err.Error()
 			break
+		}
+		if draftCmd := m.applyCreateDraft(msg.Rows); draftCmd != nil {
+			finalCmds = append(finalCmds, draftCmd)
 		}
 		finalCmds = append(finalCmds, m.footerContextCmd())
 
@@ -177,6 +234,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeListID != "" {
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 			finalCmds = append(finalCmds, cmds.SetSelection(msg.NewID, msg.Depth))
+		}
+
+	case cmds.CreateTaskFromInputMsg:
+		// The task tree's inline input submitted a draft. Don't create yet:
+		// resolve the insertion against the freshest rows on the next
+		// RefreshTasksMsg, so a poll or delete during typing can't anchor the
+		// new task to a stale selection.
+		m.createDraft = &msg
+		if m.activeListID != "" {
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
 
 	case cmds.ToggleTaskMsg:
@@ -260,14 +327,15 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 
 // focusableZones is the computed focus cycle (docs/DESIGN.md §5, step 4 of
 // the phase-3 plan): the task tree always, the lists panel only while it is
-// visible, the add input always. A static slice could not express the lists
-// panel entering and leaving the cycle at runtime.
+// visible. Inline creation lives inside the tree, so there is no separate add
+// input zone to cycle to — a static slice could not express the lists panel
+// entering and leaving the cycle at runtime.
 func (m AppModel) focusableZones() []int {
 	zones := []int{constants.COMPONENT_TASK_TREE}
 	if m.listsPanelVisible {
 		zones = append(zones, constants.COMPONENT_LISTS_PANEL)
 	}
-	return append(zones, constants.COMPONENT_ADD_INPUT)
+	return zones
 }
 
 // ChangeFocus moves focus delta steps through the computed cycle (tab +1,
@@ -290,4 +358,73 @@ func (m *AppModel) ChangeFocus(delta int) tea.Cmd {
 func (m AppModel) broadcastBodyLayout() tea.Cmd {
 	l := m.bodyLayout
 	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.MainWidth, l.TerminalWidth)
+}
+
+// applyCreateDraft resolves a pending inline creation against the just-refreshed
+// rows, writes the task through the store, and returns the commands that move
+// the tree's selection onto the new task and re-fetch the rows (now including
+// it). It is a no-op when no creation is pending or when there is no active
+// list. The draft is always cleared, so a second resolution pass can't create
+// the task twice.
+func (m *AppModel) applyCreateDraft(rows []apptypes.Row) tea.Cmd {
+	if m.createDraft == nil || m.activeListID == "" {
+		return nil
+	}
+	draft := *m.createDraft
+	m.createDraft = nil
+
+	parentID, afterID, depth := resolveCreateLocation(rows, draft)
+	title := strings.TrimSpace(draft.Title)
+	if title == "" {
+		return nil
+	}
+
+	newID, err := m.store.CreateTaskAfter(m.activeListID, title, parentID, "", afterID)
+	if err != nil {
+		m.lastError = err.Error()
+		return nil
+	}
+	return tea.Batch(
+		cmds.CreateTaskConfirmed(newID, depth),
+		cmds.RefreshTasks(m.store, m.activeListID),
+	)
+}
+
+// resolveCreateLocation maps a create draft onto a concrete store insertion
+// point, using the freshest rows. The create-before anchor is the selected
+// task; LevelOffset selects the relationship, mirroring addinput's
+// levelOffset semantics (docs/DESIGN.md §12): +1 inserts as its first child,
+// 0 inserts as its next sibling, -1 inserts as a sibling of its parent.
+func resolveCreateLocation(rows []apptypes.Row, draft cmds.CreateTaskFromInputMsg) (parentID *string, afterID string, depth int) {
+	ref := findRowByID(rows, draft.BeforeID)
+	switch draft.LevelOffset {
+	case 1: // first child of the anchor
+		if ref != nil {
+			return &ref.Task.ID, "", ref.Depth + 1
+		}
+		return nil, "", 0
+	case -1: // sibling of the anchor's parent (insert after the parent)
+		if ref != nil && ref.Task.ParentID != nil {
+			if parent := findRowByID(rows, *ref.Task.ParentID); parent != nil {
+				return parent.Task.ParentID, *ref.Task.ParentID, ref.Depth - 1
+			}
+		}
+		return nil, "", 0
+	default: // 0: next sibling of the anchor
+		if ref != nil {
+			return ref.Task.ParentID, ref.Task.ID, ref.Depth
+		}
+		return nil, "", 0
+	}
+}
+
+// findRowByID returns the row carrying the given task id, or nil if the id is
+// not present in rows (e.g. the anchor was deleted while typing).
+func findRowByID(rows []apptypes.Row, id string) *apptypes.Row {
+	for i := range rows {
+		if rows[i].Task.ID == id {
+			return &rows[i]
+		}
+	}
+	return nil
 }

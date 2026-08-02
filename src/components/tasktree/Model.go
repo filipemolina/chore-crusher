@@ -42,6 +42,16 @@ type Model struct {
 	// picker jumped to a list that has not loaded); applyRows honours it on
 	// the first refresh that contains the id.
 	pendingSelect string
+
+	// Inline creation state. While creating is true the tree takes every
+	// keystroke for itself and renders a special "new task" row at the
+	// computed insertion point (task-row redesign + inline creation,
+	// docs/plans/task-row-redesign-and-inline-creation.md).
+	creating        bool
+	createManual    bool   // true if entered via n (cancelable); false if auto for an empty list
+	createBeforeID  string   // reference task (new row inserts immediately after); "" = append at end
+	createInput     textinput.Model
+	createLevelOffset int    // -1 = parent, 0 = sibling, +1 = child
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -52,6 +62,22 @@ func New() tea.Model {
 		collapsed:   make(map[string]bool),
 		filterInput: textinput.New(),
 	}
+}
+
+// OwnsKeyboard reports whether the tree is taking every keystroke for itself,
+// which it does while the user is typing a filter: T, F and L are letters then,
+// not commands. Only while typing - once a filter is applied and the cursor is
+// back in the rows, the panel keys mean what they always mean, and esc clears
+// the filter. See AppModel.keyboardOwned.
+func (m Model) OwnsKeyboard() bool {
+	return m.filterTyping || m.creating
+}
+
+// KeepsEsc reports whether the tree needs esc for itself: an applied filter
+// is cleared by esc alone, and the key only reaches the tree while the tree
+// is focused. AppModel's "back" checks this before it takes focus away.
+func (m Model) KeepsEsc() bool {
+	return m.focused && (m.filterApplied || m.creating)
 }
 
 // Rows returns the tree's current (unfiltered) rows. The model's tests read
@@ -80,6 +106,12 @@ func (m *Model) applyRows(rows []apptypes.Row) {
 	if len(rows) == 0 {
 		m.rows = nil
 		m.selectedID = ""
+		// An empty active list renders the inline input as its only content:
+		// the input row IS the empty state (inline-creation plan, "Empty
+		// state"). Esc on an empty input never leaves this mode.
+		if m.activeList && !m.creating {
+			m.startCreatingAuto()
+		}
 		return
 	}
 
@@ -160,9 +192,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmds.SetSelection(row.Task.ID, row.Depth)
 		}
 
+	case cmds.StartCreatingMsg:
+		m.StartCreating(m.selectedID)
+		return m, m.createInput.Focus()
+
+	case cmds.CreateTaskConfirmedMsg:
+		// The store created a task from the inline input. Keep creating for
+		// rapid entry: drop the draft's title, anchor the next create row on
+		// the new task, and move the cursor onto it. SetSelection is a no-op
+		// until the new task is present in rows (it arrives on the refresh
+		// triggered by applyCreateDraft).
+		m.ResetCreateInput(msg.NewID)
+		m.selectedID = msg.NewID
+		if row := m.findRow(msg.NewID); row != nil {
+			return m, cmds.SetSelection(row.Task.ID, row.Depth)
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
-		if !m.focused || len(m.rows) == 0 {
+		if !m.focused {
 			return m, nil
+		}
+
+		// While creating, every keystroke goes to the textinput except
+		// the creation-specific shortcuts.
+		if m.creating {
+			return m.handleCreatingKey(msg)
 		}
 
 		// While the filter input is open it claims the keyboard.
@@ -174,6 +229,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// unfiltered view; navigation moves through the filtered rows.
 		if m.filterApplied && key.Matches(msg, keys.Overlay.Cancel) {
 			m.clearFilter()
+			return m, nil
+		}
+
+		// Tree navigation shortcuts are only relevant while there are
+		// rows; an empty tree falls through so the bar can show only
+		// the keys that make sense.
+		if len(m.rows) == 0 {
 			return m, nil
 		}
 
@@ -195,6 +257,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Tree.OpenDetails):
 			if m.selectedID != "" {
 				return m, cmds.OpenDetails(m.selectedID)
+			}
+		case key.Matches(msg, keys.Tree.New):
+			// If already creating, let the create handler run (it
+			// simply returns). Otherwise enter creating mode at the
+			// insertion point after the selected task.
+			m.StartCreating(m.selectedID)
+			return m, m.createInput.Focus()
+		case key.Matches(msg, keys.Tree.Delete):
+			if m.selectedID != "" {
+				return m, cmds.DeleteTask(m.selectedID)
 			}
 		}
 
@@ -348,6 +420,37 @@ func (m *Model) findRow(taskID string) *apptypes.Row {
 	return nil
 }
 
+// selectedDepth returns the depth of the currently selected task, or 0 when
+// nothing is selected (used to validate the level offset at the root).
+func (m Model) selectedDepth() int {
+	if row := m.findRow(m.selectedID); row != nil {
+		return row.Depth
+	}
+	return 0
+}
+
+// nextCreateOffset computes the inline-creation level offset after a tab or
+// shift-tab, mirroring the exact table in docs/plans/phase-5-add-input.md §2
+// (and the addinput package's tested nextOffset): clamped to [-1, +1], and
+// shift-tab is a no-op at the root with the default offset. Pure so the full
+// table can be pinned without constructing key messages.
+func nextCreateOffset(current, selectedDepth int, shift bool) int {
+	if shift {
+		// shift-tab is a no-op when already at the default offset on a root
+		// task: there is no level above root.
+		if selectedDepth == 0 && current == 0 {
+			return 0
+		}
+		// Only decrement when the resulting depth is valid (>= -1).
+		resulting := selectedDepth + current - 1
+		if resulting >= -1 {
+			return max(current-1, -1)
+		}
+		return current
+	}
+	return min(current+1, 1)
+}
+
 // toggleComplete asks AppModel to toggle the selected task. The actual
 // store.Toggle call lives in AppModel so the tree stays decoupled from the
 // store; AppModel refreshes the rows immediately after a successful toggle
@@ -421,4 +524,116 @@ func matchVisible(rows []apptypes.Row, query string) ([]apptypes.Row, map[string
 func gutterFilterWidth(mainWidth int) int {
 	w := chrome.PanelBodyWidth(mainWidth)
 	return max(0, w-6)
+}
+
+// StartCreating enters inline creation mode, placing the input row after
+// the given task id (empty string appends at the end).
+func (m *Model) StartCreating(beforeID string) {
+	m.startCreating(beforeID, true)
+}
+
+// startCreatingAuto enters inline creation mode for an empty active list.
+// It differs from StartCreating in that esc on an empty input is a no-op:
+// the input is the only way to add a task, so it never leaves on its own.
+func (m *Model) startCreatingAuto() {
+	m.startCreating("", false)
+}
+
+func (m *Model) startCreating(beforeID string, manual bool) {
+	m.creating = true
+	m.createManual = manual
+	m.createBeforeID = beforeID
+	m.createLevelOffset = 0
+	m.createInput = textinput.New()
+	m.createInput.Prompt = ""
+	m.createInput.Placeholder = "new task"
+	m.createInput.Focus()
+}
+
+// CancelCreating exits inline creation mode and resets the input.
+func (m *Model) CancelCreating() {
+	m.creating = false
+	m.createBeforeID = ""
+	m.createLevelOffset = 0
+	m.createInput.Blur()
+	m.createInput.Reset()
+}
+
+// CreateDraft returns the current input value as a draft task, or false
+// when the input is empty.
+func (m Model) CreateDraft() (title string, beforeID string, levelOffset int, ok bool) {
+	if !m.creating || strings.TrimSpace(m.createInput.Value()) == "" {
+		return "", "", 0, false
+	}
+	return m.createInput.Value(), m.createBeforeID, m.createLevelOffset, true
+}
+
+// ResetCreateInput clears the input and moves the insertion point to the
+// next after-id, keeping creating mode active for rapid entry.
+func (m *Model) ResetCreateInput(nextBeforeID string) {
+	m.createInput.Reset()
+	m.createBeforeID = nextBeforeID
+	m.createLevelOffset = 0
+}
+
+// IsCreating reports whether the tree is in inline creation mode.
+func (m Model) IsCreating() bool {
+	return m.creating
+}
+
+// handleCreatingKey processes keystrokes while the inline input is active.
+// Enter creates a draft, Esc cancels or clears, Tab/Shift+Tab change level,
+// and everything else types into the input.
+func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if key.Matches(msg, keys.Overlay.Submit) {
+		if title, beforeID, levelOffset, ok := m.CreateDraft(); ok {
+			return m, cmds.CreateTaskFromInput(title, beforeID, levelOffset)
+		}
+		return m, nil
+	}
+
+	if key.Matches(msg, keys.Overlay.Cancel) {
+		if strings.TrimSpace(m.createInput.Value()) != "" {
+			// esc with text clears the buffer but stays in creating mode.
+			m.createInput.Reset()
+			return m, nil
+		}
+		// Empty input: on a truly empty list the input is the only way to
+		// add a task, so esc is a no-op and keeps the row there. As soon as
+		// the list has rows (or we are in manual n-mode), esc leaves.
+		if !m.createManual && len(m.rows) == 0 {
+			return m, nil
+		}
+		m.CancelCreating()
+		return m, nil
+	}
+
+	if key.Matches(msg, key.NewBinding(key.WithKeys("tab"))) {
+		m.createLevelOffset = nextCreateOffset(m.createLevelOffset, m.selectedDepth(), false)
+		return m, nil
+	}
+
+	if key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))) {
+		m.createLevelOffset = nextCreateOffset(m.createLevelOffset, m.selectedDepth(), true)
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.createInput, cmd = m.createInput.Update(msg)
+	return m, cmd
+}
+
+// creationIndex returns the visible index at which the create row should be
+// inserted. If createBeforeID is empty, the row appends at the end.
+func (m *Model) creationIndex() int {
+	visible := m.displayedRows()
+	if m.createBeforeID == "" {
+		return len(visible)
+	}
+	for i, r := range visible {
+		if r.Task.ID == m.createBeforeID {
+			return i + 1
+		}
+	}
+	return len(visible)
 }

@@ -1,6 +1,7 @@
 package chrome
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -125,7 +126,7 @@ func TestEmptyStateCardFillsBoxAndSeals(t *testing.T) {
 			appstyles.Active = theme
 			defer func() { appstyles.Active = orig }()
 
-			card := EmptyStateCard("nothing here yet", 40, 6)
+			card := EmptyStateCard("nothing here yet", 40, 6, color.White)
 			if got, want := lipgloss.Width(card), 40; got != want {
 				t.Errorf("EmptyStateCard width = %d, want %d", got, want)
 			}
@@ -140,7 +141,7 @@ func TestEmptyStateCardFillsBoxAndSeals(t *testing.T) {
 }
 
 func TestEmptyStateCardZeroBox(t *testing.T) {
-	if got := EmptyStateCard("x", 0, 5); got != "" {
+	if got := EmptyStateCard("x", 0, 5, color.White); got != "" {
 		t.Errorf("zero width should render nothing, got %q", got)
 	}
 }

@@ -23,7 +23,7 @@ func layoutModel(t *testing.T, focus int) Model {
 	return panel
 }
 
-func TestTasksSurfaceHasOneTitleAndPinnedInput(t *testing.T) {
+func TestTasksSurfaceRendersSinglePanel(t *testing.T) {
 	panel := layoutModel(t, constants.COMPONENT_TASK_TREE)
 	view := panel.View().Content
 	stripped := ansi.Strip(view)
@@ -37,16 +37,23 @@ func TestTasksSurfaceHasOneTitleAndPinnedInput(t *testing.T) {
 	if got, want := lipgloss.Height(view), 12; got != want {
 		t.Errorf("Tasks surface height = %d, want %d", got, want)
 	}
-	if strings.LastIndex(stripped, "new task") < strings.LastIndex(stripped, "Add a task to get started") {
-		t.Errorf("input is not below task content: %q", stripped)
+	// The add input is gone: inline creation now lives in the tree, so the old
+	// bottom-pinned footer placeholder ("new task") must not render. The tree's
+	// own empty-state text ("Add a task to get started") is expected here for
+	// a nil-store panel and is unrelated to the evicted footer.
+	if strings.Contains(stripped, "new task") {
+		t.Errorf("add-input footer placeholder still rendered: %q", stripped)
 	}
 }
 
-func TestTreeAndInputFocusKeepOneTasksSurface(t *testing.T) {
-	for _, focus := range []int{constants.COMPONENT_TASK_TREE, constants.COMPONENT_ADD_INPUT} {
+func TestTasksSurfaceRendersOnePanelWhetherFocused(t *testing.T) {
+	// The task tree is the only focus zone left in the Tasks surface; a
+	// non-task-tree focus (lists) simply leaves the panel unfocused. In both
+	// cases exactly one "Tasks" panel renders.
+	for _, focus := range []int{constants.COMPONENT_TASK_TREE, constants.COMPONENT_LISTS_PANEL} {
 		panel := layoutModel(t, focus)
-		view := ansi.Strip(panel.View().Content)
-		if got := strings.Count(view, "Tasks"); got != 1 {
+		stripped := ansi.Strip(panel.View().Content)
+		if got := strings.Count(stripped, "Tasks"); got != 1 {
 			t.Errorf("focus %d: Tasks title count = %d, want 1", focus, got)
 		}
 	}

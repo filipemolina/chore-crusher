@@ -2,19 +2,19 @@ package chrome
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
-// WrapperStyle is the frame every zone renders inside: Padding(1, 2), fixed.
+// WrapperStyle is the frame every zone renders inside: Padding(0).
 // No component sets its own padding value - the shared frame is what keeps a
 // section header's left edge, a checkbox's left edge, and the add input's
 // left edge all landing on the same column when the zones stack vertically
 // in the main panel (docs/DESIGN.md §12 "One shared frame"). Its frame size
 // is subtracted from the zone box when inner content is sized.
-var WrapperStyle = lipgloss.NewStyle().
-	Padding(1, 2)
+var WrapperStyle = lipgloss.NewStyle()
 
 // FitBox constrains a style to an exact w x h box: Width/Height pad it out,
 // Max* clip anything that would otherwise overflow (Width alone pads but
@@ -46,20 +46,13 @@ func PanelBg(isFocused bool) color.Color {
 	return appstyles.Active.BackgroundPanel
 }
 
-// ModalSurface wraps a modal's content in the shared modal chrome: an accent
-// rounded border, padding, and a background sealed against `bg` so the modal
-// reads as one opaque surface over the page it is composited onto. Modals in
-// particular cannot afford an unpainted cell - the page shows through it.
-//
-// BorderBackground is set explicitly because lipgloss leaves border cells on
-// the default background otherwise, which outlines the modal in the terminal's
-// color.
+// ModalSurface wraps a modal's content in the shared modal chrome: padding
+// and a background sealed against `bg` so the modal reads as one opaque
+// surface over the page it is composited onto. Modals in particular cannot
+// afford an unpainted cell - the page shows through it.
 func ModalSurface(bg color.Color, content string) string {
 	style := lipgloss.NewStyle().
 		Padding(1, 2).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(appstyles.Active.Accent).
-		BorderBackground(bg).
 		Background(bg)
 
 	return appstyles.FillBackground(bg, style.Render(content))
@@ -100,4 +93,34 @@ const modalListChrome = 9
 // and a terminal that short cannot show the modal's own chrome either.
 func ModalListHeight(items, termHeight int) int {
 	return min(items, max(3, termHeight-modalListChrome))
+}
+
+// ListWrapperStyle is the frame around the body lists. Its padding is
+// what separates the list content from the panel edges, and its frame size is
+// subtracted from the panel box when the inner list is sized.
+var ListWrapperStyle = lipgloss.NewStyle().
+	Padding(1, 2, 2, 2)
+
+// ListRowBg is the background a list row renders on. The active row is lifted
+// to the surface tier; every other row sits flush on its panel's tier. Rows
+// need an explicit background (rather than inheriting the panel's) because each
+// row is rendered and sealed on its own - see appstyles.FillBackground.
+func ListRowBg(isActive bool, isParentFocused bool) color.Color {
+	if isActive {
+		return appstyles.Active.ModalBg
+	}
+	return PanelBg(isParentFocused)
+}
+
+// BarColumn renders the nav's ▌ indicator once per line of content, so the
+// bar spans a multi-line row's full height instead of a sliver at its top.
+// bg may be nil to leave the cell background unset.
+func BarColumn(fg color.Color, bg color.Color, content string) string {
+	style := lipgloss.NewStyle().Foreground(fg)
+	if bg != nil {
+		style = style.Background(bg)
+	}
+	lines := max(1, strings.Count(content, "\n")+1)
+	bar := style.Render("▌")
+	return strings.Repeat(bar+"\n", lines-1) + bar
 }

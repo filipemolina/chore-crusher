@@ -204,35 +204,35 @@ func TestTaskTreeStartsFocused(t *testing.T) {
 	}
 }
 
-// Tab moves focus through the computed cycle; hiding the lists panel removes
-// it from the cycle, and hiding it while focused falls back to the tree.
+// ctrl+left/right move focus through the computed cycle: the task tree and,
+// when visible, the lists panel. With the lists panel hidden the cycle is a
+// single zone, so cycling is a no-op rather than landing on an invisible
+// panel (docs/DESIGN.md §5). There is no add-input zone anymore: inline
+// creation lives inside the tree and takes keystrokes via OwnsKeyboard.
 func TestChangeFocusFollowsComputedCycle(t *testing.T) {
 	m := startup(120, 40)
 
-	// With the lists panel hidden (default), the cycle is tree -> add input.
+	// Hidden lists: only the task tree is focusable, so cycling stays put.
+	m.listsPanelVisible = false
 	m.focusedZone = constants.COMPONENT_TASK_TREE
 	m.ChangeFocus(1)
-	if m.focusedZone != constants.COMPONENT_ADD_INPUT {
-		t.Errorf("tab from tree (hidden lists): got zone %d, want add input", m.focusedZone)
-	}
-	m.ChangeFocus(1)
 	if m.focusedZone != constants.COMPONENT_TASK_TREE {
-		t.Errorf("tab from add input (hidden lists): got zone %d, want tree", m.focusedZone)
+		t.Errorf("ctrl+right from tree (hidden lists): got zone %d, want task tree", m.focusedZone)
+	}
+	m.ChangeFocus(-1)
+	if m.focusedZone != constants.COMPONENT_TASK_TREE {
+		t.Errorf("ctrl+left from tree (hidden lists): got zone %d, want task tree", m.focusedZone)
 	}
 
-	// Make the lists panel visible: cycle becomes tree -> lists -> add input.
+	// Visible lists: tree <-> lists.
 	m.listsPanelVisible = true
 	m.focusedZone = constants.COMPONENT_TASK_TREE
 	m.ChangeFocus(1)
 	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
-		t.Errorf("tab from tree: got zone %d, want lists panel", m.focusedZone)
+		t.Errorf("ctrl+right from tree: got zone %d, want lists panel", m.focusedZone)
 	}
-	m.ChangeFocus(1)
-	if m.focusedZone != constants.COMPONENT_ADD_INPUT {
-		t.Errorf("tab from lists: got zone %d, want add input", m.focusedZone)
-	}
-	m.ChangeFocus(1)
+	m.ChangeFocus(-1)
 	if m.focusedZone != constants.COMPONENT_TASK_TREE {
-		t.Errorf("tab from add input: got zone %d, want tree", m.focusedZone)
+		t.Errorf("ctrl+left from lists: got zone %d, want task tree", m.focusedZone)
 	}
 }

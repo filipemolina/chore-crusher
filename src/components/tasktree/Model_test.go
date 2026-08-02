@@ -1,9 +1,14 @@
 package tasktree
 
 import (
+	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/cmds"
 )
 
 // rows builds a flat list of n root tasks with ids "1".."n".
@@ -159,5 +164,208 @@ func TestFirstLoadSelectsFirstRow(t *testing.T) {
 
 	if m.selectedID != "1" {
 		t.Errorf("selection = %q, want %q (first row)", m.selectedID, "1")
+	}
+}
+
+// namedRows is like rows but gives each task a title equal to its id, so the
+// rendered text is distinguishable for ordering assertions.
+func namedRows(n int) []apptypes.Row {
+	out := make([]apptypes.Row, n)
+	for i := range out {
+		out[i] = apptypes.Row{Task: apptypes.Task{ID: string(rune('1' + i)), Title: string(rune('1' + i))}}
+	}
+	return out
+}
+
+// nextCreateOffset mirrors the exact table from docs/plans/phase-5-add-input.md §2.
+func TestNextCreateOffset(t *testing.T) {
+	cases := []struct {
+		name           string
+		current        int
+		selectedDepth  int
+		shift          bool
+		want           int
+	}{
+		{"root at 0, tab", 0, 0, false, 1},
+		{"root at 0, shift+tab", 0, 0, true, 0},
+		{"root at +1, tab clamps", 1, 0, false, 1},
+		{"root at +1, shift+tab", 1, 0, true, 0},
+		{"depth 2 at 0, shift+tab", 0, 2, true, -1},
+		{"depth 2 at -1, shift+tab clamps", -1, 2, true, -1},
+		{"depth 2 at -1, tab", -1, 2, false, 0},
+		{"depth 2 at 0, tab", 0, 2, false, 1},
+		{"depth 2 at +1, tab clamps", 1, 2, false, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := nextCreateOffset(c.current, c.selectedDepth, c.shift)
+			if got != c.want {
+				t.Errorf("nextCreateOffset(%d, %d, shift=%v) = %d, want %d",
+					c.current, c.selectedDepth, c.shift, got, c.want)
+			}
+		})
+	}
+}
+
+func TestStartCreatingEntersCreateMode(t *testing.T) {
+	m := &Model{}
+	m.applyRows(rows(3))
+	m.selectedID = "2"
+	m.StartCreating("2")
+
+	if !m.creating {
+		t.Error("StartCreating should enter creating mode")
+	}
+	if !m.createManual {
+		t.Error("StartCreating should mark the mode manual (cancelable via esc)")
+	}
+	if m.createBeforeID != "2" || m.createLevelOffset != 0 {
+		t.Errorf("state = before %q offset %d, want 2/0", m.createBeforeID, m.createLevelOffset)
+	}
+}
+
+// An empty active list auto-enters the non-cancelable inline creation mode:
+// the input row is the empty state, so esc on an empty input must not leave.
+func TestEmptyListAutoCreates(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	m.applyRows(nil)
+
+	if !m.creating {
+		t.Fatal("empty active list should auto-enter creating mode")
+	}
+	if m.createManual {
+		t.Error("auto-create for an empty list must not be manual")
+	}
+	if m.createBeforeID != "" {
+		t.Errorf("createBeforeID = %q, want \"\" (append at end)", m.createBeforeID)
+	}
+}
+
+func TestOwnsKeyboardAndKeepsEscWhileCreating(t *testing.T) {
+	m := &Model{}
+	m.focused = true
+	m.StartCreating("1")
+
+	if !m.OwnsKeyboard() {
+		t.Error("creating tree should own the keyboard so globals are suppressed")
+	}
+	if !m.KeepsEsc() {
+		t.Error("creating tree should keep esc to cancel/clear")
+	}
+}
+
+func TestRenderCreateRowShowsPlaceholder(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	m.applyRows(nil) // auto-creating on an empty list
+
+	rendered := ansi.Strip(m.ViewInPanel(60, 24, appstyles.Active.BackgroundPanel))
+	if !strings.Contains(rendered, "new task") {
+		t.Errorf("expected 'new task' placeholder in empty-list create row, got: %q", rendered)
+	}
+}
+
+func TestCreateRowAppearsAfterSelected(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	m.applyRows(namedRows(3))
+	m.selectedID = "2"
+	m.StartCreating("2")
+
+	rendered := ansi.Strip(m.ViewInPanel(80, 24, appstyles.Active.BackgroundPanel))
+	iSel := strings.Index(rendered, "2")
+	iCreate := strings.Index(rendered, "new task")
+	if iSel < 0 || iCreate < 0 {
+		t.Fatalf("rendered = %q", rendered)
+	}
+	if iCreate < iSel {
+		t.Errorf("create row rendered before selected task: selected@%d create@%d", iSel, iCreate)
+	}
+}
+
+func TestCreateRowGlyphForLevelOffset(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	m.applyRows(nil)
+	for _, c := range []struct{ offset int; glyph string }{
+		{0, "-"}, {1, "+"}, {-1, "^"},
+	} {
+		m.createLevelOffset = c.offset
+		rendered := ansi.Strip(m.ViewInPanel(60, 24, appstyles.Active.BackgroundPanel))
+		if !strings.Contains(rendered, c.glyph) {
+			t.Errorf("offset %d: expected glyph %q in %q", c.offset, c.glyph, rendered)
+		}
+	}
+}
+
+func TestEscWithTextStaysCreating(t *testing.T) {
+	m := &Model{}
+	m.StartCreating("")
+	m.createInput.SetValue("half typed")
+
+	if _, _ = m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc}); !m.creating {
+		t.Fatal("esc with text should keep creating mode")
+	}
+	if m.createInput.Value() != "" {
+		t.Errorf("esc with text should clear input, got %q", m.createInput.Value())
+	}
+}
+
+func TestEscCancelsManualEmpty(t *testing.T) {
+	m := &Model{}
+	m.StartCreating("") // manual, empty input
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.creating {
+		t.Error("esc on empty manual input should cancel creating mode")
+	}
+}
+
+func TestEscStaysOnAutoEmpty(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	m.applyRows(nil) // auto, empty input
+	if m.createInput.Value() != "" {
+		t.Fatalf("expected empty input, got %q", m.createInput.Value())
+	}
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if !m.creating {
+		t.Error("esc on empty auto (empty-list) input should NOT cancel creating")
+	}
+}
+
+func TestEnterEmitsCreateTaskFromInput(t *testing.T) {
+	m := &Model{}
+	m.StartCreating("")
+	m.createInput.SetValue("buy milk")
+
+	_, cmd := m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter with text should emit a CreateTaskFromInput command")
+	}
+	msg := cmd()
+	msgTyped, ok := msg.(cmds.CreateTaskFromInputMsg)
+	if !ok {
+		t.Fatalf("command produced %T, want cmds.CreateTaskFromInputMsg", msg)
+	}
+	if msgTyped.Title != "buy milk" {
+		t.Errorf("Title = %q, want %q", msgTyped.Title, "buy milk")
+	}
+}
+
+func TestTabChangesLevelOffset(t *testing.T) {
+	m := &Model{}
+	m.applyRows(namedRows(3))
+	m.selectedID = "1"
+	m.StartCreating("1")
+
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.createLevelOffset != 1 {
+		t.Errorf("tab: offset = %d, want 1", m.createLevelOffset)
+	}
+	// clamped at +1
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.createLevelOffset != 1 {
+		t.Errorf("second tab: offset = %d, want 1 (clamped)", m.createLevelOffset)
 	}
 }
