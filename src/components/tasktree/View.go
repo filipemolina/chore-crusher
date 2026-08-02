@@ -1,6 +1,7 @@
 package tasktree
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -111,11 +112,43 @@ func (m *Model) renderRow(row apptypes.Row, width int) string {
 		checkbox = "[ ]"
 	}
 
-	title := chrome.Truncate(row.Task.Title, width-len(indent)-3)
+	// Calculate available width for title + progress suffix
+	prefixWidth := len(indent) + 3 // indent + glyph + space + checkbox + space
+
+	// Compute progress suffix if applicable
+	var progressSuffix string
+	if row.Task.Status == apptypes.StatusInProgress {
+		switch row.Task.ProgressKind {
+		case apptypes.ProgressPercentage:
+			if row.Task.ProgressPct != nil {
+				progressSuffix = fmt.Sprintf(" (%d%%)", *row.Task.ProgressPct)
+			}
+		case apptypes.ProgressSubtasks:
+			pct, displayAsSimple := apptypes.DerivedPercent(m.rows, row.Task.ID)
+			if !displayAsSimple {
+				progressSuffix = fmt.Sprintf(" (%d%%)", pct)
+			}
+		}
+	}
+
+	// Truncate title to fit the suffix
+	suffixWidth := len(progressSuffix)
+	titleWidth := width - prefixWidth - suffixWidth
+	if titleWidth < 1 {
+		// No room for title, show nothing
+		titleWidth = 0
+	}
+	title := chrome.Truncate(row.Task.Title, titleWidth)
+
 	if row.Task.Status == apptypes.StatusComplete {
 		title = muted().Render(title)
 	} else {
 		title = lipgloss.NewStyle().Foreground(textStyle).Render(title)
+	}
+
+	// Render progress suffix in TextMuted
+	if progressSuffix != "" {
+		progressSuffix = muted().Render(progressSuffix)
 	}
 
 	isSelected := row.Task.ID == m.selectedID
@@ -124,7 +157,7 @@ func (m *Model) renderRow(row apptypes.Row, width int) string {
 		rowStyle = rowStyle.Background(appstyles.Active.ModalBg)
 	}
 
-	content := indent + glyph + " " + checkbox + " " + title
+	content := indent + glyph + " " + checkbox + " " + title + progressSuffix
 	return rowStyle.Render(appstyles.FillBackground(
 		chrome.PanelBg(isSelected),
 		content,

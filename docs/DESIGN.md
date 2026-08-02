@@ -240,14 +240,24 @@ for this app.
 
 **`space` toggles complete/pending** on the selected task, from wherever the
 tree has focus — it does not open anything and does not move the cursor.
-**`enter`** on a selected tree row opens the details screen (§so it can't
+**`enter`** on a selected tree row opens the details screen — so it can't
 also mean "toggle complete"; the two are deliberately different keys because
 "open a thing" and "flip a checkbox" are different enough actions that
 collapsing them into one key is what makes an app feel like a demo rather
-than a tool). Note the asymmetry with stack-stitcher, which binds `Select` to
+than a tool. Note the asymmetry with stack-stitcher, which binds `Select` to
 *both* `space` and `enter` — that works there because both mean "start"; here
 they must mean two different things, so they are two different bindings from
 the start rather than one alias split apart later.
+
+Inside the details screen (phase 7): **`ctrl+s`** saves notes and progress
+changes; **`tab`** cycles between the notes editor and the progress selector;
+**`←`/`→`** (or `h`/`l`) cycle through the three progress modes
+(`simple`/`subtasks`/`percentage`); `esc` closes with a discard-changes prompt
+if anything is unsaved.
+
+**Task renaming** in the TUI is not implemented yet — the details screen shows
+the title read-only. A rename gesture (if added to the TUI before phase 9) should
+be recorded here in §5 alongside the other task-tree keybindings.
 
 `esc` follows the same "ladder of claims" stack-stitcher documents: a modal
 (details screen, theme picker, confirm) closes itself first; the add input

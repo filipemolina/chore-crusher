@@ -71,6 +71,16 @@ type ListsPanelKeys struct {
 	Delete   key.Binding
 }
 
+// DetailsKeys act inside the details screen modal: saving, cycling between
+// notes and progress editor zones, cycling progress modes, and entering
+// percentages. Phase 7 (docs/plans/phase-7-details-screen.md).
+type DetailsKeys struct {
+	Save         key.Binding
+	NextField    key.Binding
+	CycleMode    key.Binding
+	CycleModeBack key.Binding
+}
+
 // OverlayKeys are the keys every modal answers to. Cancel is one binding for
 // every overlay in the app, so "esc backs out" needs no exceptions.
 type OverlayKeys struct {
@@ -113,6 +123,13 @@ var Lists = ListsPanelKeys{
 	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
 	Rename:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
 	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete list")),
+}
+
+var Details = DetailsKeys{
+	Save:          key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
+	NextField:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
+	CycleMode:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next mode")),
+	CycleModeBack:  key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev mode")),
 }
 
 var Overlay = OverlayKeys{
@@ -211,6 +228,12 @@ func Catalog(ctx Context) []Scope {
 			Title: "Task Tree",
 			Entries: entries(
 				Tree.Navigate, Tree.Expand, Tree.Collapse, Tree.Toggle, Tree.OpenDetails,
+			),
+		},
+		{
+			Title: "Details",
+			Entries: entries(
+				Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack,
 			),
 		},
 	}

@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-completer/src/cmds"
 	"github.com/filipemolina/chore-completer/src/components/confirmmodal"
+	"github.com/filipemolina/chore-completer/src/components/detailsmodal"
 	"github.com/filipemolina/chore-completer/src/components/helpoverlay"
 	"github.com/filipemolina/chore-completer/src/components/listnamemodal"
 	"github.com/filipemolina/chore-completer/src/components/themepickermodal"
@@ -125,6 +126,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmds.OpenThemePickerMsg:
 		m.activeModal = themepickermodal.New(m.terminalHeight)
+
+	case cmds.OpenDetailsMsg:
+		m.activeModal = detailsmodal.New(msg.TaskID, m.activeListID, m.store)
 
 	case cmds.CloseModalMsg:
 		m.activeModal = nil

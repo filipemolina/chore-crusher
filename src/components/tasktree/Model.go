@@ -104,6 +104,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleCollapse(true)
 		case key.Matches(msg, keys.Tree.Toggle):
 			return m, m.toggleComplete()
+		case key.Matches(msg, keys.Tree.OpenDetails):
+			if m.selectedID != "" {
+				return m, cmds.OpenDetails(m.selectedID)
+			}
 		}
 
 		// If selection changed, broadcast it to add-input
