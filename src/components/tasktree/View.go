@@ -178,14 +178,10 @@ func (m *Model) renderRow(row apptypes.Row, width int) string {
 		}
 	}
 
-	// Truncate title to fit the suffix
-	suffixWidth := len(progressSuffix)
-	titleWidth := width - prefixWidth - suffixWidth
-	if titleWidth < 1 {
-		// No room for title, show nothing
-		titleWidth = 0
-	}
-	title := chrome.Truncate(row.Task.Title, titleWidth)
+	// Apply phase-9's drop order: give the title every column the panel can
+	// spare (truncating grapheme-safely); only shed the trailing percentage
+	// whole when the title would otherwise be crushed to zero width.
+	title, progressSuffix := fitTitleAndSuffix(row.Task.Title, progressSuffix, prefixWidth, width)
 
 	if row.Task.Status == apptypes.StatusComplete {
 		title = muted().Render(title)
@@ -209,6 +205,33 @@ func (m *Model) renderRow(row apptypes.Row, width int) string {
 		chrome.PanelBg(isSelected),
 		content,
 	))
+}
+
+// taskRowDropOrder is phase-9's declared order in which a task row's units
+// are shed when the panel narrows (docs/DESIGN.md §12 "Truncation" — shed
+// whole units, never fragments, ever a trailing optional percentage under
+// extreme narrowness). The indent, collapse marker and checkbox are the
+// row's identity and are never shed; the title is truncated grapheme-safely
+// and kept to the last; the trailing progress percentage is the only whole
+// unit a row actively gives up.
+var taskRowDropOrder = []string{"prefix", "title", "progress-pct"}
+
+// fitTitleAndSuffix implements that drop order for the two units that share
+// the panel's remaining columns. The title gets every column minus the fixed
+// prefix and the suffix; chrome.Truncate shortens it grapheme-safely. Only
+// when the title would otherwise be starved to a zero width does the trailing
+// percentage get shed whole — never as a fragment — and its columns handed
+// back to the title, so a task's name always survives at least as well as its
+// optional progress figure.
+func fitTitleAndSuffix(title, suffix string, prefixWidth, width int) (string, string) {
+	titleWidth := width - prefixWidth - len(suffix)
+	if titleWidth < 1 {
+		// progress-pct sheds first, whole ("%" order above); reclaim its width
+		// for the title that almost lost its columns to it.
+		suffix = ""
+		titleWidth = width - prefixWidth
+	}
+	return chrome.Truncate(title, titleWidth), suffix
 }
 
 func primary(bold bool) lipgloss.Style {
