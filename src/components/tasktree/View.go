@@ -32,8 +32,7 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 
 	switch {
 	case !m.activeList:
-		body := chrome.EmptyStateCard("Add a task to get started", width, height)
-		return appstyles.FillBackground(bg, body)
+		return appstyles.FillBackground(bg, lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Render("Add a task to get started"))
 	case m.creating:
 		// Inline creation mode: render the sections and splice the create row
 		// at the insertion point. On an empty list this renders just the

@@ -33,7 +33,7 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	rowBg := chrome.ListRowBg(isSelected, d.isParentFocused)
 
 	barColor := appstyles.Active.TextMuted
-	if isSelected && d.isParentFocused {
+	if isSelected {
 		barColor = appstyles.Active.Accent
 	}
 
