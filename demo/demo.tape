@@ -52,31 +52,29 @@ Sleep 1800ms
 Space
 Sleep 1800ms
 
-# --- Add a nested task; ctrl+right reaches the input, tab/shift-tab set level ---
-# The zone-focus cycle is ctrl+right/ctrl+left (docs/DESIGN.md §5), so
-# Ctrl+Right moves focus tree to inline add input — tab is left for the
-# input's own level selector. Type a title; Tab makes it a child of the
-# selected task ('+'), Shift+Tab steps it back to a sibling ('-'), Tab once
-# more for a child again, then Enter to land it as a child of "Plan the
-# garden" (the task left selected by the cascade above).
-Ctrl+Right
+# --- Add a nested task; n starts creating, [ and ] set level ---
+# n opens the inline create row; ] makes it a child of the selected task
+# ('+'), [ steps it back to a sibling ('-'), ] once more for a child again,
+# then Enter to land it as a child of "Plan the garden" (the task left
+# selected by the cascade above).
+Type "n"
 Sleep 700ms
 Type "Grow a trellis"
 Sleep 500ms
-Tab
+Type "]"
 Sleep 1200ms
-Shift+Tab
+Type "["
 Sleep 1200ms
-Tab
+Type "]"
 Sleep 800ms
 Enter
 Sleep 2000ms
+Escape
+Sleep 600ms
 
 # --- Theme picker: live preview ------------------------------------------
 # T opens the picker; moving the cursor repaints the whole app live behind
-# it. Two moves, then Esc closes without persisting. T is a global key, so
-# it opens while the add input (left focused from the last add) still owns
-# the text cursor.
+# it. Two moves, then Esc closes without persisting.
 Type "T"
 Sleep 1000ms
 Down

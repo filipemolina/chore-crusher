@@ -43,11 +43,22 @@ post-alpha backlog.
 
 ## Caveats / deferred work
 
-- `demo/demo.gif` and `demo/*.png` are stale. The `.tape` scripts are updated;
-  re-run `demo/seed.sh` and `vhs demo/*.tape` to regenerate the media.
 - No migration was written for existing `~/.config/complete` /
   `~/.local/share/complete` data. That data is left in place; a fresh install
   will use the new `chore-crusher` paths.
+
+## Media
+
+- `demo/demo.gif` and `demo/*.png` are regenerated for the UX redesign
+  (Phase A: keymap + focus contract; Phase B: card chrome + sections +
+  create UX). The `.tape` scripts use the current `tab`/`shift+tab` panel
+  focus and `[`/`]` create-level bindings.
+- Regenerate with:
+  ```
+  ./demo/seed.sh
+  vhs demo/screenshots.tape
+  vhs demo/demo.tape
+  ```
 
 ## External plan file
 

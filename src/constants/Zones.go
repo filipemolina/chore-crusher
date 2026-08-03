@@ -9,12 +9,11 @@ const (
 	COMPONENT_ADD_INPUT   = 2
 )
 
-// FocusableComponents are the component ids ctrl+right / ctrl+left cycle
+// FocusableComponents are the component ids tab / shift+tab cycle
 // through, in order: the task tree always, the lists panel only while it is
-// visible. Inline creation lives inside the tree
-// (docs/plan/task-row-redesign-and-inline-creation.md), so there is no
-// separate add-input zone to focus. COMPONENT_ADD_INPUT is retained above as
-// a stable id — the addinput package itself has been removed.
+// visible. Inline creation lives inside the tree, so there is no separate
+// add-input zone to focus. COMPONENT_ADD_INPUT is retained above as a stable
+// id — the addinput package itself has been removed.
 var FocusableComponents = []int{
 	COMPONENT_TASK_TREE,
 	COMPONENT_LISTS_PANEL,

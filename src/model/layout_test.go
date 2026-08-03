@@ -204,7 +204,7 @@ func TestTaskTreeStartsFocused(t *testing.T) {
 	}
 }
 
-// ctrl+left/right move focus through the computed cycle: the task tree and,
+// tab/shift+tab move focus through the computed cycle: the task tree and,
 // when visible, the lists panel. With the lists panel hidden the cycle is a
 // single zone, so cycling is a no-op rather than landing on an invisible
 // panel (docs/DESIGN.md §5). There is no add-input zone anymore: inline
@@ -217,11 +217,11 @@ func TestChangeFocusFollowsComputedCycle(t *testing.T) {
 	m.focusedZone = constants.COMPONENT_TASK_TREE
 	m.ChangeFocus(1)
 	if m.focusedZone != constants.COMPONENT_TASK_TREE {
-		t.Errorf("ctrl+right from tree (hidden lists): got zone %d, want task tree", m.focusedZone)
+		t.Errorf("tab from tree (hidden lists): got zone %d, want task tree", m.focusedZone)
 	}
 	m.ChangeFocus(-1)
 	if m.focusedZone != constants.COMPONENT_TASK_TREE {
-		t.Errorf("ctrl+left from tree (hidden lists): got zone %d, want task tree", m.focusedZone)
+		t.Errorf("shift+tab from tree (hidden lists): got zone %d, want task tree", m.focusedZone)
 	}
 
 	// Visible lists: tree <-> lists.
@@ -229,10 +229,10 @@ func TestChangeFocusFollowsComputedCycle(t *testing.T) {
 	m.focusedZone = constants.COMPONENT_TASK_TREE
 	m.ChangeFocus(1)
 	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
-		t.Errorf("ctrl+right from tree: got zone %d, want lists panel", m.focusedZone)
+		t.Errorf("tab from tree: got zone %d, want lists panel", m.focusedZone)
 	}
 	m.ChangeFocus(-1)
 	if m.focusedZone != constants.COMPONENT_TASK_TREE {
-		t.Errorf("ctrl+left from lists: got zone %d, want task tree", m.focusedZone)
+		t.Errorf("shift+tab from lists: got zone %d, want task tree", m.focusedZone)
 	}
 }
