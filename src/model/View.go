@@ -75,9 +75,9 @@ func (m AppModel) renderBody() string {
 		Render("")
 
 	return lipgloss.JoinHorizontal(lipgloss.Top,
-		m.components.ListsPanel.View().Content,
-		gutter,
 		main,
+		gutter,
+		m.components.ListsPanel.View().Content,
 	)
 }
 
