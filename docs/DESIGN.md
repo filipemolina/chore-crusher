@@ -244,10 +244,12 @@ stop. Do not implement "hidden but still tab-able to an invisible panel";
 that produces a focus ring with a silent dead stop in it.
 
 `[`/`]` are the create-mode level selector (§4) and only apply while the
-inline input is active — `tab`/`shift+tab` never compete with the create row
-for focus or level, because AppModel suppresses them while the tree owns the
-keyboard (`OwnsKeyboard`). The tree is the startup focus
-and is broadcast as such on every launch (phase-3 Init), so its keys work
+inline input is active. `tab`/`shift+tab` keep cycling focus between the two
+panels even while the create row or the `/` filter has the keyboard — they
+are focus keys, not characters, so they never compete with the level
+selector — and the draft is preserved while focus is elsewhere; typing
+resumes when focus returns to the tree. The tree is the startup focus
+and is broadcast as such at startup (phase-3 Init), so its keys work
 from the first frame rather than only after a focus change.
 
 **Vim and arrow bindings both work, always, on the task tree:** `↑`/`k` up,

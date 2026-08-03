@@ -47,8 +47,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// keyboardOwned reports whether a focused child component has claimed the
 	// keyboard for itself (add input with text, tree typing a /-filter, list
-	// typing a filter). While true, global keys that would steal focus or open
-	// overlays are suppressed so typing is not interrupted.
+	// typing a filter). While true, global keys that would open overlays or
+	// toggle panels are suppressed so typing is not interrupted. tab/shift+tab
+	// focus navigation is never suppressed — those are focus keys, not
+	// characters, so they cannot interrupt typing.
 	keyboardOwned := func() bool {
 		switch m.focusedZone {
 		case constants.COMPONENT_TASK_TREE:
@@ -107,15 +109,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				finalCmds = append(finalCmds, cmds.OpenSearchPicker())
 			}
 
+		// tab/shift+tab are focus keys: they cycle the panels even while the
+		// tree's create or filter input owns the keyboard, so focus is never
+		// stuck inside an input. AppModel routes them before the tree's
+		// allowlist runs, so the input never sees them as characters.
 		case key.Matches(msg, keys.Global.NextPanel):
-			if !keyboardOwned() {
-				finalCmds = append(finalCmds, m.ChangeFocus(1))
-			}
+			finalCmds = append(finalCmds, m.ChangeFocus(1))
 
 		case key.Matches(msg, keys.Global.PrevPanel):
-			if !keyboardOwned() {
-				finalCmds = append(finalCmds, m.ChangeFocus(-1))
-			}
+			finalCmds = append(finalCmds, m.ChangeFocus(-1))
 
 		case key.Matches(msg, keys.Global.ToggleListsPanel):
 			if !keyboardOwned() {

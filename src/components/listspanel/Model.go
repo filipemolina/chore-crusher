@@ -57,24 +57,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.list.SetItems(items)
 			if len(items) > 0 && m.list.Index() < 0 {
 				m.list.Select(0)
-				m.selectList()
+				return m, m.selectList()
 			}
 		}
 
 	case tea.KeyPressMsg:
 		if !m.focused {
-			break
+			// An unfocused panel must not react to keys: letting the inner
+			// list consume them would navigate the lists while the user
+			// types j/k into the task tree's create input.
+			return m, nil
 		}
 		previousIndex := m.list.Index()
 		m.list, cmd = m.list.Update(msg)
 		if m.list.Index() != previousIndex {
-			m.selectList()
+			if selCmd := m.selectList(); selCmd != nil {
+				cmd = tea.Batch(cmd, selCmd)
+			}
 		}
 		return m, cmd
 	}
 
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+// SelectedListID returns the id of the list currently selected in the panel,
+// for model-level behavior tests.
+func (m Model) SelectedListID() string {
+	if sel, ok := m.list.SelectedItem().(apptypes.ListSummary); ok {
+		return sel.List.ID
+	}
+	return ""
 }
 
 // selectList broadcasts which list is selected to AppModel.

@@ -87,6 +87,15 @@ func (m Model) KeepsEsc() bool {
 	return false
 }
 
+// IsCreating reports whether the task tree is in inline creation mode, for
+// footer context and model-level tests.
+func (m Model) IsCreating() bool {
+	if tree, ok := m.tree.(interface{ IsCreating() bool }); ok && tree.IsCreating() {
+		return true
+	}
+	return false
+}
+
 // IsEmpty reports whether the task tree has rows, for footer context.
 func (m Model) IsEmpty() bool { return m.tree.(treeView).IsEmpty() }
 

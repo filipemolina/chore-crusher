@@ -632,9 +632,10 @@ func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Hard allowlist: only typing (printable characters) and backspace reach
-	// the text input. Everything else — Tab, arrows, F-keys, ctrl combos — is
-	// swallowed so it cannot steal focus or navigate while the create row owns
-	// the keyboard.
+	// the text input. Everything else — arrows, F-keys, ctrl combos — is
+	// swallowed so it cannot navigate the tree while the create row owns the
+	// keyboard. tab/shift+tab never arrive here as characters: AppModel
+	// routes them to the focus cycle before this handler runs.
 	if msg.Text != "" || msg.Code == tea.KeyBackspace {
 		var cmd tea.Cmd
 		m.createInput, cmd = m.createInput.Update(msg)

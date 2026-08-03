@@ -7,6 +7,7 @@ import (
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/constants"
 	"github.com/filipemolina/chore-crusher/src/store"
 )
 
@@ -185,6 +186,183 @@ func TestRefreshPreservesSelectionThroughPoll(t *testing.T) {
 	rows = treeRows(t, m)
 	if len(rows) != 1 || rows[0] != "B" {
 		t.Errorf("after deletion, tree rows = %v, want [B]", rows)
+	}
+}
+
+// The lists panel broadcasts a SelectListMsg whenever its selection moves,
+// and AppModel must switch the active list (and refresh the tasks panel) in
+// response — otherwise navigating between lists leaves the right panel
+// showing the old list's tasks forever (regression: selectList's command was
+// returned but never emitted).
+func TestListNavigationSwitchesActiveList(t *testing.T) {
+	m := newTestModel(t, t.TempDir())
+	// GetInitialModel seeds a default list when the store is empty; drop it
+	// so the two lists below are the whole picture.
+	lists, _ := m.store.ListLists()
+	for _, l := range lists {
+		m.store.DeleteList(l.ID)
+	}
+	listA, err := m.store.CreateList("Errands")
+	if err != nil {
+		t.Fatalf("create list A: %v", err)
+	}
+	listB, err := m.store.CreateList("Work")
+	if err != nil {
+		t.Fatalf("create list B: %v", err)
+	}
+	if _, err := m.store.CreateTask(listA, "Buy milk", nil, ""); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if _, err := m.store.CreateTask(listB, "Ship build", nil, ""); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// Populate the model: the first lists refresh adopts list A as the active
+	// list and loads its tasks into the tree.
+	m = refresh(t, m, cmds.RefreshLists(m.store)())
+	rows := treeRows(t, m)
+	if len(rows) != 1 || rows[0] != "Buy milk" {
+		t.Fatalf("tree rows before navigation = %v, want [Buy milk]", rows)
+	}
+
+	// Focus the lists panel, then navigate to the second list the way a user
+	// would (j). The resulting SelectListMsg must switch the active list and
+	// refresh the tasks panel to the second list's tasks.
+	m = refresh(t, m, cmds.SetFocusMsg(constants.COMPONENT_LISTS_PANEL))
+	m = refresh(t, m, tea.KeyPressMsg{Text: "j", Code: 'j'})
+
+	if m.activeListID != listB {
+		t.Errorf("activeListID = %q, want %q after navigating down", m.activeListID, listB)
+	}
+	rows = treeRows(t, m)
+	if len(rows) != 1 || rows[0] != "Ship build" {
+		t.Errorf("tree rows after navigation = %v, want [Ship build]", rows)
+	}
+}
+
+// While the task tree's inline create input owns the keyboard, j/k are
+// characters being typed, not navigation — an unfocused lists panel must
+// not consume them (regression: the lists panel forwarded unfocused
+// keypresses to its inner list, so the lists highlight rode j/k while the
+// user typed in the create input).
+func TestTypingInCreateInputDoesNotNavigateLists(t *testing.T) {
+	m := newTestModel(t, t.TempDir())
+	lists, _ := m.store.ListLists()
+	for _, l := range lists {
+		m.store.DeleteList(l.ID)
+	}
+	listA, err := m.store.CreateList("Errands")
+	if err != nil {
+		t.Fatalf("create list A: %v", err)
+	}
+	if _, err := m.store.CreateList("Work"); err != nil {
+		t.Fatalf("create list B: %v", err)
+	}
+	if _, err := m.store.CreateTask(listA, "Buy milk", nil, ""); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	m = refresh(t, m, cmds.RefreshLists(m.store)())
+	if rows := treeRows(t, m); len(rows) != 1 || rows[0] != "Buy milk" {
+		t.Fatalf("tree rows = %v, want [Buy milk]", rows)
+	}
+
+	// The tree is the startup focus zone; broadcast it the way Init does so
+	// the tree's keys (n, then the create input) are live.
+	m = refresh(t, m, cmds.SetFocusMsg(constants.COMPONENT_TASK_TREE))
+
+	// applyOnce delivers msg without chasing the returned cmd: the tree's
+	// keystrokes into the create input return a cursor-blink rescheduling
+	// cmd that is cosmetic and would cost ~530ms per hop to chase.
+	applyOnce := func(m AppModel, msg tea.Msg) AppModel {
+		t.Helper()
+		updated, _ := m.Update(msg)
+		out, ok := updated.(AppModel)
+		if !ok {
+			t.Fatalf("Update returned %T, want AppModel", updated)
+		}
+		return out
+	}
+
+	// n: enter inline creation, then type j/k the way a user would.
+	m = applyOnce(m, tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = applyOnce(m, tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = applyOnce(m, tea.KeyPressMsg{Text: "k", Code: 'k'})
+
+	// The lists panel's own selection must not have moved: the symptom of
+	// the bug was the lists highlight riding j/k while the user typed.
+	listsPanel := m.components.ListsPanel.(interface{ SelectedListID() string })
+	if got := listsPanel.SelectedListID(); got != listA {
+		t.Errorf("lists panel selection = %q, want %q (typing j/k must not navigate lists)", got, listA)
+	}
+	if m.activeListID != listA {
+		t.Errorf("activeListID = %q, want %q (typing j/k must not switch the active list)", m.activeListID, listA)
+	}
+	if rows := treeRows(t, m); len(rows) != 1 || rows[0] != "Buy milk" {
+		t.Errorf("tree rows = %v, want [Buy milk]", rows)
+	}
+}
+
+// tab/shift+tab keep cycling focus between the panels even while the tree's
+// create input owns the keyboard, and the create draft survives the trip
+// (regression: the create row's hard allowlist swallowed tab, so focus was
+// stuck on the tree once inline creation started).
+func TestTabCyclesFocusWhileCreating(t *testing.T) {
+	m := newTestModel(t, t.TempDir())
+	lists, _ := m.store.ListLists()
+	for _, l := range lists {
+		m.store.DeleteList(l.ID)
+	}
+	listID, err := m.store.CreateList("Errands")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	if _, err := m.store.CreateTask(listID, "Buy milk", nil, ""); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	m = refresh(t, m, cmds.RefreshLists(m.store)())
+	if rows := treeRows(t, m); len(rows) != 1 {
+		t.Fatalf("tree rows = %v, want 1 row", rows)
+	}
+
+	// The tree is the startup focus zone; broadcast it the way Init does so
+	// the tree's keys (n, then the create input) are live.
+	m = refresh(t, m, cmds.SetFocusMsg(constants.COMPONENT_TASK_TREE))
+
+	applyOnce := func(m AppModel, msg tea.Msg) AppModel {
+		t.Helper()
+		updated, _ := m.Update(msg)
+		out, ok := updated.(AppModel)
+		if !ok {
+			t.Fatalf("Update returned %T, want AppModel", updated)
+		}
+		return out
+	}
+
+	// n: enter inline creation (the tree now owns the keyboard).
+	m = applyOnce(m, tea.KeyPressMsg{Text: "n", Code: 'n'})
+	creating := func(m AppModel) bool {
+		tasks, ok := m.components.TaskPanel.(interface{ IsCreating() bool })
+		return ok && tasks.IsCreating()
+	}
+	if !creating(m) {
+		t.Fatal("tree not in creating mode after n")
+	}
+
+	// tab moves focus to the lists panel...
+	m = refresh(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
+		t.Errorf("focusedZone after tab = %d, want lists panel (%d)", m.focusedZone, constants.COMPONENT_LISTS_PANEL)
+	}
+
+	// ...and shift+tab brings it back, with the create input still active.
+	m = refresh(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.focusedZone != constants.COMPONENT_TASK_TREE {
+		t.Errorf("focusedZone after shift+tab = %d, want task tree (%d)", m.focusedZone, constants.COMPONENT_TASK_TREE)
+	}
+	if !creating(m) {
+		t.Error("create input should survive the focus round-trip")
 	}
 }
 
