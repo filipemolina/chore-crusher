@@ -4,9 +4,8 @@
 // CONTRIBUTING.md's rule against inventing a keybinding elsewhere).
 //
 // The Global group is complete from phase 3 on — its bindings are fixed by
-// docs/DESIGN.md §5. The TaskTree, AddInput, and ListsPanel groups are
-// declared now and filled in by phases 4-6, so later phases extend one file
-// instead of each inventing their own dispatch.
+// docs/DESIGN.md §5. The TaskTree, Create, and ListsPanel groups are
+// declared here and filled in by the remaining phases.
 package keys
 
 import (
@@ -17,19 +16,14 @@ import (
 
 // GlobalKeys work anywhere that no overlay owns the keyboard.
 type GlobalKeys struct {
-	// NextPanel/PrevPanel are ctrl+right / ctrl+left, cycling only through
-	// the zones currently visible (docs/DESIGN.md §5). The cycle is not tab:
-	// tab and shift+tab belong to the add input's level selector
-	// (docs/DESIGN.md §4), and ctrl+arrows keep the cycle on keys the tree
-	// (bare arrows) and the input's own text field cannot swallow.
+	// NextPanel/PrevPanel are tab / shift+tab, cycling only through the zones
+	// currently visible (docs/DESIGN.md §5).
 	NextPanel key.Binding
 	PrevPanel key.Binding
 	// ToggleListsPanel is L (shift+l). Lowercase l is the task tree's
-	// expand key (phase 4), so the toggle takes the shifted form — the same
-	// collision-avoidance as Global.Theme (T) vs the details panel's t.
+	// expand key, so the toggle takes the shifted form.
 	ToggleListsPanel key.Binding
-	// Quit is q, and it is the one global key that yields: a modal needs the
-	// letter for typing. ForceQuit is separate from it precisely so that
+	// Quit is q. ForceQuit is separate from it precisely so that
 	// ctrl+c yields to nothing.
 	Quit      key.Binding
 	ForceQuit key.Binding
@@ -38,45 +32,41 @@ type GlobalKeys struct {
 	// next, an applied filter after that; what is left is "back to the task
 	// tree from wherever else" (docs/DESIGN.md §5's esc ladder).
 	Back key.Binding
-	// Help opens the help overlay. The overlay renders from this package, so
-	// what it says is what the handlers do.
+	// Help opens the help overlay.
 	Help key.Binding
-	// Theme opens the theme picker: a list of registered themes with live
-	// preview on cursor movement and persist-on-confirm. T (shift+t) so it
-	// does not collide with any lowercase t.
+	// Theme opens the theme picker.
 	Theme key.Binding
-	// Filter enters (/) the task tree's local fuzzy filter: it narrows the
-	// current list's rows in place, showing each match's ancestor chain.
-	// F, by contrast, opens the cross-list picker.
+	// Filter enters (/) the task tree's local fuzzy filter.
 	Filter key.Binding
-	// Picker opens (F) the cross-list search picker: type a query, pick a
-	// task from any list, enter jumps to it and switches the active list.
+	// Picker opens (F) the cross-list search picker.
 	Picker key.Binding
 }
 
 // TaskTreeKeys act on the task tree: navigation, expand/collapse, toggling
-// complete, opening the details screen. Filled in by phase 4
-// (docs/plans/phase-4-task-tree.md); the group is declared here so the
-// package's Context/Active pattern is in place before any handler exists.
+// complete, opening the details screen, and delete.
 type TaskTreeKeys struct {
 	Navigate    key.Binding
 	Expand      key.Binding
 	Collapse    key.Binding
 	Toggle      key.Binding
 	OpenDetails key.Binding
-	New         key.Binding
-	Delete      key.Binding
+	// New is declared here for stability; the handler lives in AppModel
+	// (context = focused panel), so it is not advertised in Active or Catalog.
+	New    key.Binding
+	Delete key.Binding
 }
 
-// AddInputKeys act inside the add-input zone: editing the draft, changing
-// its level, submitting. Filled in by phase 5 (docs/plans/phase-5-add-input.md).
-type AddInputKeys struct {
-	Level  key.Binding
-	Submit key.Binding
+// CreateKeys act inside the inline create row: editing the draft, changing
+// its level, submitting, and cancelling.
+type CreateKeys struct {
+	Indent  key.Binding
+	Outdent key.Binding
+	Submit  key.Binding
+	Cancel  key.Binding
 }
 
 // ListsPanelKeys act on the lists panel: navigating lists, creating,
-// renaming, deleting. Filled in by phase 6 (docs/plans/phase-6-lists-panel.md).
+// renaming, deleting.
 type ListsPanelKeys struct {
 	Navigate key.Binding
 	New      key.Binding
@@ -86,7 +76,7 @@ type ListsPanelKeys struct {
 
 // DetailsKeys act inside the details screen modal: saving, cycling between
 // notes and progress editor zones, cycling progress modes, and entering
-// percentages. Phase 7 (docs/plans/phase-7-details-screen.md).
+// percentages.
 type DetailsKeys struct {
 	Save          key.Binding
 	NextField     key.Binding
@@ -101,28 +91,22 @@ type OverlayKeys struct {
 	Cancel key.Binding
 	Yes    key.Binding
 	No     key.Binding
-	// Navigation is the help-only binding for the list navigation arrows a
-	// modal's bubbles list handles itself — declared here so a modal's hint
-	// line reads from the package instead of hardcoding "↑/↓".
+	// Navigation is the help-only binding for the arrow keystrokes a
+	// modal's bubbles list handles itself.
 	Navigation key.Binding
 }
 
 var Global = GlobalKeys{
-	NextPanel: key.NewBinding(key.WithKeys("ctrl+right"), key.WithHelp("ctrl+right", "next")),
-	PrevPanel: key.NewBinding(key.WithKeys("ctrl+left"), key.WithHelp("ctrl+left", "prev")),
-	// Uppercase, per docs/DESIGN.md §5: the task tree owns lowercase l.
+	NextPanel:        key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
+	PrevPanel:        key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev")),
 	ToggleListsPanel: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "lists")),
 	Quit:             key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
-	// Not advertised in the help overlay's headline group: ctrl+c is the
-	// escape hatch every terminal program has, and the overlay says q. It
-	// is still declared here so handlers match on the same binding as
-	// everything else.
-	ForceQuit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "force quit")),
-	Back:      key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
-	Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-	Theme:     key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme")),
-	Filter:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-	Picker:    key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "search")),
+	ForceQuit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "force quit")),
+	Back:             key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Help:             key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	Theme:            key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme")),
+	Filter:           key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	Picker:           key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "search")),
 }
 
 var Tree = TaskTreeKeys{
@@ -131,15 +115,24 @@ var Tree = TaskTreeKeys{
 	Collapse:    key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "collapse")),
 	Toggle:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle")),
 	OpenDetails: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
-	New:         key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
-	Delete:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete")),
+	// New is handled at AppModel level (context = focused panel); kept here
+	// so the tree's handler can match it until the wiring moves in step 2.
+	New:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+}
+
+var Create = CreateKeys{
+	Outdent: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
+	Indent:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
+	Submit:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create")),
+	Cancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 }
 
 var Lists = ListsPanelKeys{
 	Navigate: key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "navigate")),
 	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
 	Rename:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
-	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete list")),
+	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 }
 
 // ListKeyMap is the keymap the lists panel installs on its inner bubbles
@@ -197,14 +190,11 @@ var Overlay = OverlayKeys{
 	Navigation: key.NewBinding(key.WithHelp("↑/↓", "navigate")),
 }
 
-// Context is what the help overlay knows about the screen: enough to decide
-// which bindings are live, and nothing more. Filled in by phases 4-6 as the
-// zones gain state (an empty tree, a list without items); phase 3 only needs
-// the focus and visibility facts.
+// Context is what the help overlay and keybinding bar know about the screen:
+// enough to decide which bindings are live, and nothing more.
 type Context struct {
 	// Focused is the currently focused zone id — one of
-	// constants.COMPONENT_LISTS_PANEL / COMPONENT_TASK_TREE /
-	// COMPONENT_ADD_INPUT.
+	// constants.COMPONENT_LISTS_PANEL / COMPONENT_TASK_TREE.
 	Focused int
 	// ListsPanelVisible reports whether the lists panel is in the layout
 	// (and therefore in the focus cycle) right now.
@@ -213,35 +203,61 @@ type Context struct {
 	TaskTreeEmpty bool
 	// HasActiveList reports whether a list is selected at all.
 	HasActiveList bool
+	// Creating reports whether the task tree's inline input is active.
+	Creating bool
+	// Filtering reports whether the task tree's /-filter is open or applied.
+	Filtering bool
+	// HasModal reports whether a modal or overlay owns the keyboard.
+	HasModal bool
 }
 
 // Active returns the bindings the user can press right now, in the order they
 // should be shown.
 func Active(ctx Context) []key.Binding {
-	bindings := []key.Binding{Global.NextPanel}
-
-	if ctx.ListsPanelVisible {
-		bindings = append(bindings, Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete)
+	// A modal or overlay owns the keyboard exclusively while open.
+	if ctx.HasModal {
+		return nil
 	}
 
-	if ctx.Focused == constants.COMPONENT_TASK_TREE && ctx.HasActiveList && !ctx.TaskTreeEmpty {
-		bindings = append(bindings, Tree.Navigate, Tree.Expand, Tree.Collapse, Tree.Toggle, Tree.OpenDetails)
+	// While the inline create input is active, only create keys are live.
+	if ctx.Creating && ctx.Focused == constants.COMPONENT_TASK_TREE {
+		return []key.Binding{
+			Create.Submit, Create.Cancel, Create.Outdent, Create.Indent,
+		}
 	}
 
-	return bindings
+	// While a /-filter is being typed or applied, only filter keys are live.
+	if ctx.Filtering && ctx.Focused == constants.COMPONENT_TASK_TREE {
+		return []key.Binding{Overlay.Submit, Overlay.Cancel}
+	}
+
+	switch ctx.Focused {
+	case constants.COMPONENT_LISTS_PANEL:
+		if ctx.ListsPanelVisible {
+			return []key.Binding{
+				Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete,
+				Global.NextPanel,
+			}
+		}
+	case constants.COMPONENT_TASK_TREE:
+		if ctx.HasActiveList && !ctx.TaskTreeEmpty {
+			return []key.Binding{
+				Tree.Navigate, Tree.Expand, Tree.Collapse,
+				Tree.Toggle, Tree.OpenDetails, Tree.Delete,
+				Global.NextPanel,
+			}
+		}
+	}
+
+	return []key.Binding{Global.NextPanel}
 }
 
-// Globals are the always-available keys, pinned away from the
-// context-dependent ones. These are the keys a user can press from anywhere
-// no modal owns the keyboard, so the footer advertises them on the right.
+// Globals are the always-available keys the footer pins to its right-hand side,
+// away from the context-dependent ones.
 func Globals() []key.Binding {
 	return []key.Binding{
 		Global.NextPanel,
 		Global.PrevPanel,
-		Global.ToggleListsPanel,
-		Global.Filter,
-		Global.Picker,
-		Global.Theme,
 		Global.Help,
 		Global.Quit,
 	}
@@ -263,7 +279,7 @@ type Entry struct {
 // Catalog returns every key in the app, grouped by scope, with availability
 // resolved against ctx. It reads the same bindings the handlers match
 // against - that is the point of the overlay: it cannot drift from the
-// handlers. Phases 4-6 add their groups to the catalog as they bind keys.
+// handlers.
 func Catalog(ctx Context) []Scope {
 	live := pressableNow(ctx)
 
@@ -275,7 +291,7 @@ func Catalog(ctx Context) []Scope {
 		return out
 	}
 
-	return []Scope{
+	scopes := []Scope{
 		{
 			Title: "Global",
 			Entries: entries(
@@ -285,33 +301,61 @@ func Catalog(ctx Context) []Scope {
 			),
 		},
 		{
-			Title: "Lists",
-			Entries: entries(
-				Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete,
-			),
-		},
-		{
-			Title: "Task Tree",
-			Entries: entries(
-				Tree.Navigate, Tree.Expand, Tree.Collapse, Tree.Toggle, Tree.OpenDetails,
-			),
-		},
-		{
-			Title: "Details",
-			Entries: entries(
-				Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack,
-			),
+			Title:   "Overlays",
+			Entries: entries(Overlay.Submit, Overlay.Cancel, Overlay.Yes, Overlay.No),
 		},
 	}
+
+	if ctx.ListsPanelVisible {
+		scopes = append(scopes, Scope{
+			Title:   "Lists",
+			Entries: entries(Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete),
+		})
+	}
+
+	if ctx.HasActiveList {
+		switch {
+		case ctx.Creating:
+			scopes = append(scopes, Scope{
+				Title:   "Creating",
+				Entries: entries(Create.Submit, Create.Cancel, Create.Outdent, Create.Indent),
+			})
+		case ctx.Filtering:
+			scopes = append(scopes, Scope{
+				Title:   "Filter",
+				Entries: entries(Overlay.Submit, Overlay.Cancel),
+			})
+		default:
+			scopes = append(scopes, Scope{
+				Title:   "Task Tree",
+				Entries: entries(
+					Tree.Navigate, Tree.Expand, Tree.Collapse,
+					Tree.Toggle, Tree.OpenDetails, Tree.Delete,
+				),
+			})
+		}
+	}
+
+	scopes = append(scopes, Scope{
+		Title:   "Details",
+		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack),
+	})
+
+	return scopes
 }
 
 // pressableNow is the set of bindings the user can actually press in ctx: the
 // contextual ones Active returns, plus the globals that are always live
-// whether or not the help overlay has room to advertise them.
+// whether or not the footer has room to advertise them.
 func pressableNow(ctx Context) []key.Binding {
 	live := append(Active(ctx), Globals()...)
-	live = append(live, Global.ForceQuit, Global.Theme, Global.ToggleListsPanel)
-	live = append(live, Global.Filter, Global.Picker)
+	live = append(live, Global.ForceQuit)
+
+	// When a modal owns the keyboard, or the user is typing a create or
+	// filter input, only the always-available keys remain pressable.
+	if !ctx.HasModal && !ctx.Creating && !ctx.Filtering {
+		live = append(live, Global.Back, Global.Theme, Global.ToggleListsPanel, Global.Filter, Global.Picker)
+	}
 
 	// shift+tab is tab's twin: live wherever tab is.
 	if containsBinding(live, Global.NextPanel) {

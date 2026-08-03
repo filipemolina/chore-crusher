@@ -33,6 +33,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ListsPanelVisible: msg.ListsPanelVisible,
 			TaskTreeEmpty:     msg.TaskTreeEmpty,
 			HasActiveList:     msg.HasActiveList,
+			Creating:          msg.Creating,
+			Filtering:         msg.Filtering,
+			HasModal:          msg.HasModal,
 		}
 	case cmds.SetFocusMsg:
 		m.ctx.Focused = int(msg)

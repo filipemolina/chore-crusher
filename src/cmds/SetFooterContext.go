@@ -10,17 +10,23 @@ type SetFooterContextMsg struct {
 	ListsPanelVisible bool
 	TaskTreeEmpty     bool
 	HasActiveList     bool
+	Creating          bool
+	Filtering         bool
+	HasModal          bool
 }
 
 // SetFooterContext builds the message from the same facts the help overlay
 // uses, keeping the footer and the overlay in lockstep.
-func SetFooterContext(focused int, listsPanelVisible, taskTreeEmpty, hasActiveList bool) tea.Cmd {
+func SetFooterContext(focused int, listsPanelVisible, taskTreeEmpty, hasActiveList, creating, filtering, hasModal bool) tea.Cmd {
 	return func() tea.Msg {
 		return SetFooterContextMsg{
 			Focused:           focused,
 			ListsPanelVisible: listsPanelVisible,
 			TaskTreeEmpty:     taskTreeEmpty,
 			HasActiveList:     hasActiveList,
+			Creating:          creating,
+			Filtering:         filtering,
+			HasModal:          hasModal,
 		}
 	}
 }

@@ -85,11 +85,22 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 // know about the screen. Keeping it in one place keeps the footer and the
 // overlay in lockstep.
 func (m AppModel) helpContext() keys.Context {
+	creating := false
+	if tasks, ok := m.components.TaskPanel.(interface{ IsCreating() bool }); ok {
+		creating = tasks.IsCreating()
+	}
+	// Filtering is not yet exported by the tree; leave false until the
+	// tree wires the /-filter state into AppModel (phase A step 2).
+	filtering := false
+
 	return keys.Context{
 		Focused:           m.focusedZone,
 		ListsPanelVisible: m.listsPanelVisible,
 		TaskTreeEmpty:     m.taskTreeEmpty(),
 		HasActiveList:     m.activeListID != "",
+		Creating:          creating,
+		Filtering:         filtering,
+		HasModal:          m.activeModal != nil,
 	}
 }
 
@@ -105,5 +116,5 @@ func (m AppModel) taskTreeEmpty() bool {
 // current context.
 func (m AppModel) footerContextCmd() tea.Cmd {
 	ctx := m.helpContext()
-	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList)
+	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal)
 }
