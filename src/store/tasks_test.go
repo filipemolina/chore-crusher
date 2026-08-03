@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,103 @@ func TestGetTaskNotFound(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.GetTask("no-such-id"); err == nil {
 		t.Fatal("GetTask on a missing id did not error")
+	}
+}
+
+// listOrder returns the preorder ids of every task in listID.
+func listOrder(t *testing.T, s *Store, listID string) []string {
+	t.Helper()
+	tasks, err := s.ListTasks(listID)
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	ids := make([]string, 0, len(tasks))
+	for _, tk := range tasks {
+		ids = append(ids, tk.ID)
+	}
+	return ids
+}
+
+// TestMoveTaskReordersWithinRun: moving a task after a later sibling shifts
+// it down within the same parent run.
+func TestMoveTaskReordersWithinRun(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	a := mustTask(t, s, lid, "a", nil)
+	b := mustTask(t, s, lid, "b", nil)
+	c := mustTask(t, s, lid, "c", nil)
+	d := mustTask(t, s, lid, "d", nil)
+
+	if err := s.MoveTask(b, d); err != nil {
+		t.Fatalf("MoveTask: %v", err)
+	}
+	want := []string{a, c, d, b}
+	if got := listOrder(t, s, lid); !slices.Equal(got, want) {
+		t.Errorf("order after move = %v, want %v", got, want)
+	}
+}
+
+// TestMoveTaskToFront: an empty afterID moves the task to the front of its
+// current parent run.
+func TestMoveTaskToFront(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	a := mustTask(t, s, lid, "a", nil)
+	b := mustTask(t, s, lid, "b", nil)
+	c := mustTask(t, s, lid, "c", nil)
+
+	if err := s.MoveTask(c, ""); err != nil {
+		t.Fatalf("MoveTask: %v", err)
+	}
+	want := []string{c, a, b}
+	if got := listOrder(t, s, lid); !slices.Equal(got, want) {
+		t.Errorf("order after move-to-front = %v, want %v", got, want)
+	}
+}
+
+// TestMoveTaskOutdentsAfterParent: moving a task after its own parent makes
+// it the parent's next sibling — the outdent gesture (docs/DESIGN.md §5).
+func TestMoveTaskOutdentsAfterParent(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	root, child, grand := threeLevelTree(t, s, lid)
+
+	if err := s.MoveTask(child, root); err != nil {
+		t.Fatalf("MoveTask: %v", err)
+	}
+	want := []string{root, child, grand}
+	if got := listOrder(t, s, lid); !slices.Equal(got, want) {
+		t.Errorf("order after outdent = %v, want %v", got, want)
+	}
+
+	tk, err := s.GetTask(child)
+	if err != nil {
+		t.Fatalf("GetTask(child): %v", err)
+	}
+	if tk.ParentID != nil {
+		t.Errorf("outdented child still has parent %v, want root level", *tk.ParentID)
+	}
+}
+
+// TestMoveTaskValidation pins the same validity rules Reparent enforces: the
+// target must be in the same list, not the task itself, and not a descendant.
+func TestMoveTaskValidation(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	other := mustList(t, s, "other")
+	a := mustTask(t, s, lid, "a", nil)
+	cross := mustTask(t, s, other, "cross", nil)
+
+	if err := s.MoveTask(a, cross); err == nil {
+		t.Error("MoveTask across lists did not error")
+	}
+	if err := s.MoveTask(a, a); err == nil {
+		t.Error("MoveTask after itself did not error")
+	}
+
+	root, _, grand := threeLevelTree(t, s, lid)
+	if err := s.MoveTask(root, grand); err == nil {
+		t.Error("MoveTask after its own descendant did not error")
 	}
 }
 

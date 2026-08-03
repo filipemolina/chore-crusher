@@ -64,5 +64,5 @@ Screenshot demo/screenshot-search.png
 Escape
 Sleep 500ms
 
-Type "q"
+Ctrl+C
 Sleep 600ms

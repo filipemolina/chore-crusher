@@ -23,9 +23,8 @@ type GlobalKeys struct {
 	// ToggleListsPanel is L (shift+l). Lowercase l is the task tree's
 	// expand key, so the toggle takes the shifted form.
 	ToggleListsPanel key.Binding
-	// Quit is q. ForceQuit is separate from it precisely so that
-	// ctrl+c yields to nothing.
-	Quit      key.Binding
+	// ForceQuit is ctrl+c, the only way to leave the app: it yields to
+	// nothing, so it quits from a modal or a text input alike.
 	ForceQuit key.Binding
 	// Back is esc away from everything that has a stronger claim on it: a
 	// modal closes itself first, the add input with text in it claims it
@@ -43,7 +42,8 @@ type GlobalKeys struct {
 }
 
 // TaskTreeKeys act on the task tree: navigation, expand/collapse, toggling
-// complete, opening the details screen, and delete.
+// complete, opening the details screen, delete, and restructuring the
+// selected task (outdent/indent, move up/down).
 type TaskTreeKeys struct {
 	Navigate    key.Binding
 	Expand      key.Binding
@@ -54,15 +54,24 @@ type TaskTreeKeys struct {
 	// (context = focused panel), so it is not advertised in Active or Catalog.
 	New    key.Binding
 	Delete key.Binding
+	// Outdent/Indent change the selected task's depth. The same two keys pick
+	// the new task's level while the inline input is active (Create scope,
+	// docs/DESIGN.md §4) — one declaration, two contexts.
+	Outdent key.Binding
+	Indent  key.Binding
+	// MoveUp/MoveDown reorder the selected task within its own Pending or
+	// Complete section (docs/DESIGN.md §6). Alt is the modifier vim-move and
+	// VS Code converge on for moving a line.
+	MoveUp   key.Binding
+	MoveDown key.Binding
 }
 
 // CreateKeys act inside the inline create row: editing the draft, changing
-// its level, submitting, and cancelling.
+// its level, submitting, and cancelling. The level keys themselves live on
+// Tree (Outdent/Indent) — the same [ / ] do double duty on the selected task.
 type CreateKeys struct {
-	Indent  key.Binding
-	Outdent key.Binding
-	Submit  key.Binding
-	Cancel  key.Binding
+	Submit key.Binding
+	Cancel key.Binding
 }
 
 // ListsPanelKeys act on the lists panel: navigating lists, creating,
@@ -100,7 +109,6 @@ var Global = GlobalKeys{
 	NextPanel:        key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
 	PrevPanel:        key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev")),
 	ToggleListsPanel: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "lists")),
-	Quit:             key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	ForceQuit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "force quit")),
 	Back:             key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	Help:             key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
@@ -119,13 +127,15 @@ var Tree = TaskTreeKeys{
 	// so the tree's handler can match it until the wiring moves in step 2.
 	New:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
 	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Outdent: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
+	Indent:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
+	MoveUp:   key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
+	MoveDown: key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
 }
 
 var Create = CreateKeys{
-	Outdent: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
-	Indent:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
-	Submit:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create")),
-	Cancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	Submit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create")),
+	Cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 }
 
 var Lists = ListsPanelKeys{
@@ -140,7 +150,7 @@ var Lists = ListsPanelKeys{
 //
 // The default map is written for a list that is the whole program, so it
 // claims keys this app spends elsewhere: / is the task tree's filter, esc
-// and ? are handled by AppModel, and q / ctrl+c are the app's quit keys.
+// and ? are handled by AppModel, and ctrl+c is the app's quit key.
 // The results were visible - pressing / both opened the filter and did nothing
 // useful in the lists panel - so the list has to be told which keys are not
 // its own.
@@ -222,7 +232,7 @@ func Active(ctx Context) []key.Binding {
 	// While the inline create input is active, only create keys are live.
 	if ctx.Creating && ctx.Focused == constants.COMPONENT_TASK_TREE {
 		return []key.Binding{
-			Create.Submit, Create.Cancel, Create.Outdent, Create.Indent,
+			Create.Submit, Create.Cancel, Tree.Outdent, Tree.Indent,
 		}
 	}
 
@@ -242,10 +252,17 @@ func Active(ctx Context) []key.Binding {
 	case constants.COMPONENT_TASK_TREE:
 		if ctx.HasActiveList && !ctx.TaskTreeEmpty {
 			return []key.Binding{
-				Tree.Navigate, Tree.Expand, Tree.Collapse,
-				Tree.Toggle, Tree.OpenDetails, Tree.Delete,
+				Tree.Navigate, Tree.Toggle, Tree.OpenDetails,
+				Tree.Expand, Tree.Collapse, Tree.Delete, Tree.New,
+				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
 				Global.NextPanel,
 			}
+		}
+		if ctx.HasActiveList {
+			// Empty tree: n (new) is the only task action there is — the
+			// inline input is the empty state's way in
+			// (docs/plan/task-row-cards-and-status.md).
+			return []key.Binding{Tree.New, Global.NextPanel}
 		}
 	}
 
@@ -259,7 +276,6 @@ func Globals() []key.Binding {
 		Global.NextPanel,
 		Global.PrevPanel,
 		Global.Help,
-		Global.Quit,
 	}
 }
 
@@ -296,7 +312,7 @@ func Catalog(ctx Context) []Scope {
 			Title: "Global",
 			Entries: entries(
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
-				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
+				Global.Back, Global.ForceQuit, Global.Help,
 				Global.Theme, Global.Filter, Global.Picker,
 			),
 		},
@@ -318,7 +334,7 @@ func Catalog(ctx Context) []Scope {
 		case ctx.Creating:
 			scopes = append(scopes, Scope{
 				Title:   "Creating",
-				Entries: entries(Create.Submit, Create.Cancel, Create.Outdent, Create.Indent),
+				Entries: entries(Create.Submit, Create.Cancel, Tree.Outdent, Tree.Indent),
 			})
 		case ctx.Filtering:
 			scopes = append(scopes, Scope{
@@ -331,6 +347,7 @@ func Catalog(ctx Context) []Scope {
 				Entries: entries(
 					Tree.Navigate, Tree.Expand, Tree.Collapse,
 					Tree.Toggle, Tree.OpenDetails, Tree.Delete,
+					Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
 				),
 			})
 		}

@@ -19,9 +19,36 @@ func TestFooterRendersContextAndGlobalKeys(t *testing.T) {
 	})
 
 	out := m.(Model).View().Content
-	for _, label := range []string{"navigate", "delete", "help", "quit"} {
+	// navigate, delete and new (n) are the task tree's context hints; help
+	// is a global pinned on the right.
+	for _, label := range []string{"navigate", "delete", "new", "help"} {
 		if !strings.Contains(out, label) {
 			t.Errorf("footer output missing %q:\n%s", label, out)
+		}
+	}
+}
+
+// TestFooterEmptyTreeAdvertisesNew verifies the empty task tree advertises
+// only n (new) as its context hint: the inline input is the empty state's
+// way in, and navigation/toggle keys have nothing to act on
+// (docs/plan/task-row-cards-and-status.md).
+func TestFooterEmptyTreeAdvertisesNew(t *testing.T) {
+	m := New()
+	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})
+	m, _ = m.(Model).Update(cmds.SetFooterContextMsg{
+		Focused:           constants.COMPONENT_TASK_TREE,
+		HasActiveList:     true,
+		TaskTreeEmpty:     true,
+		ListsPanelVisible: true,
+	})
+
+	out := m.(Model).View().Content
+	if !strings.Contains(out, "new") {
+		t.Errorf("empty-tree footer missing the new hint:\n%s", out)
+	}
+	for _, absent := range []string{"navigate", "delete", "toggle"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("empty-tree footer must not advertise %q:\n%s", absent, out)
 		}
 	}
 }

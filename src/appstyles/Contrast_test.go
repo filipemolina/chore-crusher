@@ -160,6 +160,23 @@ func TestWCAGContrastAgainstSurfaces(t *testing.T) {
 				}
 			}
 
+			// The status colors that actually render as text on the modal
+			// tier — the selected task row's background (and the inline
+			// create row's). Only the in-progress and complete tokens draw
+			// there: pending's label is TextMuted, not StatusPending, and
+			// StatusOverdue is reserved for a feature that does not exist
+			// yet (docs/plan/task-row-cards-and-status.md).
+			modalStatuses := []statusCase{
+				{"StatusInProgress", theme.StatusInProgress},
+				{"StatusComplete", theme.StatusComplete},
+			}
+			for _, s := range modalStatuses {
+				ratio := Contrast(s.c, modal)
+				if ratio < 2.6 {
+					t.Errorf("%s as text on modal: ratio = %.2f, want ≥ 2.6", s.label, ratio)
+				}
+			}
+
 			// The recessed tier carries text of its own: the empty-state
 			// cards' guidance sits on it, and its ink is the tiers below.
 			// Recessed is the darkest surface in a dark theme but the

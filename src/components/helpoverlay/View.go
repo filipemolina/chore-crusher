@@ -69,7 +69,6 @@ func (m Model) View() tea.View {
 	hint := chrome.RenderKeyHints([]chrome.KeyHint{
 		chrome.HintAs(keys.Global.Help, "close"),
 		chrome.HintAs(keys.Overlay.Cancel, "close"),
-		chrome.HintAs(keys.Global.Quit, "close"),
 	}, appstyles.Active.TextMuted)
 	sections = append(sections, hint)
 

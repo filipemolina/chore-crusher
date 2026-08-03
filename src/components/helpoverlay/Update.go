@@ -13,14 +13,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.termWidth = msg.Width
 
 	case tea.KeyPressMsg:
-		// Any of the three closes: ? is the toggle that opened it, esc is
-		// the cancel every overlay answers, q is the quitter's habit. Only
-		// the overlay closes - q never quits the app from here, because the
-		// overlay owns the keyboard while it is open.
+		// Either of the two closes: ? is the toggle that opened it, esc is
+		// the cancel every overlay answers. Only the overlay closes - the
+		// keys never quit the app from here, because the overlay owns the
+		// keyboard while it is open.
 		switch {
 		case key.Matches(msg, keys.Global.Help),
-			key.Matches(msg, keys.Overlay.Cancel),
-			key.Matches(msg, keys.Global.Quit):
+			key.Matches(msg, keys.Overlay.Cancel):
 			return m, cmds.CloseModal(nil)
 		}
 	}

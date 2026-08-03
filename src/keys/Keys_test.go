@@ -19,7 +19,6 @@ func TestGlobalBindingsAreFixed(t *testing.T) {
 		{"PrevPanel", Global.PrevPanel, "shift+tab"},
 		{"ToggleLists", Global.ToggleListsPanel, "L"},
 		{"Help", Global.Help, "?"},
-		{"Quit", Global.Quit, "q"},
 		{"ForceQuit", Global.ForceQuit, "ctrl+c"},
 		{"Theme", Global.Theme, "T"},
 		{"Filter", Global.Filter, "/"},
@@ -59,7 +58,7 @@ func TestCatalogContainsEveryGlobalBinding(t *testing.T) {
 
 	for _, g := range []key.Binding{
 		Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
-		Global.Back, Global.Quit, Global.ForceQuit, Global.Help, Global.Theme,
+		Global.Back, Global.ForceQuit, Global.Help, Global.Theme,
 		Global.Filter, Global.Picker,
 	} {
 		if !containsBinding(bindings, g) {
@@ -91,7 +90,7 @@ func TestActiveReturnsCreateBindingsWhenCreating(t *testing.T) {
 	}
 	for _, b := range bindings {
 		found := false
-		for _, expected := range []key.Binding{Create.Submit, Create.Cancel, Create.Outdent, Create.Indent} {
+		for _, expected := range []key.Binding{Create.Submit, Create.Cancel, Tree.Outdent, Tree.Indent} {
 			if sameBinding(b, expected) {
 				found = true
 				break
@@ -152,20 +151,45 @@ func TestDeleteBindingIsD(t *testing.T) {
 	}
 }
 
-func TestCreateBindingsUseBrackets(t *testing.T) {
-	if len(Create.Outdent.Keys()) != 1 || Create.Outdent.Keys()[0] != "[" {
-		t.Errorf("Create.Outdent binds %v, want [", Create.Outdent.Keys())
+// The bracket keys are the tree's outdent/indent on a selected task; the
+// inline create row reuses the same two bindings for its level selector, so
+// there is exactly one declaration (docs/DESIGN.md §4, §5).
+func TestBracketBindingsAreOutdentIndent(t *testing.T) {
+	if len(Tree.Outdent.Keys()) != 1 || Tree.Outdent.Keys()[0] != "[" {
+		t.Errorf("Tree.Outdent binds %v, want [", Tree.Outdent.Keys())
 	}
-	if len(Create.Indent.Keys()) != 1 || Create.Indent.Keys()[0] != "]" {
-		t.Errorf("Create.Indent binds %v, want ]", Create.Indent.Keys())
+	if len(Tree.Indent.Keys()) != 1 || Tree.Indent.Keys()[0] != "]" {
+		t.Errorf("Tree.Indent binds %v, want ]", Tree.Indent.Keys())
+	}
+}
+
+// Move up/down follow the vim-move / VS Code convention: alt plus the
+// existing navigation keys (alt+↑/alt+k, alt+↓/alt+j).
+func TestMoveBindingsUseAlt(t *testing.T) {
+	for _, tc := range []struct {
+		b    key.Binding
+		want []string
+	}{
+		{Tree.MoveUp, []string{"alt+up", "alt+k"}},
+		{Tree.MoveDown, []string{"alt+down", "alt+j"}},
+	} {
+		if len(tc.b.Keys()) != len(tc.want) {
+			t.Errorf("%v binds %v, want %v", tc.want, tc.b.Keys(), tc.want)
+			continue
+		}
+		for i, k := range tc.b.Keys() {
+			if k != tc.want[i] {
+				t.Errorf("%v binds %v, want %v", tc.want, tc.b.Keys(), tc.want)
+			}
+		}
 	}
 }
 
 func TestCreateBindingsDoNotUseTab(t *testing.T) {
-	for _, b := range []key.Binding{Create.Outdent, Create.Indent, Create.Submit, Create.Cancel} {
+	for _, b := range []key.Binding{Tree.Outdent, Tree.Indent, Create.Submit, Create.Cancel} {
 		for _, k := range b.Keys() {
 			if k == "tab" || k == "shift+tab" {
-				t.Errorf("Create.%s uses %q, expected bracket keys", b.Help().Key, k)
+				t.Errorf("binding %q uses %q, expected bracket keys", b.Help().Key, k)
 			}
 		}
 	}

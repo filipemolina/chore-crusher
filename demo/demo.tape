@@ -54,9 +54,10 @@ Sleep 1800ms
 
 # --- Add a nested task; n starts creating, [ and ] set level ---
 # n opens the inline create row; ] makes it a child of the selected task
-# ('+'), [ steps it back to a sibling ('-'), ] once more for a child again,
-# then Enter to land it as a child of "Plan the garden" (the task left
-# selected by the cascade above).
+# ('+'). The selection is a root task, so [ is a no-op here (nothing sits
+# above the root - docs/DESIGN.md §4), and the level stays a child; Enter
+# lands it as a child of "Plan the garden" (the task left selected by the
+# cascade above).
 Type "n"
 Sleep 700ms
 Type "Grow a trellis"
@@ -96,5 +97,5 @@ Sleep 800ms
 Enter
 Sleep 2000ms
 
-Type "q"
+Ctrl+C
 Sleep 1000ms

@@ -243,8 +243,15 @@ stack-stitcher's nav bar is permanently absent from its own cycle
 stop. Do not implement "hidden but still tab-able to an invisible panel";
 that produces a focus ring with a silent dead stop in it.
 
-`[`/`]` are the create-mode level selector (§4) and only apply while the
-inline input is active. `tab`/`shift+tab` keep cycling focus between the two
+`[`/`]` restructure the *selected* task — not just the create-mode level
+selector (§4). Outdent `[` (move the selected task out from under its
+parent, becoming the parent's next sibling) and indent `]` (move it under
+its previous sibling, as that sibling's last child); both are no-ops at
+their boundaries (a root task cannot be outdented; a first sibling has
+nothing to hang under). Indent additionally obeys §3: a pending task never
+moves under a complete sibling. While the inline create input is active the
+same two keys are the create-mode level selector (§4) instead. `tab`/
+`shift+tab` keep cycling focus between the two
 panels even while the create row or the `/` filter has the keyboard — they
 are focus keys, not characters, so they never compete with the level
 selector — and the draft is preserved while focus is elsewhere; typing
@@ -261,6 +268,16 @@ collapsed, else moves selection to its first child. This is the same
 convention as `nnn`, `lf`, and most terminal file managers with a tree pane —
 picked because it is already muscle memory for the audience, not invented
 for this app.
+
+**`alt+↑`/`alt+k` and `alt+↓`/`alt+j` move the selected task** up or down
+*within its own status run* — the gesture never crosses the Pending/Complete
+boundary, so a task cannot be moved out of the section it belongs in
+without being crushed or un-crushed first (§3, §6). The modifier choice
+follows vim's `alt+k`/`alt+j` convention (a plain `k`/`j` moves the cursor;
+`alt` makes it move the *thing under* the cursor, the same handshape VS
+Code's `alt+↑`/`alt+↓` uses for moving lines) — one key with a modifier,
+not a second unmodified key that would steal a character vim users expect
+to type.
 
 **`space` toggles complete/pending** on the selected task, from wherever the
 tree has focus — it does not open anything and does not move the cursor.
@@ -313,7 +330,17 @@ claim got skipped.
 
 The right panel is two sections, headed `Pending` and `Complete`, not two
 independently scrollable/focusable lists. One cursor moves through both,
-top to bottom, `Pending` first.
+`Pending` first, and each section keeps its own order: the cursor walks the
+*pending rows in their store order, then the complete rows in theirs*, so a
+complete task sitting between two pending ones in the store (it was crushed
+in place, §3) never hijacks a pending row's cursor position. Crossing the
+section boundary wraps — `↓` from the last pending row lands on the first
+complete row, `↑` from the first complete row returns to the last pending
+row — and the two ends clamp (no wrap from before the first pending or
+after the last complete). The cursor is a flat walk over the concatenation
+`pending + complete`, not a per-section index; "own order" is about which
+rows the walk skips, not about separate focusables (that would reintroduce
+the exact dead-stop focus ring §5's tab rule forbids).
 
 **Which section a task-tree renders under is decided by the *root* task's own
 `status` alone**, not by scanning descendants: a root-level task with
@@ -329,10 +356,22 @@ while its parent is still pending** — that would separate a task from the
 tree it belongs to for a reader trying to see the shape of remaining work,
 which defeats the reason the tree exists at all.
 
-A list with no tasks yet shows an empty state in `Pending` (something like
-"nothing here — type below to add one") and omits the `Complete` header
-entirely rather than showing it empty; an empty `Complete` section with
+A list with no tasks yet auto-shows the inline "new task" input as its only
+row, under the `Pending` header — the input creates a pending task, so it
+belongs to the section the task will land in. Once the user leaves it with
+esc, the standard recessed empty-state card takes its place ("No tasks yet.
+Press n to create one." — see §12 "Empty states"), and the input only comes
+back via `n` or by deleting every remaining task in the list. The `Complete`
+header is omitted entirely when empty; an empty `Complete` section with
 nothing under it is noise no reader needs.
+
+**Vertical rhythm inside the sections:** one blank line separates each
+section header from its first row (and from the row above it), and one
+blank line sits below the last pending row before the `Complete` header —
+the two sections read as two blocks instead of one unbroken column, and a
+pending list's bottom edge doesn't collide with the complete header. The
+blank line after a section's last row is part of the section, not the next
+one: it renders even when the next section is empty.
 
 ## 7. Live refresh: how the TUI sees the CLI's writes
 
@@ -767,18 +806,40 @@ one is needed, it's added here first.
 
 | Meaning | Glyph | Notes |
 | --- | --- | --- |
-| Task: pending | `[ ]` | |
-| Task: in progress | `[~]` | Used for all three progress kinds (§3) alike — the trailing percentage (below), not the checkbox, is what distinguishes them. |
-| Task: crush | `[x]` | Title renders in `TextMuted`, not `TextPrimary`, once crush — see Typography below. |
-| Node has children, expanded | `▾` | One column wide, placed immediately before the checkbox. |
-| Node has children, collapsed | `▸` | Same column. |
-| Node is a leaf | *(one blank space)* | Occupies the same column so every row's checkbox lands in the same position regardless of whether the row above or below it has an expand glyph. |
+| Task: pending | `◻` | Text-presentation square — the checkbox character Claude Code's todo lists use (`figures.squareSmall`, verified from its source, 2026-08-03). Single display cell, unlike the emoji ⬜ (2 cells). |
+| Task: in progress | `◻` | The same text-presentation square as pending — no dedicated glyph; the `IN PROGRESS` label and bar colour set the row apart. Used for all three progress kinds (§3) alike — the trailing percentage (below), not the checkbox, is what distinguishes them. |
+| Task: crush | `◼` | Filled square (`figures.squareSmallFilled`), tinted `StatusComplete`; title renders in `TextMuted`, not `TextPrimary`, once crush — see Typography below. |
+| Node has children, expanded | `▾` | One column wide, appended to the *end* of the title (see Row layout below). |
+| Node has children, collapsed | `▸` | Same column, same position — the marker never occupies a leading column, so a parent's title starts at its own depth. |
+| Node is a leaf | *(no glyph)* | Nothing appended; the title simply has no trailing marker. |
+| Task has detail text | `🗎` | U+1F5CE DOCUMENT, rendered immediately left of the status label in the right-aligned block; omitted when `Notes` is empty. The status cell widens by two columns when present. Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
+| Row card: active bar | `▌` | Left edge marker on lists and task rows. Accent when the row is selected (or the inline input is active), otherwise the row's own status color — see Row layout below. |
 | Add-input level: sibling (default) | `-` | §4. |
 | Add-input level: child | `+` | §4. |
 | Add-input level: parent-of-selection | `^` | §4. |
-| Trailing derived/percentage progress | ` (NN%)` | In `TextMuted`, appended directly after the title with one leading space; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3) — never rendered as `(0%)` in that case. |
+| Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered in the row's right-aligned block immediately before the status; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3) — never rendered as `(0%)` in that case. |
 
-**Row layout, left to right, fixed order:** `{2 spaces × depth}{expand-glyph-or-blank}{space}{checkbox}{space}{title}{progress suffix if any}`. Depth-0 example with children, expanded, pending: `▾ [ ] Buy paint for the fence`. A leaf at depth 1, complete: `   [x] Choose color` (two spaces of indent, one blank leaf-column, one separating space — four columns before the checkbox).
+**Task rows are full-width cards** (docs/plan/task-row-cards-and-status.md):
+a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the
+left and the right-aligned `{progress}{space}{status}` block at the line's
+end — the bar and checkbox sit flush, and every level of depth indents the
+*whole card* by two columns, so a subtask's bar steps right and no
+continuous vertical bar line forms. A parent's title carries the
+expand/collapse marker (`▾`/`▸`, one column, no space) at its end — before
+the right block when the title is long enough to reach it, dropped
+entirely when the title is shed for narrowness — and the whole right block
+sheds as a unit before the title does. A task with notes renders `🗎`
+immediately left of the status label; the status cell widens by two columns
+when it does. The card spans
+the panel body width with `Padding(0, 1, 0, 0)` — no vertical padding,
+content-height, so a one-line title makes a one-line card — and the
+selected row's `ModalBg` covers the full card, not just the text run.
+Status labels are all caps — `PENDING` in `TextMuted`, `IN PROGRESS` in
+`StatusInProgress`, `COMPLETE` in `StatusComplete` — and the bar is accent
+when the row is selected, the row's own status color otherwise. Under
+narrowness the progress sheds before the status, both whole; the title and
+checkbox are never shed. Depth-0 pending example (parent row):
+`▌◻ Buy paint for the fence ▾             PENDING`.
 
 Section headers (`Pending`, `Complete` — §6) render as `{bold TextPrimary}
 {section name} {dim count in parens}`, e.g. **Pending** `(3)` — the same
@@ -795,11 +856,17 @@ of text uses is a rule, not a per-component judgment call:
 - **`TextMuted`** — secondary, still-relevant metadata: a completed task's
   title (this is the one deliberate exception to "titles are always
   primary" — completion is exactly the state where a title becomes
-  secondary information), section-header counts, the trailing progress
-  percentage, a list's pending/complete counts in the lists panel.
+  secondary information), section-header counts, a list's pending/complete
+  counts in the lists panel.
 - **`TextDim`** — inert or placeholder text: an empty-state's message, a
   disabled key hint, the add-input's placeholder text before anything is
-  typed.
+  typed, the trailing progress percentage in a task row.
+- **Status labels** — the one place a status token, not a text tier, styles
+  text: `PENDING` renders in `TextMuted`, `IN PROGRESS` in
+  `StatusInProgress`, `COMPLETE` in `StatusComplete` (the same tokens the
+  checkbox already draws). The three text tiers carry no semantic
+  success/warning color, which is why the theme holds these tokens
+  separately (docs/plan/task-row-cards-and-status.md).
 
 Do not introduce a fourth informal tier (a hand-picked opacity, a literal
 gray hex) for "something in between" — if the three don't cover a case,
@@ -807,8 +874,9 @@ that's a signal to reconsider the case, not to add a color.
 
 ### Empty states: one recessed-card pattern
 
-Every empty state (§6: no tasks in `Pending`; a lists panel with no lists
-yet) is the same shape: a box on the `BackgroundRecessed` tier, rimmed with
+Every empty state (an empty Tasks surface after the inline input was
+dismissed; a lists panel with no lists yet) is the same shape: a box on the
+`BackgroundRecessed` tier, rimmed with
 `BorderCard` (not `BorderDefault` — see §11's inherited reasoning: a border
 has to contrast with the surface it wraps, and `BorderDefault` moves *toward*
 `BackgroundRecessed` rather than away from it), `Padding(1, 2)` matching

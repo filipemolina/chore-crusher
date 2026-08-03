@@ -48,10 +48,15 @@ type Model struct {
 	// computed insertion point (task-row redesign + inline creation,
 	// docs/plans/task-row-redesign-and-inline-creation.md).
 	creating          bool
-	createManual      bool   // true if entered via n (cancelable); false if auto for an empty list
 	createBeforeID    string // reference task (new row inserts immediately after); "" = append at end
 	createInput       textinput.Model
 	createLevelOffset int // -1 = parent, 0 = sibling, +1 = child
+	// createSuppressed remembers that the user esc-cancelled creating, so
+	// the next refresh of the same empty list does not silently re-open the
+	// input. Cleared when creating starts again (n) or the active list
+	// changes (docs/plan/task-row-cards-and-status.md).
+	createSuppressed bool
+	activeListID     string // id of the list the rows belong to; a change clears createSuppressed
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -104,13 +109,22 @@ func (m Model) IsEmpty() bool {
 // easier than retrofitting it once phase 4's real tree exists.
 func (m *Model) applyRows(rows []apptypes.Row) {
 	if len(rows) == 0 {
+		hadRows := len(m.rows) > 0
 		m.rows = nil
 		m.selectedID = ""
-		// An empty active list renders the inline input as its only content:
-		// the input row IS the empty state (inline-creation plan, "Empty
-		// state"). Esc on an empty input never leaves this mode.
-		if m.activeList && !m.creating {
-			m.startCreatingAuto()
+		// Deleting every remaining task re-opens the empty list's input even
+		// after an esc cancel: createSuppressed means "a refresh must not
+		// undo my esc", not "never show the input on this list again" — the
+		// list becoming empty is one of the two ways the input comes back, n
+		// being the other (docs/plan/task-row-cards-and-status.md).
+		if hadRows {
+			m.createSuppressed = false
+		}
+		// An empty active list auto-shows the inline input unless the user
+		// just esc-cancelled it (createSuppressed): a refresh must not undo
+		// the user's cancel.
+		if m.activeList && !m.creating && !m.createSuppressed {
+			m.startCreating("")
 		}
 		return
 	}
@@ -185,6 +199,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			return m, nil
 		}
+		if m.activeListID != msg.ListID {
+			// A list switch ends any esc-suppression: the next empty list
+			// auto-shows its input again.
+			m.activeListID = msg.ListID
+			m.createSuppressed = false
+		}
 		m.activeList = msg.ListID != ""
 		m.applyRows(msg.Rows)
 		// Broadcast the current selection's depth to add-input
@@ -232,6 +252,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// n starts creating even when the tree is empty: esc can leave an
+		// empty list's surface bare, and n is the only way back in
+		// (docs/plan/task-row-cards-and-status.md).
+		if key.Matches(msg, keys.Tree.New) {
+			m.StartCreating(m.selectedID)
+			return m, m.createInput.Focus()
+		}
+
 		// Tree navigation shortcuts are only relevant while there are
 		// rows; an empty tree falls through so the bar can show only
 		// the keys that make sense.
@@ -258,16 +286,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedID != "" {
 				return m, cmds.OpenDetails(m.selectedID)
 			}
-		case key.Matches(msg, keys.Tree.New):
-			// If already creating, let the create handler run (it
-			// simply returns). Otherwise enter creating mode at the
-			// insertion point after the selected task.
-			m.StartCreating(m.selectedID)
-			return m, m.createInput.Focus()
 		case key.Matches(msg, keys.Tree.Delete):
 			if m.selectedID != "" {
 				return m, cmds.DeleteTask(m.selectedID)
 			}
+		case key.Matches(msg, keys.Tree.Outdent):
+			// [ moves the selected task one level shallower; the same key
+			// picks the new task's level while creating (§4).
+			return m, m.outdentSelected()
+		case key.Matches(msg, keys.Tree.Indent):
+			return m, m.indentSelected()
+		case key.Matches(msg, keys.Tree.MoveUp):
+			return m, m.moveSelected(-1)
+		case key.Matches(msg, keys.Tree.MoveDown):
+			return m, m.moveSelected(1)
 		}
 
 		// If selection changed, broadcast it to add-input
@@ -332,11 +364,32 @@ func (m *Model) clearFilter() {
 	m.filterInput.Reset()
 }
 
-// moveSelection moves the cursor by delta visible rows. When a filter is
-// active the cursor moves through the filtered set, not the full tree.
+// moveSelection moves the cursor by delta visible rows. The cursor walks the
+// Pending and Complete sections as one sequence — Pending first, then
+// Complete — so pressing ↓ past the last pending row lands on the first
+// complete row, and ↑ from the first complete row returns to the last pending
+// row. Each section keeps its own ordering (its rows never interleave by
+// store position), which is the "two lists with their own indexes" contract
+// (docs/DESIGN.md §6). While a /-filter is active the sections do not exist,
+// so the cursor moves through the flat filtered set instead.
 func (m *Model) moveSelection(delta int) {
-	visible := m.displayedRows()
-	current := m.visibleIndex(m.selectedID)
+	var order []apptypes.Row
+	if m.filterActive() {
+		order = m.displayedRows()
+	} else {
+		pending, complete := m.splitSections()
+		order = make([]apptypes.Row, 0, len(pending)+len(complete))
+		order = append(order, pending...)
+		order = append(order, complete...)
+	}
+
+	current := -1
+	for i, r := range order {
+		if r.Task.ID == m.selectedID {
+			current = i
+			break
+		}
+	}
 	if current < 0 {
 		current = 0
 	}
@@ -344,11 +397,11 @@ func (m *Model) moveSelection(delta int) {
 	if next < 0 {
 		next = 0
 	}
-	if next >= len(visible) {
-		next = len(visible) - 1
+	if next >= len(order) {
+		next = len(order) - 1
 	}
-	if next >= 0 && next < len(visible) {
-		m.selectedID = visible[next].Task.ID
+	if next >= 0 && next < len(order) {
+		m.selectedID = order[next].Task.ID
 	}
 }
 
@@ -395,6 +448,102 @@ func (m *Model) visibleIndex(taskID string) int {
 		}
 	}
 	return -1
+}
+
+// outdentSelected moves the selected task one level shallower: it becomes a
+// sibling of its parent, positioned immediately after it, so its line stays
+// in place. A root task has nothing above it — no-op (docs/DESIGN.md §5).
+func (m *Model) outdentSelected() tea.Cmd {
+	if m.selectedID == "" {
+		return nil
+	}
+	row := m.findRow(m.selectedID)
+	if row == nil || row.Task.ParentID == nil {
+		return nil
+	}
+	return cmds.MoveTask(m.selectedID, *row.Task.ParentID)
+}
+
+// indentSelected moves the selected task one level deeper: it becomes the
+// last child of its previous sibling, so its line stays in place. A task
+// with no previous sibling stays put, and a pending task never moves under a
+// complete sibling (§3 forbids a complete ancestor over a pending
+// descendant) — both are silent no-ops (docs/DESIGN.md §5).
+func (m *Model) indentSelected() tea.Cmd {
+	if m.selectedID == "" {
+		return nil
+	}
+	row := m.findRow(m.selectedID)
+	if row == nil {
+		return nil
+	}
+	run := siblingRun(m.rows, row.Task.ParentID)
+	idx := slices.IndexFunc(run, func(r apptypes.Row) bool { return r.Task.ID == m.selectedID })
+	if idx <= 0 {
+		return nil
+	}
+	prev := run[idx-1]
+	if prev.Task.Status == apptypes.StatusComplete && row.Task.Status != apptypes.StatusComplete {
+		return nil // §3
+	}
+	return cmds.ReparentTask(m.selectedID, &prev.Task.ID)
+}
+
+// moveSelected moves the selected task up (delta -1) or down (+1) within its
+// own status run: a pending task swaps with the previous/next pending
+// sibling and a complete one with the previous/next complete sibling, so the
+// two sections never mix — a task at its run's boundary stays put
+// (docs/DESIGN.md §6). The gesture resolves to a concrete after-id that
+// AppModel executes through store.MoveTask.
+func (m *Model) moveSelected(delta int) tea.Cmd {
+	if m.selectedID == "" {
+		return nil
+	}
+	row := m.findRow(m.selectedID)
+	if row == nil {
+		return nil
+	}
+	run := siblingRun(m.rows, row.Task.ParentID)
+	idx := slices.IndexFunc(run, func(r apptypes.Row) bool { return r.Task.ID == m.selectedID })
+	if idx < 0 {
+		return nil
+	}
+
+	// Walk in the direction to the nearest same-status sibling, skipping
+	// opposite-status rows that sit between (pending and complete siblings
+	// can interleave by store position even though they render separately).
+	next := idx + delta
+	for next >= 0 && next < len(run) && run[next].Task.Status != row.Task.Status {
+		next += delta
+	}
+	if next < 0 || next >= len(run) {
+		return nil // run boundary
+	}
+
+	target := run[next]
+	if delta > 0 {
+		// Swap with the next same-status sibling: land right after it.
+		return cmds.MoveTask(m.selectedID, target.Task.ID)
+	}
+	// Swap with the previous same-status sibling: land after whatever
+	// precedes it, or at the front of the run when it has no predecessor.
+	if next > 0 {
+		return cmds.MoveTask(m.selectedID, run[next-1].Task.ID)
+	}
+	return cmds.MoveTask(m.selectedID, "")
+}
+
+// siblingRun returns the rows sharing one parent (nil = the list root) in
+// tree order — the sibling set the indent and move gestures reorder within.
+func siblingRun(rows []apptypes.Row, parentID *string) []apptypes.Row {
+	out := make([]apptypes.Row, 0, 4)
+	for _, r := range rows {
+		if (r.Task.ParentID == nil) == (parentID == nil) &&
+			(parentID == nil || *r.Task.ParentID == *parentID) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // toggleCollapse toggles or sets the collapse state of the selected row.
@@ -507,19 +656,12 @@ func gutterFilterWidth(mainWidth int) int {
 // StartCreating enters inline creation mode, placing the input row after
 // the given task id (empty string appends at the end).
 func (m *Model) StartCreating(beforeID string) {
-	m.startCreating(beforeID, true)
+	m.startCreating(beforeID)
 }
 
-// startCreatingAuto enters inline creation mode for an empty active list.
-// It differs from StartCreating in that esc on an empty input is a no-op:
-// the input is the only way to add a task, so it never leaves on its own.
-func (m *Model) startCreatingAuto() {
-	m.startCreating("", false)
-}
-
-func (m *Model) startCreating(beforeID string, manual bool) {
+func (m *Model) startCreating(beforeID string) {
 	m.creating = true
-	m.createManual = manual
+	m.createSuppressed = false
 
 	// When the selection is a complete task, place the create row after the
 	// last pending task (at that task's depth) rather than splicing it under
@@ -561,9 +703,12 @@ func (m *Model) lastPendingIDAtDepth(depth int) string {
 	return lastID
 }
 
-// CancelCreating exits inline creation mode and resets the input.
+// CancelCreating exits inline creation mode and resets the input. It marks
+// the session as esc-suppressed so the next refresh of the same empty list
+// does not re-open the input under the user (docs/plan/task-row-cards-and-status.md).
 func (m *Model) CancelCreating() {
 	m.creating = false
+	m.createSuppressed = true
 	m.createBeforeID = ""
 	m.createLevelOffset = 0
 	m.createInput.Blur()
@@ -606,27 +751,27 @@ func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key.Matches(msg, keys.Overlay.Cancel) {
-		if strings.TrimSpace(m.createInput.Value()) != "" {
-			// esc with text clears the buffer but stays in creating mode.
-			m.createInput.Reset()
-			return m, nil
-		}
-		// Empty input: on a truly empty list the input is the only way to
-		// add a task, so esc is a no-op and keeps the row there. As soon as
-		// the list has rows (or we are in manual n-mode), esc leaves.
-		if !m.createManual && len(m.rows) == 0 {
-			return m, nil
-		}
+		// Single press always cancels: discard any typed text and remove the
+		// create row, from every entry path (manual n or the empty list's
+		// auto-input). The refresh that follows must not re-open it — see
+		// createSuppressed (docs/plan/task-row-cards-and-status.md).
 		m.CancelCreating()
 		return m, nil
 	}
 
-	if key.Matches(msg, keys.Create.Outdent) {
+	if key.Matches(msg, keys.Tree.Outdent) {
+		// A new task can never sit above root: once the create row is at
+		// depth 0 (a root selection, or a deeper selection already
+		// outdented to its root), [ is a no-op and the ^ glyph never
+		// renders for a root-level row (docs/DESIGN.md §4).
+		if m.selectedDepth()+m.createLevelOffset-1 < 0 {
+			return m, nil
+		}
 		m.createLevelOffset = max(m.createLevelOffset-1, -1)
 		return m, nil
 	}
 
-	if key.Matches(msg, keys.Create.Indent) {
+	if key.Matches(msg, keys.Tree.Indent) {
 		m.createLevelOffset = min(m.createLevelOffset+1, 1)
 		return m, nil
 	}

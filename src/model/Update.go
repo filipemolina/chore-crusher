@@ -29,8 +29,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ctrl+c quits from anywhere, ahead of every other claim on the
 	// keyboard: a modal, a text input, anything phase 5 adds. It is the one
-	// key nothing gets to swallow, which is why it is a binding of its own
-	// and not part of Global.Quit.
+	// key nothing gets to swallow, and the only binding that leaves the app.
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok && key.Matches(keyMsg, keys.Global.ForceQuit) {
 		return m, tea.Quit
 	}
@@ -68,24 +67,27 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, keys.Global.Quit):
-			return m, tea.Quit
-
 		case key.Matches(msg, keys.Global.Back):
 			// Esc ladder (docs/DESIGN.md §5): a modal closes itself first —
 			// it intercepts all keypresses at the top of Update, so by
 			// the time we reach here no modal is open. Next, a focused child
 			// that declared KeepsEsc (tree with applied filter or inline
-			// create) claims esc for itself. Everything else is a no-op.
+			// create; lists panel with active filter) claims esc for itself.
+			// Do not consume it here — let the component's own Update handle
+			// it. When no child claims it, esc is a no-op.
+			claimed := false
 			switch m.focusedZone {
 			case constants.COMPONENT_TASK_TREE:
 				if tasks, ok := m.components.TaskPanel.(interface{ KeepsEsc() bool }); ok && tasks.KeepsEsc() {
-					return m, nil
+					claimed = true
 				}
 			case constants.COMPONENT_LISTS_PANEL:
 				if lists, ok := m.components.ListsPanel.(interface{ KeepsEsc() bool }); ok && lists.KeepsEsc() {
-					return m, nil
+					claimed = true
 				}
+			}
+			if !claimed {
+				return m, nil
 			}
 
 		case key.Matches(msg, keys.Global.Help):
@@ -283,6 +285,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmds.ToggleTaskMsg:
 		if err := m.store.Toggle(msg.TaskID); err != nil {
+			m.lastError = err.Error()
+			break
+		}
+		if m.activeListID != "" {
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+		}
+
+	case cmds.MoveTaskMsg:
+		if err := m.store.MoveTask(msg.TaskID, msg.AfterID); err != nil {
+			m.lastError = err.Error()
+			break
+		}
+		if m.activeListID != "" {
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+		}
+
+	case cmds.ReparentTaskMsg:
+		if err := m.store.Reparent(msg.TaskID, msg.ParentID); err != nil {
 			m.lastError = err.Error()
 			break
 		}

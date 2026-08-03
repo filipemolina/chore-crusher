@@ -296,6 +296,105 @@ func (s *Store) Reparent(taskID string, parentID *string) error {
 	return tx.Commit()
 }
 
+// MoveTask repositions taskID to be the immediate successor of afterID — its
+// new parent is afterID's parent, and it lands one position after afterID —
+// or, when afterID is empty, the first child of taskID's current parent.
+// One primitive covers three TUI gestures (docs/DESIGN.md §5): move-up and
+// move-down swap a task with its previous/next same-status sibling, and
+// outdent places a task right after its own parent. Unlike Reparent there is
+// no ±1-level rule — a deliberate move may cross any number of levels in one
+// step — but the same validity rules apply: same list, no descendant target,
+// and a non-complete task never lands under a complete parent (§3).
+func (s *Store) MoveTask(taskID, afterID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	task, err := getTask(tx, taskID)
+	if err != nil {
+		return err
+	}
+
+	// The target run is afterID's parent run (afterID may be any task in the
+	// list: outdent passes the task's own parent). An empty afterID targets
+	// the front of the task's own parent run.
+	var targetParent *string
+	if afterID != "" {
+		after, err := getTask(tx, afterID)
+		if err != nil {
+			return err
+		}
+		if after.ListID != task.ListID {
+			return fmt.Errorf("task %q belongs to a different list than %q", afterID, taskID)
+		}
+		if afterID == taskID {
+			return fmt.Errorf("task %q cannot be moved after itself", taskID)
+		}
+		if err := ensureNotDescendant(tx, afterID, taskID); err != nil {
+			return err
+		}
+		targetParent = after.ParentID
+	} else {
+		targetParent = task.ParentID
+	}
+
+	// A non-complete task cannot move under a complete parent: the
+	// "complete ancestor, pending descendant" state is one §3 forbids.
+	if targetParent != nil {
+		parent, err := getTask(tx, *targetParent)
+		if err != nil {
+			return err
+		}
+		if parent.Status == StatusComplete && task.Status != StatusComplete {
+			return fmt.Errorf("cannot move non-complete task %q under complete task %q; complete it first", taskID, *targetParent)
+		}
+	}
+
+	// Close the gap the task leaves in its old sibling run.
+	if _, err := tx.Exec(
+		`UPDATE Task SET position = position - 1
+		 WHERE list_id = ? AND parent_id IS ? AND position > ?`,
+		task.ListID, task.ParentID, task.Position,
+	); err != nil {
+		return err
+	}
+
+	// The insertion point: one after afterID (whose position may have just
+	// shifted down if it sat after the task in the same run), or the front
+	// of the run.
+	var targetPos int
+	if afterID != "" {
+		after, err := getTask(tx, afterID)
+		if err != nil {
+			return err
+		}
+		targetPos = after.Position + 1
+	} else {
+		targetPos = 0
+	}
+
+	// Make room in the target run, excluding the task itself when it moves
+	// within the same run (its row still holds its stale old position).
+	if _, err := tx.Exec(
+		`UPDATE Task SET position = position + 1
+		 WHERE list_id = ? AND parent_id IS ? AND position >= ? AND id != ?`,
+		task.ListID, targetParent, targetPos, taskID,
+	); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE Task SET parent_id = ?, position = ?, updated_at = ? WHERE id = ?`,
+		targetParent, targetPos, time.Now().Unix(), taskID,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // DeleteTask deletes the task and, via the parent_id foreign key's ON DELETE
 // CASCADE, every descendant at every depth. Sibling subtrees are untouched.
 func (s *Store) DeleteTask(id string) error {

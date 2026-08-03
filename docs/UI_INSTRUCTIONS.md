@@ -190,12 +190,13 @@ func PanelFrame(isFocused bool, width, height int, body string) string {
 
 | Meaning | Glyph | Notes |
 |---|---|---|
-| Task: pending | `[ ]` | |
-| Task: in progress | `[~]` | For all three progress kinds alike — the `(NN%)` suffix, not the checkbox, distinguishes them. |
-| Task: complete | `[x]` | Title renders in `TextMuted`, not `TextPrimary` — completion is when a title becomes secondary. |
-| Node has children, expanded | `▾` | One column wide, before the checkbox. |
-| Node has children, collapsed | `▸` | Same column. |
-| Node is a leaf | *(one space)* | Occupies the same column so checkboxes align regardless of expand glyphs. |
+| Task: pending | `◻` | |
+| Task: in progress | `◻` | Same as pending — no dedicated glyph. For all three progress kinds alike — the `(NN%)` suffix, not the checkbox, distinguishes them. |
+| Task: complete | `◼` | Title renders in `TextMuted`, not `TextPrimary` — completion is when a title becomes secondary. |
+| Task has detail text | `🗎` | U+1F5CE DOCUMENT, immediately left of the status label; widens the status cell by two columns when present. One cell in go-runewidth; emoji fonts may render wider — see DESIGN.md §12. |
+| Node has children, expanded | `▾` | Appended to the *end* of the title — never a leading column, so a parent's title starts at its own depth. |
+| Node has children, collapsed | `▸` | Same position, end of title. |
+| Node is a leaf | *(no glyph)* | Nothing appended; titles of leaves simply carry no marker. |
 | Add-input level: sibling (default) | `-` | from `docs/DESIGN.md` §4. |
 | Add-input level: child | `+` | from `docs/DESIGN.md` §4. |
 | Add-input level: parent-of-selection | `^` | from `docs/DESIGN.md` §4. |
@@ -205,7 +206,7 @@ func PanelFrame(isFocused bool, width, height int, body string) string {
 
 1. Search the component for any string literals that look like symbols:
    ```bash
-   grep -En '[\[\]▾▸x~\+\-^]|\(.*%\)' <component>/*.go | grep -v "//"
+   grep -En '[◻◼▾▸\+\-^]|\(.*%\)' <component>/*.go | grep -v "//"
    ```
 
 2. For each match, verify it's in the vocabulary above.
@@ -217,7 +218,7 @@ func PanelFrame(isFocused bool, width, height int, body string) string {
 **Example (correct, from existing code):**
 ```go
 // ✓ Using vocabulary glyphs
-checkbox := "[ ]"  // pending task
+checkbox := "◻"  // pending / in-progress task
 arrow := "▾"       // expanded node
 progress := " (42%)"  // progress suffix
 ```
@@ -325,7 +326,7 @@ grep -rEn "\.Padding\(|\.Border\(|\.BorderStyle\(" . | grep -v "chrome\|PanelFra
 grep -rn "FillBackground\|chrome\.PanelFrame\|chrome\.ModalSurface\|chrome\.EmptyStateCard" .
 
 # Rule 5: Glyphs are in the vocabulary
-grep -rEn '[\[\]▾▸x~\+\-^]|\(.*%\)' . | grep -v "docs/DESIGN\|//"
+grep -rEn '[◻◼▾▸🗎\+\-^]|\(.*%\)' . | grep -v "docs/DESIGN\|//"
 
 # Rule 6: Focus only changes background
 grep -B 2 -A 2 "isFocused" . | grep -rEn "Width|Height|Border"

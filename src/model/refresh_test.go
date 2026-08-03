@@ -479,3 +479,59 @@ func TestInlineCreateCircuitEndToEnd(t *testing.T) {
 		t.Errorf("selected task = %q, want the newly created %q", created.Title, "Buy milk")
 	}
 }
+
+// TestEscCancelsInlineCreationThroughAppModel verifies that pressing Esc
+// while the tree's inline input is active actually reaches the tree through
+// AppModel.Update (the production path): AppModel's "esc ladder" must not
+// consume Esc when the tree KeepsEsc — it must fall through to the
+// component updates so handleCreatingKey can call CancelCreating
+// (model/Update.go).
+func TestEscCancelsInlineCreationThroughAppModel(t *testing.T) {
+	m := newTestModel(t, t.TempDir())
+	listID, err := m.store.CreateList("Errands")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	if _, err := m.store.CreateTask(listID, "Existing", nil, ""); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	batch, ok := m.Init()().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("Init() = %T, want tea.BatchMsg", m.Init()())
+	}
+	for _, c := range batch[1:] {
+		m = refresh(t, m, c())
+	}
+
+	applyOnce := func(m AppModel, msg tea.Msg) AppModel {
+		t.Helper()
+		updated, _ := m.Update(msg)
+		out, ok := updated.(AppModel)
+		if !ok {
+			t.Fatalf("Update returned %T, want AppModel", updated)
+		}
+		return out
+	}
+
+	// n: enter inline creation mode (tree.Update, handleCreatingKey).
+	m = applyOnce(m, tea.KeyPressMsg{Text: "n", Code: 'n'})
+	tree, ok := m.components.TaskPanel.(interface{ IsCreating() bool })
+	if !ok {
+		t.Fatal("TaskPanel missing IsCreating")
+	}
+	if !tree.IsCreating() {
+		t.Fatal("setup: n should have started creating")
+	}
+
+	// Esc must reach the tree through AppModel.Update and cancel creating
+	// (not be swallowed by the KeepsEsc early return).
+	m = applyOnce(m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	tree, ok = m.components.TaskPanel.(interface{ IsCreating() bool })
+	if !ok {
+		t.Fatal("TaskPanel missing IsCreating after Esc")
+	}
+	if tree.IsCreating() {
+		t.Fatal("Esc should cancel inline creation through AppModel.Update")
+	}
+}

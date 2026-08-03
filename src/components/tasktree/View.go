@@ -36,9 +36,14 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	case m.creating:
 		// Inline creation mode: render the sections and splice the create row
 		// at the insertion point. On an empty list this renders just the
-		// create row, which is the empty state.
+		// create row.
 		pending, complete := m.splitSections()
 		return appstyles.FillBackground(bg, m.renderSections(pending, complete, width, bg))
+	case len(m.rows) == 0:
+		// An empty list after an esc cancel: the standard recessed empty-state
+		// card. The input is no longer the empty state — single-press esc
+		// removes it (docs/plan/task-row-cards-and-status.md).
+		return appstyles.FillBackground(bg, chrome.EmptyStateCard("No tasks yet.\nPress n to create one.", width, height))
 	case m.filterActive():
 		return appstyles.FillBackground(bg, m.renderFiltered(width, bg))
 	default:
@@ -84,9 +89,27 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg c
 	var lines []string
 	placedCreate := false
 
+	// An empty list's create row opens under the Pending header: the input
+	// creates a pending task (store.CreateTask inserts status 'pending'), so
+	// the card belongs to the Pending section even while that section has
+	// nothing in it yet (docs/plan/task-row-cards-and-status.md).
+	if m.creating && len(pending) == 0 && len(complete) == 0 {
+		lines = append(lines, sectionHeader("Pending", 0))
+		lines = append(lines, "")
+		lines = append(lines, m.renderCreateRow(width, bg))
+		return lipgloss.JoinVertical(lipgloss.Top, lines...)
+	}
+
 	if len(pending) > 0 {
 		lines = append(lines, sectionHeader("Pending", len(pending)))
+		// One blank line below each section title, and one below the last
+		// pending row, so the sections read as blocks with air around them
+		// (docs/DESIGN.md §6).
+		lines = append(lines, "")
 		lines, placedCreate = m.appendSectionRows(lines, pending, width, bg, placedCreate)
+		if len(complete) > 0 {
+			lines = append(lines, "")
+		}
 	}
 
 	if len(pending) > 0 && len(complete) > 0 {
@@ -95,6 +118,7 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg c
 
 	if len(complete) > 0 {
 		lines = append(lines, sectionHeader("Complete", len(complete)))
+		lines = append(lines, "")
 		lines, placedCreate = m.appendSectionRows(lines, complete, width, bg, placedCreate)
 	}
 
@@ -165,35 +189,46 @@ func (m *Model) renderFilterBar() string {
 // step 1's unmatched styling).
 func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, bg color.Color) string {
 	if dimmed {
-		indent := strings.Repeat("  ", row.Depth)
-		return dim().Render(chrome.Truncate(indent+"[…] "+row.Task.Title, width))
+		cardIndent := strings.Repeat(" ", 2*row.Depth)
+		cardWidth := max(0, width-len(cardIndent))
+		content := dim().Render(chrome.Truncate("[…] "+row.Task.Title, max(1, cardWidth-cardInset)))
+		return cardIndent + renderTaskCard(cardWidth, bg, appstyles.Active.TextMuted, content)
 	}
 	return m.renderRow(row, width, bg)
 }
 
-// renderRow renders one task row with proper indent, glyph, checkbox, title,
-// status, and progress columns. The layout is computed by renderTaskRowBase.
+// renderRow renders one task row as a full-width card: a ▌ bar column whose
+// color is accent when the row is selected and the row's own status color
+// otherwise, then the columns (checkbox, title) and the right-aligned
+// progress+status block. The expand/collapse marker (▾/▸) sits at the end of
+// the title, and each level of depth indents the whole card by two columns,
+// so a subtask's bar steps right and the row reads at its real depth
+// (docs/DESIGN.md §12).
 func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
-	indent := strings.Repeat(" ", 2*row.Depth)
-	glyph := " "
-	if row.HasChildren {
-		if m.collapsed[row.Task.ID] {
-			glyph = "▸"
-		} else {
-			glyph = "▾"
-		}
-	}
+	cardIndent := strings.Repeat(" ", 2*row.Depth)
+	cardWidth := max(0, width-len(cardIndent))
 
-	checkbox := "[ ]"
+	// Text-presentation checkbox glyphs (no emoji presentation, single cell):
+	// ◻ pending and in progress, ◼ complete. In progress shares the pending
+	// square — the IN PROGRESS label and bar colour set it apart.
+	checkbox := "◻"
 	checkboxFg := appstyles.Active.TextMuted
 	textFg := appstyles.Active.TextPrimary
 	if row.Task.Status == apptypes.StatusComplete {
-		checkbox = "[x]"
+		checkbox = "◼"
 		checkboxFg = appstyles.Active.StatusComplete
 		textFg = appstyles.Active.TextMuted
-	} else if row.Task.Status == apptypes.StatusInProgress {
-		checkbox = "[~]"
-		checkboxFg = appstyles.Active.StatusInProgress
+	}
+
+	// The expand/collapse marker is part of the title, not a leading column,
+	// so a parent's title starts at its own depth (docs/DESIGN.md §12).
+	trailing := ""
+	if row.HasChildren {
+		if m.collapsed[row.Task.ID] {
+			trailing = "▸"
+		} else {
+			trailing = "▾"
+		}
 	}
 
 	title := row.Task.Title
@@ -201,19 +236,27 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 		title = lipgloss.NewStyle().Foreground(textFg).Render(title)
 	}
 
-	status := statusLabel(row.Task.Status)
-	progress := progressLabel(row, m.rows)
+	isSelected := row.Task.ID == m.selectedID
+	rowBg := chrome.ListRowBg(isSelected, m.focused)
 
 	checkboxColored := lipgloss.NewStyle().Foreground(checkboxFg).Render(checkbox)
-	return m.renderTaskRowBase(indent, glyph, checkboxColored, title, status, progress,
-		3, width, bg, row.Task.ID == m.selectedID)
+	detailsGlyph := ""
+	if row.Task.Notes != "" {
+		detailsGlyph = detailsIcon
+	}
+	content := buildRowContent(checkboxColored, title, trailing,
+		statusLabel(row.Task.Status), progressLabel(row, m.rows), detailsGlyph, 1,
+		cardWidth-cardInset, statusFg(row.Task.Status))
+
+	return cardIndent + renderTaskCard(cardWidth, rowBg, barFgFor(row.Task.Status, isSelected), content)
 }
 
-// renderCreateRow renders the inline "new task" row as a Cursor-style bar:
-// full remaining width on ModalBg, leading → prompt (accent), placeholder
-// or typed text, empty status/progress, and the selected-row background.
-// Placeholder is "Add a follow-up" when the level offset is non-zero
-// (phase B step 5).
+// renderCreateRow renders the inline "new task" row as a card styled like a
+// selected task row: ModalBg background, accent bar, Padding(0,1,0,0), the level
+// glyph (-/+/^) in accent where the checkbox would sit, and the placeholder
+// or typed text. There is no → prompt — the card chrome marks the row as
+// active. The whole card is indented to the depth the new task will land at,
+// matching task rows (docs/DESIGN.md §12).
 func (m *Model) renderCreateRow(width int, bg color.Color) string {
 	glyph := "-"
 	switch m.createLevelOffset {
@@ -229,14 +272,14 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 			selectedDepth = row.Depth
 		}
 	}
-	indent := strings.Repeat(" ", max(0, 2*(selectedDepth+m.createLevelOffset)))
+	cardIndent := strings.Repeat(" ", max(0, 2*(selectedDepth+m.createLevelOffset)))
+	cardWidth := max(0, width-len(cardIndent))
 
-	// prefix = indent + →(1) + space + glyph(1) + space + checkbox slot
-	prefixWidth := len(indent) + 1 + 1 + 1 + 1 + 1
-	m.createInput.SetWidth(max(1, width-prefixWidth))
+	// prefix = glyph + space
+	prefixWidth := 2
+	m.createInput.SetWidth(max(1, cardWidth-cardInset-prefixWidth))
 
-	arrow := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Render("→")
-	checkboxSlot := lipgloss.NewStyle().Render(" ")
+	glyphColored := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Render(glyph)
 
 	var title string
 	if m.createInput.Value() == "" {
@@ -245,15 +288,8 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 		title = m.createInput.View()
 	}
 
-	rowContent := lipgloss.JoinHorizontal(lipgloss.Left,
-		indent, arrow, " ", glyph, " ", checkboxSlot, " ", title)
-
-	rowStyle := lipgloss.NewStyle()
-	if true { // create row is always the active row
-		rowStyle = rowStyle.Background(appstyles.Active.ModalBg)
-	}
-
-	return rowStyle.Render(appstyles.FillBackground(bg, rowContent))
+	content := lipgloss.JoinHorizontal(lipgloss.Left, glyphColored, " ", title)
+	return cardIndent + renderTaskCard(cardWidth, appstyles.Active.ModalBg, appstyles.Active.Accent, content)
 }
 
 // taskRowCols describes the computed width of each column in a task row.
@@ -266,14 +302,19 @@ type taskRowCols struct {
 
 // computeTaskRowCols distributes tableWidth among the task row's columns.
 // checkbox is never dropped; title is never dropped; status and progress are
-// dropped whole (in that order) when the table is too narrow.
-func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string) taskRowCols {
+// dropped whole (in that order) when the table is too narrow. When the task
+// carries the details marker, its column grows by the marker's two cells so
+// the status still ends flush at the card's right padding.
+func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string, details bool) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 
 	statusW := 0
 	progressW := 0
 	if status != "" {
 		statusW = len(status) + 1 // +1 for trailing gap
+		if details {
+			statusW += 2 // the details marker and its leading gap
+		}
 	}
 	if progress != "" {
 		progressW = len(progress) + 1 // +1 for trailing gap
@@ -294,17 +335,43 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string) 
 	return cols
 }
 
-// statusLabel returns the display label for a task status.
+// statusLabel returns the display label for a task status, all caps
+// (docs/plan/task-row-cards-and-status.md).
 func statusLabel(status apptypes.Status) string {
 	switch status {
 	case apptypes.StatusPending:
-		return "pending"
+		return "PENDING"
 	case apptypes.StatusInProgress:
-		return "in progress"
+		return "IN PROGRESS"
 	case apptypes.StatusComplete:
-		return "complete"
+		return "COMPLETE"
 	}
 	return ""
+}
+
+// statusFg returns the color the status label (and, unselected, the row's
+// bar column) draws with for a task's status: muted grey for pending, the
+// theme's warning amber for in progress, and its success green for complete.
+// All three are active-theme tokens — no hardcoded colors
+// (docs/plan/task-row-cards-and-status.md).
+func statusFg(status apptypes.Status) color.Color {
+	switch status {
+	case apptypes.StatusInProgress:
+		return appstyles.Active.StatusInProgress
+	case apptypes.StatusComplete:
+		return appstyles.Active.StatusComplete
+	default:
+		return appstyles.Active.TextMuted
+	}
+}
+
+// barFgFor is the bar-column rule: accent on the selected row, otherwise the
+// row's own status color (docs/plan/task-row-cards-and-status.md).
+func barFgFor(status apptypes.Status, isSelected bool) color.Color {
+	if isSelected {
+		return appstyles.Active.Accent
+	}
+	return statusFg(status)
 }
 
 // progressLabel returns the display label for an in-progress task's progress,
@@ -327,60 +394,95 @@ func progressLabel(row apptypes.Row, rows []apptypes.Row) string {
 	return ""
 }
 
-// renderTaskRowBase renders a single task row with the shared column layout.
-func (m *Model) renderTaskRowBase(indent, glyph, checkbox, title, status, progress string,
-	checkboxWidth, width int, bg color.Color, isSelected bool) string {
-// prefix = indent + glyph(1) + space + checkbox + space. The glyph (▾/▸/
-// blank) is a single display cell, so it is counted here rather than with
-// len() (▾ is multi-byte). prefixWidth must equal the columns JoinHorizontal
-// spends on the fixed left side, or the table budget over-runs the panel.
-	glyphWidth := 1
-	prefixWidth := len(indent) + glyphWidth + 1 + checkboxWidth + 1
-	tableWidth := width - prefixWidth
+// cardInset is the card chrome a task row spends before its content: the ▌
+// bar column plus the card's horizontal padding (Padding(0,1,0,0) = right 1).
+// buildRowContent and the create row budget against width-cardInset, which is
+// the card's real inner width, so the status cell ends flush at the right
+// padding (docs/DESIGN.md §12).
+const cardInset = 2
+
+// detailsIcon marks a task whose notes are non-empty — the details screen
+// (enter) has something to show. It sits immediately left of the status
+// label in the right-aligned block, in TextDim (docs/DESIGN.md §12's glyph
+// table). U+1F5CE DOCUMENT (🗎) measures one cell in go-runewidth, like the
+// rest of the vocabulary, though emoji-capable fonts may render it wider
+// (docs/DESIGN.md §12 records the caveat).
+const detailsIcon = "🗎"
+
+// buildRowContent renders a task row's columns — checkbox, title (plus the
+// optional trailing expand/collapse marker), and the right-aligned
+// progress+status block — to fit a card's inner content width. cols.title
+// absorbs the remaining budget after the progress and status columns, so the
+// status cell ends flush at the card's right padding: that is the
+// right-alignment ("status at the end of the line"). Drop order under
+// narrowness is unchanged: progress sheds first, then status, both whole
+// (docs/plan/task-row-cards-and-status.md).
+func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph string,
+	checkboxWidth, contentWidth int, statusColor color.Color) string {
+	prefixWidth := checkboxWidth + 1
+	tableWidth := contentWidth - prefixWidth
 	if tableWidth < 1 {
 		tableWidth = 1
 	}
 
-	hasStatus := status != ""
-	hasProgress := progress != ""
-	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress)
+	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, detailsGlyph != "")
 
 	checkboxCell := lipgloss.NewStyle().Width(cols.checkbox).Render(checkbox)
 
-	titleText := chrome.Truncate(title, max(1, cols.title-1))
+	// The trailing marker (" ▾") is only rendered when it fits: at the
+	// narrowest widths the title alone claims the column and the marker is
+	// shed rather than pushed past the cell.
+	trailingW := 0
+	if trailing != "" {
+		need := 1 + lipgloss.Width(trailing)
+		if cols.title > need {
+			trailingW = need
+		}
+	}
+	titleText := chrome.Truncate(title, max(1, cols.title-trailingW))
+	if trailingW > 0 {
+		titleText += " " + trailing
+	}
 	titleCell := lipgloss.NewStyle().Width(cols.title).Render(titleText)
 
-	var statusCell, progressCell string
-	if cols.status > 0 && hasStatus {
-		statusCell = lipgloss.NewStyle().
-			Foreground(appstyles.Active.TextMuted).
-			Width(cols.status).
-			Render(chrome.Truncate(status, max(1, cols.status-1)))
-	}
-	if cols.progress > 0 && hasProgress {
+	var progressCell, statusCell string
+	if cols.progress > 0 && progress != "" {
 		progressCell = lipgloss.NewStyle().
 			Foreground(appstyles.Active.TextDim).
 			Width(cols.progress).
 			Render(chrome.Truncate(progress, max(1, cols.progress-1)))
 	}
-
-	rowContent := lipgloss.JoinHorizontal(lipgloss.Left,
-		indent,
-		glyph,
-		" ",
-		checkboxCell,
-		" ",
-		titleCell,
-		statusCell,
-		progressCell,
-	)
-
-	rowStyle := lipgloss.NewStyle()
-	if isSelected {
-		rowStyle = rowStyle.Background(appstyles.Active.ModalBg)
+	if cols.status > 0 && status != "" {
+		label := status
+		if detailsGlyph != "" {
+			label = detailsGlyph + " " + status
+		}
+		statusCell = lipgloss.NewStyle().
+			Foreground(statusColor).
+			Width(cols.status).
+			Render(chrome.Truncate(label, max(1, cols.status-1)))
 	}
 
-	return rowStyle.Render(appstyles.FillBackground(bg, rowContent))
+	parts := []string{checkboxCell, " ", titleCell, progressCell, statusCell}
+	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+}
+
+// renderTaskCard wraps row content in the shared row-card chrome: the ▌ bar
+// column, Padding(0,1,0,0), and the row's background, spanning the full panel
+// body width. No vertical padding — a one-line title makes a one-line card
+// (the "thinner" ask; the lists' vertical Padding(1) is what makes their rows
+// 4 lines tall). Ported from listspanel's delegate (docs/DESIGN.md §12). Bar +
+// wrapper sum to exactly width — which is what makes a selected row's
+// ModalBg read as a full-width band rather than a highlight behind the text.
+func renderTaskCard(width int, bg, barFg color.Color, content string) string {
+	wrapper := lipgloss.NewStyle().
+		Width(max(0, width-1)).
+		Padding(0, 1, 0, 0).
+		Background(bg).
+		Render(content)
+
+	return appstyles.FillBackground(bg,
+		lipgloss.JoinHorizontal(lipgloss.Left, chrome.BarColumn(barFg, bg, wrapper), wrapper))
 }
 
 func primary(bold bool) lipgloss.Style {

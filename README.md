@@ -70,11 +70,12 @@ sections, **Pending** and **Complete**, and a text input fixed to the bottom
 for adding tasks.
 
 **Nested tasks, added inline.** Type a title and hit `enter` to add it as a
-sibling of whatever is selected. `tab` before you hit enter adds it as a
+sibling of whatever is selected. `]` before you hit enter adds it as a
 *child* of the selection instead — the input nudges right and its leading
-glyph changes to say so. `shift+tab` goes the other way: a sibling of the
-selection's *parent*. You can move at most one level either side of the
-selected task per keystroke of travel; see
+glyph changes to say so. `[` goes the other way: a sibling of the
+selection's *parent* — and it is a no-op when the new task would land at
+the root, because nothing sits above the root. You can move at most one
+level either side of the selected task per keystroke of travel; see
 [`docs/DESIGN.md` §Adding a task](docs/DESIGN.md#adding-a-task-the-level-rules)
 for the exact rule, because "one level" turned out to need a precise
 definition once someone builds it.
