@@ -181,21 +181,21 @@ database instead of a document to protect.
 
 The bottom-of-panel input adds a task relative to whatever is selected in the
 tree. Call the selected task's depth `L` (root-level tasks are `L = 0`).
-Before the input is submitted, `tab` and `shift+tab` change **where** the new
+Before the input is submitted, `[` (outdent) and `]` (indent) change **where** the new
 task lands, and the input's leading glyph and indentation reflect the current
 choice:
 
 | Keystrokes so far | New task's parent | New task's depth | Glyph |
 | --- | --- | --- | --- |
 | none (default) | selected task's parent (i.e., a sibling of the selection) | `L` | `-` |
-| one `tab` | the selected task itself | `L + 1` | `+` |
-| one `shift+tab` (only if `L > 0`) | the selected task's parent's parent | `L - 1` | `^` |
+| one `]` | the selected task itself | `L + 1` | `+` |
+| one `[` (only if `L > 0`) | the selected task's parent's parent | `L - 1` | `^` |
 
 Further presses in the same direction **do not go further** — the range is
 clamped to exactly one level either side of the selection, always. This is
 the literal rule ("one level deeper, one level above") and it is a clamp, not
-a wrap: pressing `tab` three times behaves the same as pressing it once.
-`shift+tab` is a no-op (not an error, not a beep) when `L = 0`, because there
+a wrap: pressing `]` three times behaves the same as pressing it once.
+`[` is a no-op (not an error, not a beep) when `L = 0`, because there
 is no level above root.
 
 Where the new task is **inserted** among its new siblings: immediately after
@@ -206,7 +206,7 @@ default level appends a flat run of siblings in the order typed, which is the
 behavior anyone coming from Workflowy or a plain bullet list already expects.
 
 **State resets, every time.** After a successful add, selection moves to the
-newly created task, and the tab/shift-tab state resets to default (`-`,
+newly created task, and the level state resets to default (`-`,
 sibling-of-whatever-is-now-selected) — it does not stay at `+` just because
 the last add was a child. Selecting a *different* task (arrow keys, `j`/`k`,
 mouse if that ever lands) while the input has unsent text also resets the
@@ -218,7 +218,7 @@ itself never hides, unlike a modal, so `esc` here has exactly one job.
 
 ## 5. Navigation and focus
 
-Three keyboard focus targets, not two like stack-stitcher, because this app
+Two keyboard focus targets, not three — this app
 has a sidebar that can be entirely absent from the cycle:
 
 - **Lists panel** — present in the cycle only while visible (`L` toggles
@@ -227,30 +227,26 @@ has a sidebar that can be entirely absent from the cycle:
   default fights that.
 - **Task tree** — the Tasks surface's Pending/Complete sections, one flat
   keyboard-navigable cursor across both (see §6 for why the split is visual
-  section headers, not two independently-focusable lists).
-- **Add input** — fixed to the bottom of the Tasks surface, always visible,
-  always reachable, never a modal.
+  section headers, not two independently-focusable lists). Inline creation
+  lives inside the tree, so there is no separate add-input focus zone.
 
 The rendered body has only two surfaces: **Lists** and **Tasks**. When Lists
 is hidden, Tasks fills the body width; when Lists is visible, a tier-2 gutter
-separates the two equal-height surfaces. The task tree and add input are
-controls inside Tasks, not independently framed surfaces. Lists is elevated
-only while it has keyboard focus; Tasks is elevated while either the task tree
-or add input has keyboard focus. Moving focus between those two controls must
-not change the Tasks surface's title, padding, gap, or dimensions.
+separates the two equal-height surfaces. Tasks is elevated while the task
+tree has keyboard focus. Moving focus between surfaces must not change the
+Tasks surface's title, padding, gap, or dimensions.
 
-`ctrl+right`/`ctrl+left` cycle **only through the targets currently visible** —
+`tab`/`shift+tab` cycle **only through the targets currently visible** —
 the lists panel is skipped entirely from the cycle while hidden, the same way
 stack-stitcher's nav bar is permanently absent from its own cycle
 (`constants.FocusableComponents`) rather than being a focusable-but-inert
-stop. Do not implement "hidden but still ctrl+arrowable to an invisible
-panel"; that produces a focus ring with a silent dead stop in it.
+stop. Do not implement "hidden but still tab-able to an invisible panel";
+that produces a focus ring with a silent dead stop in it.
 
-`tab`/`shift+tab` are deliberately **not** the focus cycle: they belong to the
-add input's level selector (§4), and pinning the cycle to non-editable
-`ctrl+left`/`ctrl+right` means focus never competes with the two places bare
-arrow keys already mean something (expand/collapse on the tree, cursor
-movement inside the input's own text field). The tree is the startup focus
+`[`/`]` are the create-mode level selector (§4) and only apply while the
+inline input is active — `tab`/`shift+tab` never compete with the create row
+for focus or level, because AppModel suppresses them while the tree owns the
+keyboard (`OwnsKeyboard`). The tree is the startup focus
 and is broadcast as such on every launch (phase-3 Init), so its keys work
 from the first frame rather than only after a focus change.
 
@@ -291,19 +287,25 @@ every list live, ranking title matches before notes-only hits, and showing
 each result as `<list> › <task>`. `enter` on a result jumps to that task —
 switching the active list when the match lives elsewhere — and `esc` cancels.
 
+**`d` deletes the selected task** (or list, when the lists panel is focused),
+prompting for confirmation first (docs/DESIGN.md §9: destructive TUI ops need
+a confirm modal). The tree emits `DeleteTaskMsg`; AppModel opens a confirm modal;
+accepting runs `store.DeleteTask` and refreshes the rows. List delete
+(`L` panel, `d`) follows the same confirm-modal pattern.
+
 **Task renaming** in the TUI is not implemented yet — the details screen shows
 the title read-only. A rename gesture (if added to the TUI before phase 9) should
 be recorded here in §5 alongside the other task-tree keybindings.
 
-`esc` follows the same "ladder of claims" stack-stitcher documents: a modal
-(details screen, theme picker, confirm) closes itself first; the add input
-with text in it claims `esc` next (§4); an applied filter (§8) claims it
-after that; what's left is "back to the task tree from wherever else," same
-shape as stack-stitcher's "back to the list from the details panel." Keep
-this ladder in one function, tested against every claim in order, the way
-stack-stitcher's `AppModel.escKept`/`keyboardOwned` pair is — a keystroke
-handled by checking claims in the wrong order silently breaks whichever claim
-got skipped.
+`esc` follows the "ladder of claims" stack-stitcher documents: a modal
+(details screen, theme picker, confirm) closes itself first — it intercepts
+all keypresses at the top of `Update`, so by the time esc reaches AppModel's
+own handler no modal is open. Next, the tree claims esc if it declared
+`KeepsEsc` (inline create with text, or an applied filter, §8); after that,
+a no-op. The ladder is one switch case (`keys.Global.Back`) that checks
+`KeepsEsc` on the focused component. Keep this ladder tested against every
+claim in order — checking claims in the wrong order silently breaks whichever
+claim got skipped.
 
 ## 6. The main panel: Pending and Complete
 

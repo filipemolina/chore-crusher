@@ -6,26 +6,28 @@ import (
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
-	"github.com/filipemolina/chore-crusher/src/store"
 )
 
-// Model is a confirmation modal for destructive operations.
+// Model is a confirmation modal for destructive operations. The onConfirm
+// callback runs (after the modal closes) when the user accepts; keeping the
+// action outside the modal lets one type serve every destructive verb —
+// list delete, task delete, etc. — instead of growing a field per domain.
 type Model struct {
-	title    string
-	message  string
-	listID   string // ID of the list to delete (for now, only for delete list)
-	store    *store.Store
-	yesHover bool // whether "yes" is highlighted
+	title     string
+	message   string
+	onConfirm func() tea.Msg
+	yesHover  bool // whether "yes" is highlighted
 }
 
-// New creates a new confirmation modal.
-func New(title, message, listID string, s *store.Store) tea.Model {
+// New creates a new confirmation modal. onConfirm runs inside a
+// CloseModal follow-up, so callers build the delete + refresh as one
+// func() tea.Msg (e.g. store.DeleteTask then RefreshTasks).
+func New(title, message string, onConfirm func() tea.Msg) tea.Model {
 	return Model{
-		title:    title,
-		message:  message,
-		listID:   listID,
-		store:    s,
-		yesHover: true, // default focus on "no" (safer default)
+		title:     title,
+		message:   message,
+		onConfirm: onConfirm,
+		yesHover:  false, // default focus on "yes"; confirm modals are opt-in
 	}
 }
 
@@ -59,19 +61,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// confirmCmd creates a command that deletes the list.
+// confirmCmd closes the modal and then runs the confirm callback,
+// which performs the destructive action and returns the refresh message.
 func (m Model) confirmCmd() tea.Cmd {
 	return cmds.CloseModal(func() tea.Msg {
-		if m.store == nil || m.listID == "" {
-			return nil
+		if m.onConfirm != nil {
+			return m.onConfirm()
 		}
-		err := m.store.DeleteList(m.listID)
-		if err != nil {
-			// TODO: surface error to user
-			return nil
-		}
-		// Refresh lists after deleting
-		return cmds.RefreshLists(m.store)()
+		return nil
 	})
 }
 

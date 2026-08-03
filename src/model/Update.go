@@ -69,6 +69,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Global.Quit):
 			return m, tea.Quit
 
+		case key.Matches(msg, keys.Global.Back):
+			// Esc ladder (docs/DESIGN.md §5): a modal closes itself first —
+			// it intercepts all keypresses at the top of Update, so by
+			// the time we reach here no modal is open. Next, a focused child
+			// that declared KeepsEsc (tree with applied filter or inline
+			// create) claims esc for itself. Everything else is a no-op.
+			switch m.focusedZone {
+			case constants.COMPONENT_TASK_TREE:
+				if tasks, ok := m.components.TaskPanel.(interface{ KeepsEsc() bool }); ok && tasks.KeepsEsc() {
+					return m, nil
+				}
+			case constants.COMPONENT_LISTS_PANEL:
+				if lists, ok := m.components.ListsPanel.(interface{ KeepsEsc() bool }); ok && lists.KeepsEsc() {
+					return m, nil
+				}
+			}
+
 		case key.Matches(msg, keys.Global.Help):
 			finalCmds = append(finalCmds, cmds.OpenHelpModal())
 
@@ -91,10 +108,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, keys.Global.NextPanel):
-			finalCmds = append(finalCmds, m.ChangeFocus(1))
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, m.ChangeFocus(1))
+			}
 
 		case key.Matches(msg, keys.Global.PrevPanel):
-			finalCmds = append(finalCmds, m.ChangeFocus(-1))
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, m.ChangeFocus(-1))
+			}
 
 		case key.Matches(msg, keys.Global.ToggleListsPanel):
 			if !keyboardOwned() {
@@ -120,7 +141,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Delete):
 			if m.activeListID != "" {
-				m.activeModal = confirmmodal.New("Delete list", "Are you sure? This will delete every task in the list.", m.activeListID, m.store)
+				m.activeModal = confirmmodal.New("Delete list", "Are you sure? This will delete every task in the list.", func() tea.Msg {
+					if err := m.store.DeleteList(m.activeListID); err != nil {
+						return nil
+					}
+					return cmds.RefreshLists(m.store)()
+				})
 			}
 		}
 
@@ -237,6 +263,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.createDraft = &msg
 		if m.activeListID != "" {
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+		}
+
+	case cmds.DeleteTaskMsg:
+		// The tree's d binding emitted this (it owns the keypress); route it
+		// through the same confirm modal pattern as list delete (docs/DESIGN.md
+		// §9: destructive ops need confirmation in the TUI).
+		if msg.TaskID != "" {
+			taskID := msg.TaskID
+			m.activeModal = confirmmodal.New("Delete task", "Are you sure?", func() tea.Msg {
+				if err := m.store.DeleteTask(taskID); err != nil {
+					return nil
+				}
+				return cmds.RefreshTasks(m.store, m.activeListID)()
+			})
 		}
 
 	case cmds.ToggleTaskMsg:

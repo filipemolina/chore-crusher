@@ -47,11 +47,11 @@ type Model struct {
 	// keystroke for itself and renders a special "new task" row at the
 	// computed insertion point (task-row redesign + inline creation,
 	// docs/plans/task-row-redesign-and-inline-creation.md).
-	creating        bool
-	createManual    bool   // true if entered via n (cancelable); false if auto for an empty list
-	createBeforeID  string   // reference task (new row inserts immediately after); "" = append at end
-	createInput     textinput.Model
-	createLevelOffset int    // -1 = parent, 0 = sibling, +1 = child
+	creating          bool
+	createManual      bool   // true if entered via n (cancelable); false if auto for an empty list
+	createBeforeID    string // reference task (new row inserts immediately after); "" = append at end
+	createInput       textinput.Model
+	createLevelOffset int // -1 = parent, 0 = sibling, +1 = child
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -429,28 +429,6 @@ func (m Model) selectedDepth() int {
 	return 0
 }
 
-// nextCreateOffset computes the inline-creation level offset after a tab or
-// shift-tab, mirroring the exact table in docs/plans/phase-5-add-input.md §2
-// (and the addinput package's tested nextOffset): clamped to [-1, +1], and
-// shift-tab is a no-op at the root with the default offset. Pure so the full
-// table can be pinned without constructing key messages.
-func nextCreateOffset(current, selectedDepth int, shift bool) int {
-	if shift {
-		// shift-tab is a no-op when already at the default offset on a root
-		// task: there is no level above root.
-		if selectedDepth == 0 && current == 0 {
-			return 0
-		}
-		// Only decrement when the resulting depth is valid (>= -1).
-		resulting := selectedDepth + current - 1
-		if resulting >= -1 {
-			return max(current-1, -1)
-		}
-		return current
-	}
-	return min(current+1, 1)
-}
-
 // toggleComplete asks AppModel to toggle the selected task. The actual
 // store.Toggle call lives in AppModel so the tree stays decoupled from the
 // store; AppModel refreshes the rows immediately after a successful toggle
@@ -582,8 +560,10 @@ func (m Model) IsCreating() bool {
 }
 
 // handleCreatingKey processes keystrokes while the inline input is active.
-// Enter creates a draft, Esc cancels or clears, Tab/Shift+Tab change level,
-// and everything else types into the input.
+// The create row owns the keyboard: only an allowlist of keys is accepted
+// (typing, backspace, [ / ] for level, enter, esc). Every other key is
+// swallowed so it cannot trigger an app shortcut or navigate away mid-entry
+// (docs/DESIGN.md §5, phase A step 3).
 func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, keys.Overlay.Submit) {
 		if title, beforeID, levelOffset, ok := m.CreateDraft(); ok {
@@ -608,19 +588,27 @@ func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if key.Matches(msg, key.NewBinding(key.WithKeys("tab"))) {
-		m.createLevelOffset = nextCreateOffset(m.createLevelOffset, m.selectedDepth(), false)
+	if key.Matches(msg, keys.Create.Outdent) {
+		m.createLevelOffset = max(m.createLevelOffset-1, -1)
 		return m, nil
 	}
 
-	if key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))) {
-		m.createLevelOffset = nextCreateOffset(m.createLevelOffset, m.selectedDepth(), true)
+	if key.Matches(msg, keys.Create.Indent) {
+		m.createLevelOffset = min(m.createLevelOffset+1, 1)
 		return m, nil
 	}
 
-	var cmd tea.Cmd
-	m.createInput, cmd = m.createInput.Update(msg)
-	return m, cmd
+	// Hard allowlist: only typing (printable characters) and backspace reach
+	// the text input. Everything else — Tab, arrows, F-keys, ctrl combos — is
+	// swallowed so it cannot steal focus or navigate while the create row owns
+	// the keyboard.
+	if msg.Text != "" || msg.Code == tea.KeyBackspace {
+		var cmd tea.Cmd
+		m.createInput, cmd = m.createInput.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
 }
 
 // creationIndex returns the visible index at which the create row should be

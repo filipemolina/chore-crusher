@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 )
 
@@ -177,33 +177,71 @@ func namedRows(n int) []apptypes.Row {
 	return out
 }
 
-// nextCreateOffset mirrors the exact table from docs/plans/phase-5-add-input.md §2.
-func TestNextCreateOffset(t *testing.T) {
-	cases := []struct {
-		name           string
-		current        int
-		selectedDepth  int
-		shift          bool
-		want           int
-	}{
-		{"root at 0, tab", 0, 0, false, 1},
-		{"root at 0, shift+tab", 0, 0, true, 0},
-		{"root at +1, tab clamps", 1, 0, false, 1},
-		{"root at +1, shift+tab", 1, 0, true, 0},
-		{"depth 2 at 0, shift+tab", 0, 2, true, -1},
-		{"depth 2 at -1, shift+tab clamps", -1, 2, true, -1},
-		{"depth 2 at -1, tab", -1, 2, false, 0},
-		{"depth 2 at 0, tab", 0, 2, false, 1},
-		{"depth 2 at +1, tab clamps", 1, 2, false, 1},
+// TestBracketChangesLevelOffset verifies that [ / ] adjust the create-level
+// offset, clamped to [-1, +1], replacing the old tab / shift+tab behavior.
+func TestBracketChangesLevelOffset(t *testing.T) {
+	m := &Model{}
+	m.applyRows(namedRows(3))
+	m.selectedID = "1"
+	m.StartCreating("1")
+
+	// ] indents (child), clamped at +1
+	m.handleCreatingKey(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if m.createLevelOffset != 1 {
+		t.Errorf("indent ]: offset = %d, want 1", m.createLevelOffset)
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := nextCreateOffset(c.current, c.selectedDepth, c.shift)
-			if got != c.want {
-				t.Errorf("nextCreateOffset(%d, %d, shift=%v) = %d, want %d",
-					c.current, c.selectedDepth, c.shift, got, c.want)
-			}
-		})
+	// Second ] stays clamped at +1
+	m.handleCreatingKey(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if m.createLevelOffset != 1 {
+		t.Errorf("second indent: offset = %d, want 1 (clamped)", m.createLevelOffset)
+	}
+	// [ outdents (parent)
+	m.handleCreatingKey(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.createLevelOffset != 0 {
+		t.Errorf("outdent [: offset = %d, want 0", m.createLevelOffset)
+	}
+	// [ again: -1
+	m.handleCreatingKey(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.createLevelOffset != -1 {
+		t.Errorf("second outdent: offset = %d, want -1", m.createLevelOffset)
+	}
+	// Third [ stays clamped at -1
+	m.handleCreatingKey(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.createLevelOffset != -1 {
+		t.Errorf("third outdent: offset = %d, want -1 (clamped)", m.createLevelOffset)
+	}
+}
+
+// TestHardAllowlistSwallowsNonCreateKeys verifies that while creating,
+// keys outside the allowlist (Tab, arrows) are swallowed rather than
+// reaching the text input or triggering app shortcuts.
+func TestHardAllowlistSwallowsNonCreateKeys(t *testing.T) {
+	m := &Model{}
+	m.StartCreating("")
+	m.createInput.SetValue("buy milk")
+
+	// Tab should be swallowed, not typed into the input
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.createInput.Value() != "buy milk" {
+		t.Errorf("tab should be swallowed, input = %q", m.createInput.Value())
+	}
+
+	// Down arrow should be swallowed
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if m.createInput.Value() != "buy milk" {
+		t.Errorf("down arrow should be swallowed, input = %q", m.createInput.Value())
+	}
+
+	// Up arrow should be swallowed
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyUp})
+	if m.createInput.Value() != "buy milk" {
+		t.Errorf("up arrow should be swallowed, input = %q", m.createInput.Value())
+	}
+
+	// Regular typing should still work
+	m.handleCreatingKey(tea.KeyPressMsg{Text: "!", Code: '!'})
+	if m.createInput.Value() != "buy milk!" {
+		t.Errorf("typing ! should work, input = %q", m.createInput.Value())
 	}
 }
 
@@ -288,7 +326,10 @@ func TestCreateRowGlyphForLevelOffset(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
 	m.applyRows(nil)
-	for _, c := range []struct{ offset int; glyph string }{
+	for _, c := range []struct {
+		offset int
+		glyph  string
+	}{
 		{0, "-"}, {1, "+"}, {-1, "^"},
 	} {
 		m.createLevelOffset = c.offset
@@ -350,22 +391,5 @@ func TestEnterEmitsCreateTaskFromInput(t *testing.T) {
 	}
 	if msgTyped.Title != "buy milk" {
 		t.Errorf("Title = %q, want %q", msgTyped.Title, "buy milk")
-	}
-}
-
-func TestTabChangesLevelOffset(t *testing.T) {
-	m := &Model{}
-	m.applyRows(namedRows(3))
-	m.selectedID = "1"
-	m.StartCreating("1")
-
-	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.createLevelOffset != 1 {
-		t.Errorf("tab: offset = %d, want 1", m.createLevelOffset)
-	}
-	// clamped at +1
-	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.createLevelOffset != 1 {
-		t.Errorf("second tab: offset = %d, want 1 (clamped)", m.createLevelOffset)
 	}
 }
