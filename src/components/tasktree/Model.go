@@ -48,7 +48,12 @@ type Model struct {
 	// computed insertion point (task-row redesign + inline creation,
 	// docs/plans/task-row-redesign-and-inline-creation.md).
 	creating          bool
-	createBeforeID    string // reference task (new row inserts immediately after); "" = append at end
+	// createBeforeID is the data-insertion anchor: the task the new task is
+	// created as a sibling of (at createLevelOffset's relationship). The
+	// create row's visual position is computed by createRenderAnchorID,
+	// which places it after the anchor's last visible descendant so the
+	// card never splits a task from its children ("""") = append at end.
+	createBeforeID    string
 	createInput       textinput.Model
 	createLevelOffset int // -1 = parent, 0 = sibling, +1 = child
 	// createSuppressed remembers that the user esc-cancelled creating, so
@@ -790,17 +795,43 @@ func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// creationIndex returns the visible index at which the create row should be
-// inserted. If createBeforeID is empty, the row appends at the end.
-func (m *Model) creationIndex() int {
-	visible := m.displayedRows()
+// createRenderAnchorID returns the task id after which the create row should
+// be rendered: the last visible descendant of createBeforeID (when the anchor
+// has visible children), or createBeforeID itself when the anchor has no
+// visible descendants, or "" when createBeforeID is empty (append at end).
+//
+// This decouples the create row's visual position from its data insertion
+// point. The row always renders after the selected task's entire visible
+// subtree, while the new task is still inserted as a sibling at the selected
+// task's depth (docs/DESIGN.md §4). A collapsed subtree yields no visible
+// descendants, so the row renders right after the anchor — where the sibling
+// will land once created.
+func (m Model) createRenderAnchorID() string {
 	if m.createBeforeID == "" {
-		return len(visible)
+		return ""
 	}
+	visible := m.displayedRows()
+	anchorIdx := -1
 	for i, r := range visible {
 		if r.Task.ID == m.createBeforeID {
-			return i + 1
+			anchorIdx = i
+			break
 		}
 	}
-	return len(visible)
+	if anchorIdx < 0 {
+		return m.createBeforeID
+	}
+	anchorDepth := visible[anchorIdx].Depth
+	// In depth-first preorder, descendants form a contiguous run after the
+	// anchor with depth > anchorDepth. The last one is the render anchor;
+	// if none exist (collapsed subtree or no children), the anchor itself
+	// is the render point.
+	lastDesc := anchorIdx
+	for i := anchorIdx + 1; i < len(visible); i++ {
+		if visible[i].Depth <= anchorDepth {
+			break
+		}
+		lastDesc = i
+	}
+	return visible[lastDesc].Task.ID
 }
