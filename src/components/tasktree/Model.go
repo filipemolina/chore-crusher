@@ -520,12 +520,45 @@ func (m *Model) startCreatingAuto() {
 func (m *Model) startCreating(beforeID string, manual bool) {
 	m.creating = true
 	m.createManual = manual
+
+	// When the selection is a complete task, place the create row after the
+	// last pending task (at that task's depth) rather than splicing it under
+	// the complete row. When no pending rows exist at that depth, create at
+	// root depth so the Pending section shows only the input (phase B step 4).
 	m.createBeforeID = beforeID
+	if beforeID != "" {
+		if row := m.findRow(beforeID); row != nil && row.Task.Status == apptypes.StatusComplete {
+			lastPendingID := m.lastPendingIDAtDepth(row.Depth)
+			if lastPendingID != "" {
+				m.createBeforeID = lastPendingID
+			} else {
+				m.createBeforeID = ""
+				m.createLevelOffset = 0
+			}
+		}
+	}
+
 	m.createLevelOffset = 0
 	m.createInput = textinput.New()
 	m.createInput.Prompt = ""
-	m.createInput.Placeholder = "new task"
+	if m.createLevelOffset > 0 {
+		m.createInput.Placeholder = "Add a follow-up"
+	} else {
+		m.createInput.Placeholder = "Add a task"
+	}
 	m.createInput.Focus()
+}
+
+// lastPendingIDAtDepth returns the id of the last pending (non-complete) row
+// at the given depth in display order, or "" if none exists at that depth.
+func (m *Model) lastPendingIDAtDepth(depth int) string {
+	var lastID string
+	for _, row := range m.displayedRows() {
+		if row.Depth == depth && row.Task.Status != apptypes.StatusComplete {
+			lastID = row.Task.ID
+		}
+	}
+	return lastID
 }
 
 // CancelCreating exits inline creation mode and resets the input.

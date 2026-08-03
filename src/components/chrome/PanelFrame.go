@@ -2,6 +2,7 @@ package chrome
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
@@ -64,3 +65,13 @@ func PanelBodyHeight(total int) int {
 
 	return max(0, total-frameH-panelTitleChromeHeight)
 }
+
+// PanelRule is the thin horizontal line that separates the Pending and
+// Complete sections inside the Tasks panel.
+func PanelRule(width int) string {
+	return lipgloss.NewStyle().
+		Foreground(appstyles.Active.BorderDefault).
+		Width(width).
+		Render(strings.Repeat("─", max(width, 0)))
+}
+

@@ -1,14 +1,8 @@
 package listspanel
 
 import (
-	"fmt"
-	"io"
-	"strconv"
-
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
@@ -20,8 +14,8 @@ import (
 const focusedZoneID = constants.COMPONENT_LISTS_PANEL
 
 // Model is the lists-panel zone. It renders the store's lists as a bubbles
-// list with the same card-style rows and auto-select behavior as stack-stitcher's
-// groups list (docs/plans/stack-stitcher-sister-tui.md).
+// list with the same card-style rows as stack-stitcher's groups list
+// (docs/plans/stack-stitcher-sister-tui.md, phase B step 1).
 type Model struct {
 	focused       bool
 	body          cmds.SetBodyLayoutMsg
@@ -94,46 +88,6 @@ func (m Model) selectList() tea.Cmd {
 	return nil
 }
 
-// listDelegate renders each list as one row: name, then the pending/complete counts.
-type listDelegate struct {
-	isParentFocused bool
-}
-
-func (d listDelegate) Height() int                             { return 1 }
-func (d listDelegate) Spacing() int                            { return 0 }
-func (d listDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-
-func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	l, ok := listItem.(apptypes.ListSummary)
-	if !ok {
-		return
-	}
-
-	isSelected := index == m.Index()
-	rowBg := chrome.ListRowBg(isSelected, d.isParentFocused)
-
-	barColor := appstyles.Active.TextMuted
-	if isSelected && d.isParentFocused {
-		barColor = appstyles.Active.Accent
-	}
-
-	nameStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(rowBg)
-	countStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(rowBg)
-
-	if isSelected && d.isParentFocused {
-		nameStyle = nameStyle.Bold(true)
-	} else if !d.isParentFocused {
-		nameStyle = nameStyle.Foreground(appstyles.Active.TextMuted)
-	}
-
-	content := nameStyle.Render(l.List.Name) + "  " + countStyle.Render(
-		strconv.Itoa(l.PendingCount)+" pending · "+strconv.Itoa(l.CompleteCount)+" done")
-
-	row := appstyles.FillBackground(rowBg, lipgloss.JoinHorizontal(lipgloss.Left,
-		chrome.BarColumn(barColor, rowBg, content), content))
-	fmt.Fprint(w, row)
-}
-
 // OwnsKeyboard reports whether the list is taking every keystroke for itself,
 // which it does while the user is typing a filter: n, d and q are letters then,
 // not commands. Only while typing - once a filter is applied and the cursor is
@@ -148,19 +102,4 @@ func (m Model) OwnsKeyboard() bool {
 // is focused. AppModel's "back" checks this before it takes focus away.
 func (m Model) KeepsEsc() bool {
 	return m.focused && m.list.FilterState() == list.FilterApplied
-}
-
-// View renders the lists panel.
-func (m Model) View() tea.View {
-	width := chrome.PanelBodyWidth(m.body.ListsWidth)
-	height := chrome.PanelBodyHeight(m.body.Height)
-
-	var body string
-	if len(m.list.Items()) == 0 {
-		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height)
-	} else {
-		body = m.list.View()
-	}
-
-	return tea.NewView(chrome.PanelFrame("Lists", m.focused, m.body.ListsWidth, m.body.Height, body))
 }

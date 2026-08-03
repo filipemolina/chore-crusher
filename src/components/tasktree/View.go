@@ -48,10 +48,11 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	}
 }
 
-// splitSections splits visible rows into Pending and Complete based on root task status.
+// splitSections splits displayed rows into Pending and Complete based on root
+// task status. displayedRows is used (not visibleRows) so the sections match
+// the on-screen order the cursor actually navigates (phase B step 3).
 func (m *Model) splitSections() (pending, complete []apptypes.Row) {
-	visible := m.visibleRows()
-	for _, row := range visible {
+	for _, row := range m.displayedRows() {
 		if row.Depth == 0 {
 			if row.Task.Status == apptypes.StatusComplete {
 				complete = append(complete, row)
@@ -75,12 +76,11 @@ func (m *Model) splitSections() (pending, complete []apptypes.Row) {
 	return
 }
 
-// renderSections renders Pending and Complete sections with their tasks.
 // renderSections renders the Pending and Complete sections, splicing the
-// inline create row in immediately after the selected task (its reference for
-// the new row's level) within whichever section that task lives. The create
-// row is never shown as a "no tasks yet" card: on an empty list it is the
-// only row, placed at the end.
+// inline create row in immediately after the reference task (its insertion
+// point) within whichever section that task lives. The create row is never
+// shown as a "no tasks yet" card: on an empty list it is the only row,
+// placed at the end.
 func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg color.Color) string {
 	var lines []string
 	placedCreate := false
@@ -91,7 +91,7 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg c
 	}
 
 	if len(pending) > 0 && len(complete) > 0 {
-		lines = append(lines, "")
+		lines = append(lines, chrome.PanelRule(width))
 	}
 
 	if len(complete) > 0 {
@@ -186,12 +186,15 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 	}
 
 	checkbox := "[ ]"
+	checkboxFg := appstyles.Active.TextMuted
 	textFg := appstyles.Active.TextPrimary
 	if row.Task.Status == apptypes.StatusComplete {
 		checkbox = "[x]"
+		checkboxFg = appstyles.Active.StatusComplete
 		textFg = appstyles.Active.TextMuted
 	} else if row.Task.Status == apptypes.StatusInProgress {
 		checkbox = "[~]"
+		checkboxFg = appstyles.Active.StatusInProgress
 	}
 
 	title := row.Task.Title
@@ -202,16 +205,16 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 	status := statusLabel(row.Task.Status)
 	progress := progressLabel(row, m.rows)
 
-	return m.renderTaskRowBase(indent, glyph, checkbox, title, status, progress,
+	checkboxColored := lipgloss.NewStyle().Foreground(checkboxFg).Render(checkbox)
+	return m.renderTaskRowBase(indent, glyph, checkboxColored, title, status, progress,
 		3, width, bg, row.Task.ID == m.selectedID)
 }
 
-// renderCreateRow renders the inline "new task" row at its insertion point.
-// It reads like a task row: the level-offset glyph (-/+/^) in the checkbox
-// column, the typed text or "new task" placeholder in the title column, an
-// empty status/progress, and the selected-row background. Called only while
-// m.creating; the textinput is sized to the title column so the caret and
-// horizontal scrolling behave at panel width.
+// renderCreateRow renders the inline "new task" row as a Cursor-style bar:
+// full remaining width on ModalBg, leading → prompt (accent), placeholder
+// or typed text, empty status/progress, and the selected-row background.
+// Placeholder is "Add a follow-up" when the level offset is non-zero
+// (phase B step 5).
 func (m *Model) renderCreateRow(width int, bg color.Color) string {
 	glyph := "-"
 	switch m.createLevelOffset {
@@ -221,9 +224,6 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 		glyph = "^"
 	}
 
-	// Indent to where the new task will land: selected task depth + offset,
-	// clamped at zero so a parent-of-root offset (-1 at depth 0, which
-	// startCreatingAuto/zeroes to 0) never indents negative.
 	selectedDepth := 0
 	if m.selectedID != "" {
 		if row := m.findRow(m.selectedID); row != nil {
@@ -232,13 +232,12 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 	}
 	indent := strings.Repeat(" ", max(0, 2*(selectedDepth+m.createLevelOffset)))
 
-	// prefix = indent + glyph(1) + space + checkbox(1) + space
-	prefixWidth := len(indent) + 1 + 1 + 1 + 1
+	// prefix = indent + →(1) + space + glyph(1) + space + checkbox slot
+	prefixWidth := len(indent) + 1 + 1 + 1 + 1 + 1
 	m.createInput.SetWidth(max(1, width-prefixWidth))
 
-	checkbox := lipgloss.NewStyle().
-		Foreground(appstyles.Active.Accent).
-		Render(glyph)
+	arrow := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Render("→")
+	checkboxSlot := lipgloss.NewStyle().Render(" ")
 
 	var title string
 	if m.createInput.Value() == "" {
@@ -247,7 +246,15 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 		title = m.createInput.View()
 	}
 
-	return m.renderTaskRowBase(indent, " ", checkbox, title, "", "", 1, width, bg, true)
+	rowContent := lipgloss.JoinHorizontal(lipgloss.Left,
+		indent, arrow, " ", glyph, " ", checkboxSlot, " ", title)
+
+	rowStyle := lipgloss.NewStyle()
+	if true { // create row is always the active row
+		rowStyle = rowStyle.Background(appstyles.Active.ModalBg)
+	}
+
+	return rowStyle.Render(appstyles.FillBackground(bg, rowContent))
 }
 
 // taskRowCols describes the computed width of each column in a task row.

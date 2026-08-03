@@ -299,8 +299,8 @@ func TestRenderCreateRowShowsPlaceholder(t *testing.T) {
 	m.applyRows(nil) // auto-creating on an empty list
 
 	rendered := ansi.Strip(m.ViewInPanel(60, 24, appstyles.Active.BackgroundPanel))
-	if !strings.Contains(rendered, "new task") {
-		t.Errorf("expected 'new task' placeholder in empty-list create row, got: %q", rendered)
+	if !strings.Contains(rendered, "Add a task") {
+		t.Errorf("expected 'Add a task' placeholder in empty-list create row, got: %q", rendered)
 	}
 }
 
@@ -312,13 +312,74 @@ func TestCreateRowAppearsAfterSelected(t *testing.T) {
 	m.StartCreating("2")
 
 	rendered := ansi.Strip(m.ViewInPanel(80, 24, appstyles.Active.BackgroundPanel))
-	iSel := strings.Index(rendered, "2")
-	iCreate := strings.Index(rendered, "new task")
+	// The create row must come after the selected task's row in the
+	// rendered output. Find each section by its unique text and compare
+	// positions rather than relying on strings.Index of a shared digit.
+	iSel := strings.Index(rendered, "[ ] 2")
+	iCreate := strings.Index(rendered, "Add a task")
 	if iSel < 0 || iCreate < 0 {
 		t.Fatalf("rendered = %q", rendered)
 	}
 	if iCreate < iSel {
 		t.Errorf("create row rendered before selected task: selected@%d create@%d", iSel, iCreate)
+	}
+}
+
+// TestCreateRowAfterLastPendingWhenCompleteSelected verifies phase B step 4:
+// when the selected task is complete, the create row is placed after the
+// last pending task (at the same depth) rather than under the complete row.
+func TestCreateRowAfterLastPendingWhenCompleteSelected(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	// Pending: 1, 2; Complete: 3, 4. Select complete task 3.
+	m.applyRows([]apptypes.Row{
+		{Task: apptypes.Task{ID: "1", Title: "1", Status: apptypes.StatusPending}},
+		{Task: apptypes.Task{ID: "2", Title: "2", Status: apptypes.StatusPending}},
+		{Task: apptypes.Task{ID: "3", Title: "3", Status: apptypes.StatusComplete}},
+		{Task: apptypes.Task{ID: "4", Title: "4", Status: apptypes.StatusComplete}},
+	})
+	m.selectedID = "3"
+	m.StartCreating("3")
+
+	// createBeforeID should have been redirected to the last pending task (2).
+	if m.createBeforeID != "2" {
+		t.Errorf("createBeforeID = %q, want \"2\" (last pending task)", m.createBeforeID)
+	}
+
+	// Visual: create row must appear after task 2 and before task 3.
+	// When createBeforeID is "2" but selectedID is "3", the create row
+	// is inserted after task 2 (in the Pending section), not after task 3.
+	rendered := ansi.Strip(m.ViewInPanel(80, 24, appstyles.Active.BackgroundPanel))
+	iLastPending := strings.LastIndex(rendered, "[ ] 2")
+	iCreate := strings.Index(rendered, "Add a task")
+	iFirstComplete := strings.Index(rendered, "[x] 3")
+	if iLastPending < 0 || iCreate < 0 || iFirstComplete < 0 {
+		t.Fatalf("rendered = %q", rendered)
+	}
+	if !(iLastPending < iCreate && iCreate < iFirstComplete) {
+		t.Errorf("create row should be between last pending (2@%d) and first complete (3@%d): create@%d",
+			iLastPending, iFirstComplete, iCreate)
+	}
+}
+
+// TestCreateRowAtRootWhenNoPending verifies that when all tasks are complete
+// (zero pending), the create row lands at root depth at the top of the
+// Pending section (the section shows only the input).
+func TestCreateRowAtRootWhenNoPending(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	m.applyRows([]apptypes.Row{
+		{Task: apptypes.Task{ID: "1", Title: "1", Status: apptypes.StatusComplete}},
+		{Task: apptypes.Task{ID: "2", Title: "2", Status: apptypes.StatusComplete}},
+	})
+	m.selectedID = "1"
+	m.StartCreating("1")
+
+	if m.createBeforeID != "" {
+		t.Errorf("createBeforeID = %q, want \"\" (root/append when no pending)", m.createBeforeID)
+	}
+	if m.createLevelOffset != 0 {
+		t.Errorf("createLevelOffset = %d, want 0 (root depth)", m.createLevelOffset)
 	}
 }
 
