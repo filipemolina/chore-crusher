@@ -326,6 +326,178 @@ func TestMCPClaimWorkConflict(t *testing.T) {
 	}
 }
 
+func TestMCPWorkResource(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	// Claim and verify crush://work resource matches list_work.
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "claude",
+	})
+
+	// Read the resource.
+	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
+		URI: "crush://work",
+	})
+	if err != nil {
+		t.Fatalf("ReadResource crush://work: %v", err)
+	}
+	if len(res.Contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(res.Contents))
+	}
+	if res.Contents[0].MIMEType != "application/json" {
+		t.Fatalf("MIMEType = %q, want application/json", res.Contents[0].MIMEType)
+	}
+
+	var resourceWork []struct {
+		EntityID string `json:"entity_id"`
+		AgentID  string `json:"agent_id"`
+	}
+	mustUnmarshal(t, res.Contents[0].Text, &resourceWork)
+	if len(resourceWork) != 1 || resourceWork[0].EntityID != task["id"] || resourceWork[0].AgentID != "claude" {
+		t.Fatalf("crush://work = %+v", resourceWork)
+	}
+
+	// Compare with list_work tool.
+	var toolWork []struct {
+		EntityID string `json:"entity_id"`
+		AgentID  string `json:"agent_id"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &toolWork)
+	if len(toolWork) != 1 || toolWork[0].EntityID != resourceWork[0].EntityID {
+		t.Fatalf("list_work and crush://work diverged: tool=%+v resource=%+v", toolWork, resourceWork)
+	}
+}
+
+func TestMCPListsResource(t *testing.T) {
+	session := setupMCP(t)
+
+	callTool(t, session, "add_list", map[string]any{"name": "Home"})
+
+	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
+		URI: "crush:///lists",
+	})
+	if err != nil {
+		t.Fatalf("ReadResource crush:///lists: %v", err)
+	}
+
+	var lists []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	mustUnmarshal(t, res.Contents[0].Text, &lists)
+	if len(lists) != 1 || lists[0].Name != "Home" {
+		t.Fatalf("crush:///lists = %+v", lists)
+	}
+}
+
+func TestMCPTaskResource(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
+		URI: "crush:///tasks/" + task["id"],
+	})
+	if err != nil {
+		t.Fatalf("ReadResource crush:///tasks/%s: %v", task["id"], err)
+	}
+
+	var details struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	mustUnmarshal(t, res.Contents[0].Text, &details)
+	if details.ID != task["id"] || details.Title != "Write docs" {
+		t.Fatalf("crush:///tasks = %+v", details)
+	}
+}
+
+func TestMCPSearchResource(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Draft proposal",
+	})
+
+	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
+		URI: "crush:///search/proposal",
+	})
+	if err != nil {
+		t.Fatalf("ReadResource crush:///search/proposal: %v", err)
+	}
+
+	var results []struct {
+		Title string `json:"title"`
+	}
+	mustUnmarshal(t, res.Contents[0].Text, &results)
+	if len(results) != 1 || results[0].Title != "Draft proposal" {
+		t.Fatalf("crush:///search/proposal = %+v", results)
+	}
+}
+
+func TestMCPResourcesListed(t *testing.T) {
+	session := setupMCP(t)
+
+	// The MCP server should advertise resources and resource templates.
+	res, err := session.ListResources(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListResources(): %v", err)
+	}
+	if len(res.Resources) == 0 {
+		t.Fatalf("expected at least one resource, got %d", len(res.Resources))
+	}
+	found := false
+	for _, r := range res.Resources {
+		if r.URI == "crush:///lists" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("crush:///lists not in resources: %+v", res.Resources)
+	}
+
+	tres, err := session.ListResourceTemplates(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListResourceTemplates(): %v", err)
+	}
+	if len(tres.ResourceTemplates) == 0 {
+		t.Fatalf("expected at least one resource template, got %d", len(tres.ResourceTemplates))
+	}
+	found = false
+	for _, rt := range tres.ResourceTemplates {
+		if rt.URITemplate == "crush:///tasks/{id}" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("crush:///tasks/{id} not in templates: %+v", tres.ResourceTemplates)
+	}
+}
+
 func TestMain(m *testing.M) {
 	// Tests set XDG_DATA_HOME explicitly; make sure the default HOME-based
 	// path is not accidentally used when t.Setenv is active.

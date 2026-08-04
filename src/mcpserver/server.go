@@ -73,6 +73,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 	addTaskTools(server, s)
 	addWorkTools(server, s)
 	addWorkResource(server, s)
+	addResources(server, s)
 
 	return server, s, nil
 }
@@ -724,6 +725,218 @@ func addWorkResource(server *mcp.Server, s *store.Store) {
 			}},
 	}, nil
 	})
+}
+
+// addResources registers read-only resources and resource templates so
+// any MCP host that auto-reads resources surfaces them (docs/plan/
+// mcp-server-enhancement.md §4.1).
+func addResources(server *mcp.Server, s *store.Store) {
+	// Static: crush:///lists — full list of lists + counts.
+	server.AddResource(&mcp.Resource{
+		URI:         "crush:///lists",
+		Name:        "Lists",
+		Description: "All task lists with pending and complete counts.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		lists, err := s.ListLists()
+		if err != nil {
+			return nil, err
+		}
+		type row struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			Pending   int    `json:"pending"`
+			Complete  int    `json:"complete"`
+			CreatedAt int64  `json:"created_at"`
+			Position  int    `json:"position"`
+		}
+		out := make([]row, len(lists))
+		for i, l := range lists {
+			out[i] = row{
+				ID:        l.List.ID,
+				Name:      l.List.Name,
+				Pending:   l.PendingCount,
+				Complete:  l.CompleteCount,
+				CreatedAt: l.List.CreatedAt,
+				Position:  l.List.Position,
+			}
+		}
+		return marshalResource(req.Params.URI, out)
+	})
+
+	// Template: crush:///lists/{id} — one list's summary.
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "crush:///lists/{id}",
+		Name:        "List",
+		Description: "Summary of one list: name, pending/complete counts.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		id, err := templateID(req.Params.URI, "lists")
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := s.ResolveID("list", id)
+		if err != nil {
+			return nil, mcp.ResourceNotFoundError(req.Params.URI)
+		}
+		lists, err := s.ListLists()
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range lists {
+			if l.List.ID == resolved {
+				return marshalResource(req.Params.URI, struct {
+					ID        string `json:"id"`
+					Name      string `json:"name"`
+					Pending   int    `json:"pending"`
+					Complete  int    `json:"complete"`
+					CreatedAt int64  `json:"created_at"`
+				}{
+					ID: l.List.ID, Name: l.List.Name, Pending: l.PendingCount,
+					Complete: l.CompleteCount, CreatedAt: l.List.CreatedAt,
+				})
+			}
+		}
+		return nil, mcp.ResourceNotFoundError(req.Params.URI)
+	})
+
+	// Template: crush:///lists/{id}/tasks — the list's task tree.
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "crush:///lists/{id}/tasks",
+		Name:        "List tasks",
+		Description: "Depth-annotated task tree for one list.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		id, err := templateID(req.Params.URI, "lists")
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := s.ResolveID("list", id)
+		if err != nil {
+			return nil, mcp.ResourceNotFoundError(req.Params.URI)
+		}
+		tasks, err := s.ListTasks(resolved)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := sectionRows(s, tasks, "all")
+		if err != nil {
+			return nil, err
+		}
+		return marshalResource(req.Params.URI, rows)
+	})
+
+	// Template: crush:///tasks/{id} — one task's details.
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "crush:///tasks/{id}",
+		Name:        "Task",
+		Description: "Full details of one task including its children.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		id, err := templateID(req.Params.URI, "tasks")
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := s.ResolveID("task", id)
+		if err != nil {
+			return nil, mcp.ResourceNotFoundError(req.Params.URI)
+		}
+		t, err := s.GetTask(resolved)
+		if err != nil {
+			return nil, err
+		}
+		prog, err := taskProgressJSON(s, resolved)
+		if err != nil {
+			return nil, err
+		}
+		all, err := s.ListTasks(t.ListID)
+		if err != nil {
+			return nil, err
+		}
+		children, err := taskRows(s, apptypes.Flatten(apptypes.FromStoreTasks(descendantsOf(all, resolved))))
+		if err != nil {
+			return nil, err
+		}
+		return marshalResource(req.Params.URI, taskDetailsJSON{
+			ID: t.ID, ListID: t.ListID, Title: t.Title, Notes: t.Notes,
+			Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
+			UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt, Children: children,
+		})
+	})
+
+	// Template: crush:///search/{query} — search results.
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "crush:///search/{query}",
+		Name:        "Search",
+		Description: "Fuzzy search across task titles and notes.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		query, err := templateID(req.Params.URI, "search")
+		if err != nil {
+			return nil, err
+		}
+		tasks, err := s.SearchTasks(query, nil)
+		if err != nil {
+			return nil, err
+		}
+		lists, err := s.ListLists()
+		if err != nil {
+			return nil, err
+		}
+		listNames := make(map[string]string, len(lists))
+		for _, l := range lists {
+			listNames[l.List.ID] = l.List.Name
+		}
+		out := make([]searchResultJSON, len(tasks))
+		for i, t := range tasks {
+			prog, err := taskProgressJSON(s, t.ID)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = searchResultJSON{
+				ID: t.ID, ListID: t.ListID, ListName: listNames[t.ListID],
+				Title: t.Title, Status: string(t.Status), Progress: prog,
+			}
+		}
+		return marshalResource(req.Params.URI, out)
+	})
+}
+
+// templateID extracts the last path segment from a crush:/// URI after
+// stripping the given prefix (e.g. "lists" from "crush:///lists/abc/tasks").
+// For crush:///lists/{id}/tasks it returns "abc". For crush:///tasks/{id}
+// it returns the task id segment.
+func templateID(uri, prefix string) (string, error) {
+	// Strip scheme: "crush:///lists/abc/tasks" -> "/lists/abc/tasks"
+	path := uri
+	if idx := strings.Index(path, "://"); idx >= 0 {
+		path = path[idx+3:]
+	}
+	// Split on / and skip leading empty segment.
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid resource URI %q: expected %s/{id}", uri, prefix)
+	}
+	// For crush:///lists/{id}/tasks: parts = ["lists", "id", "tasks"]
+	// For crush:///lists/{id}: parts = ["lists", "id"]
+	// For crush:///tasks/{id}: parts = ["tasks", "id"]
+	// For crush:///search/{query}: parts = ["search", "query"]
+	return parts[1], nil
+}
+
+// marshalResource marshals v and wraps it in a ReadResourceResult.
+func marshalResource(uri string, v any) (*mcp.ReadResourceResult, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return &mcp.ReadResourceResult{
+		Contents: []*mcp.ResourceContents{{
+			URI:      uri,
+			MIMEType: "application/json",
+			Text:     string(b),
+		}},
+	}, nil
 }
 
 // errorResult turns a domain error into a tool error the client can see.

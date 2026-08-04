@@ -167,6 +167,8 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (`claim_work`) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above.
+
 **The store owns every transition.** None of the above should be duplicated
 in both `store` and `cli` (or `store` and `components`). `store.Complete`,
 `store.Reopen`, `store.SetProgress` are the only three functions that write
@@ -396,6 +398,8 @@ the selected task gone (deleted from elsewhere) moves the cursor to the
 nearest surviving row, the same "what do you do when the ground moves"
 question stack-stitcher answers by re-selecting by name after a config
 reload.
+
+**Agent activity claims are read by the same poll.** Each `RefreshLists` and `RefreshTasks` call also runs `store.ListWork()` to fetch the current set of live agent claims (entities claimed within the `WorkTTL` window). The returned `[]AgentActivity` travels with the refresh messages so the task tree and lists panel can render a spinner on claimed rows. The same 1s poll tick governs both data and claims — no separate IPC or interval is needed.
 
 **The TUI never holds a write transaction, and no poll tick is allowed to
 block on one.** It opens a read connection at startup and keeps it; every
@@ -818,6 +822,7 @@ one is needed, it's added here first.
 | Add-input level: child | `+` | §4. |
 | Add-input level: parent-of-selection | `^` | §4. |
 | Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered in the row's right-aligned block immediately before the status; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3) — never rendered as `(0%)` in that case. |
+| Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg` (§3.5 of `mcp-server-enhancement.md`); draws `Accent` when the row is focused/selected, `TextDim` otherwise. Appended to the right-aligned block after the status label when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
 
 **Task rows are full-width cards** (docs/plan/task-row-cards-and-status.md):
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the

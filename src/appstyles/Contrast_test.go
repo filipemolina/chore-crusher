@@ -202,6 +202,27 @@ func TestWCAGContrastAgainstSurfaces(t *testing.T) {
 					t.Errorf("%s on recessed: ratio = %.2f, want ≥ %.1f", ink.label, ratio, ink.floor)
 				}
 			}
+
+			// Spinner glyph contrast. The spinner draws Accent when the row is
+			// focused/selected (ModalBg) and TextDim otherwise (BackgroundPanel).
+			// Floors match the existing Accent/modal (3.0) and TextDim/panel (2.2)
+			// tiers — the spinner is a small decorative glyph, not body text.
+			// (docs/plan/mcp-server-enhancement.md §3.7, §12 glyph vocabulary.)
+			spinnerCases := []struct {
+				label  string
+				ink    color.Color
+				surface color.Color
+				floor  float64
+			}{
+				{"Accent on modal (active row)", theme.Accent, modal, 3.0},
+				{"TextDim on panel (unfocused row)", theme.TextDim, panel, 2.2},
+			}
+			for _, sc := range spinnerCases {
+				ratio := Contrast(sc.ink, sc.surface)
+				if ratio < sc.floor {
+					t.Errorf("spinner %s: ratio = %.2f, want ≥ %.1f", sc.label, ratio, sc.floor)
+				}
+			}
 		})
 	}
 }
