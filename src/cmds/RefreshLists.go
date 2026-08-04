@@ -10,11 +10,15 @@ import (
 // boundary. Lists is nil when the query failed; Err holds the failure.
 // Activities carries the live agent-claim set so the TUI can render
 // spinners on claimed rows (docs/plan/mcp-server-enhancement.md §3.5).
-// The poll loop's RefreshLists routes this to the lists panel.
+// ClaimedLists is the set of list ids with any live task claim, so the
+// lists panel can show a spinner on a list an agent is working inside
+// (docs/plan/agent-presence-heartbeat.md §3.4). The poll loop's
+// RefreshLists routes this to the lists panel.
 type RefreshListsMsg struct {
-	Lists      []apptypes.ListSummary
-	Activities []apptypes.AgentActivity
-	Err        error
+	Lists        []apptypes.ListSummary
+	Activities   []apptypes.AgentActivity
+	ClaimedLists map[string]bool
+	Err          error
 }
 
 // RefreshLists queries the store and converts the rows at the boundary.
@@ -31,9 +35,14 @@ func RefreshLists(s *store.Store) tea.Cmd {
 		if err != nil {
 			return RefreshListsMsg{Err: err}
 		}
+		claimedLists, err := s.ClaimedTaskListIDs()
+		if err != nil {
+			return RefreshListsMsg{Err: err}
+		}
 		return RefreshListsMsg{
-			Lists:      apptypes.FromStoreLists(lists),
-			Activities: apptypes.FromStoreActivities(work),
+			Lists:        apptypes.FromStoreLists(lists),
+			Activities:   apptypes.FromStoreActivities(work),
+			ClaimedLists: claimedLists,
 		}
 	}
 }
