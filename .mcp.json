@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "chore-crusher": {
+      "command": "/home/filipe/go/bin/crush",
+      "args": ["mcp"],
+      "env": { "CRUSH_AGENT": "pi" }
+    }
+  }
+}

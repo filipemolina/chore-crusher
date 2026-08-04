@@ -82,3 +82,23 @@ func (s *Store) DeleteList(id string) error {
 	}
 	return requireAffected(res, "list", id)
 }
+
+// GetOrCreateAgentList returns the id of the list owned by identity, creating
+// one named "<identity>: Inbox" when none exists yet. It is idempotent: a
+// second call for the same identity returns the same list without creating a
+// duplicate.
+//
+// A list named "<identity>: ..." marks ownership for the status/progress
+// enforcement (docs/plan/list-ownership-enforcement.md); the my_list MCP tool
+// is the caller-facing wrapper this store method supports.
+func (s *Store) GetOrCreateAgentList(identity string) (string, error) {
+	prefix := identity + ": "
+	var id string
+	if err := s.db.QueryRow(`SELECT id FROM "list" WHERE name LIKE (? || '%') ORDER BY created_at LIMIT 1`, prefix).Scan(&id); err != nil {
+		if !isNoRows(err) {
+			return "", err
+		}
+		return s.CreateList(prefix + "Inbox")
+	}
+	return id, nil
+}

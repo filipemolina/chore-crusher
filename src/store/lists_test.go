@@ -111,6 +111,57 @@ func TestDeleteListRemovesEveryTask(t *testing.T) {
 	}
 }
 
+func TestGetOrCreateAgentList(t *testing.T) {
+	s := newTestStore(t)
+
+	// First call creates the list.
+	id1, err := s.GetOrCreateAgentList("pi")
+	if err != nil {
+		t.Fatalf("first GetOrCreateAgentList: %v", err)
+	}
+
+	lists, err := s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(lists) != 1 || lists[0].ID != id1 || lists[0].Name != "pi: Inbox" {
+		t.Fatalf("after first call, lists = %+v, want one pi: Inbox with id %q", lists, id1)
+	}
+
+	// Second call returns the same list (idempotent, no duplicate).
+	id2, err := s.GetOrCreateAgentList("pi")
+	if err != nil {
+		t.Fatalf("second GetOrCreateAgentList: %v", err)
+	}
+	if id1 != id2 {
+		t.Fatalf("GetOrCreateAgentList not idempotent: %q != %q", id1, id2)
+	}
+
+	lists, err = s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(lists) != 1 {
+		t.Fatalf("expected 1 list, got %d (duplicate created?)", len(lists))
+	}
+
+	// A different identity gets its own list.
+	id3, err := s.GetOrCreateAgentList("claude")
+	if err != nil {
+		t.Fatalf("GetOrCreateAgentList(claude): %v", err)
+	}
+	if id3 == id1 || id3 == id2 {
+		t.Fatalf("different identity returned the same list id %q", id3)
+	}
+	lists, err = s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(lists) != 2 {
+		t.Fatalf("expected 2 lists after second identity, got %d", len(lists))
+	}
+}
+
 func TestDeleteListRequiresExisting(t *testing.T) {
 	s := newTestStore(t)
 	err := s.DeleteList("no-such-id")

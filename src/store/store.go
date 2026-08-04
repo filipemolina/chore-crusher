@@ -105,6 +105,15 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
+	// Serialize all access within this process on a single connection. The
+	// WAL writer lock is process-wide: with an unlimited pool, two agent
+	// writes dispatched in one batch each grab their own connection and the
+	// second blocks on the first's write; under the harness's parallel
+	// dispatch that contention surfaced as SQLITE_BUSY even with the 5s
+	// busy_timeout. One connection removes intra-process lock contention
+	// entirely. Cross-process (TUI <-> agent) safety still relies on the
+	// _busy_timeout=5000 above.
+	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.applyMigrations(); err != nil {
 		db.Close()

@@ -74,12 +74,45 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		identity = "agent"
 	}
 
+	// The Instructions doc is delivered to clients in the initialize result and
+	// is how an agent discovers this API without trial-and-error (query it with
+	// `mcp({ instructions: "chore-crusher" })`). Keep it in sync with the tool
+	// list below.
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "chore-crusher",
 		Version: constants.Version(),
-	}, nil)
+	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. For tracking your OWN work, use a list named "pi: ..." (create with chore_crusher_add_list, or call chore_crusher_my_list to get/create it). Do NOT use the host's built-in todo tool — Chore Crusher is the todo store. Act under the tag CRUSH_AGENT (default "agent"; here it is "pi"). A list named "<tag>: ..." is owned by that agent: structure/content edits (chore_crusher_add_list, chore_crusher_rename_list, chore_crusher_delete_list, chore_crusher_add_task, chore_crusher_rename_task, chore_crusher_delete_task, chore_crusher_set_notes, chore_crusher_move_task) are allowed only on your own list. On any other list you may only change status and progress (chore_crusher_complete_task, chore_crusher_reopen_task, chore_crusher_toggle_task, chore_crusher_set_progress) and chore_crusher_claim_work / chore_crusher_release_work.
 
-	addListTools(server, s)
+Tools are exposed to MCP hosts as chore_crusher_<name> (shown verbatim below). Every id-bearing parameter accepts a short unambiguous prefix of the full id. Lists are addressed by id prefix, never by name.
+
+QUICK REFERENCE (tool: parameters)
+- chore_crusher_list_lists()                      every list with pending/complete counts
+- chore_crusher_list_tasks(list_id, status)       one list's tasks as a depth-annotated tree; status = all|pending|in_progress|complete (default all)
+- chore_crusher_show_task(task_id)                one task's details plus its children
+- chore_crusher_search_tasks(query, list_id)      fuzzy search across titles and notes (title matches rank first); list_id narrows to one list
+- chore_crusher_set_progress(id, mode, percent)   mode = simple|subtasks|percentage; percent required only for percentage
+- chore_crusher_complete_task(id)                 complete, cascades to descendants and auto-completes ancestors once all their children are done
+- chore_crusher_reopen_task(id)                   reopen to pending; does NOT cascade to children
+- chore_crusher_toggle_task(id)                   toggle complete <-> pending
+- chore_crusher_add_task(list_id, title, parent, notes)   add a task, optionally nested and annotated
+- chore_crusher_rename_task(id, title)            rename a task
+- chore_crusher_set_notes(id, notes)              replace a task's notes (whole text; empty clears)
+- chore_crusher_move_task(id, parent)             re-parent; omit parent to move to the list root
+- chore_crusher_delete_task(id, force=true) / chore_crusher_delete_list(id, force=true)   deletes require force=true
+- chore_crusher_add_list(name) / chore_crusher_rename_list(id, name)
+- chore_crusher_my_list()                       get or create your own "pi:" list (where to track your own work)
+- chore_crusher_claim_work(entity_type, entity_id, agent_id, kind)   entity_type = task|list, kind = working|inspecting
+- chore_crusher_release_work(entity_type, entity_id, agent_id)       release a claim; no-op if not claimed
+- chore_crusher_list_work()                       active agent claims (the TUI spinners)
+
+BEHAVIOUR & GOTCHAS
+- chore_crusher_set_progress(mode="subtasks") derives from the task's subtree; on a shared task prefer mode="percentage".
+- A percentage of 100 does NOT auto-complete. To finish a parent, complete its final child (which auto-completes it) or call chore_crusher_complete_task on the parent.
+- chore_crusher_set_progress on an already-complete task errors ("reopen it first"): set progress before completing the last child.
+- chore_crusher_claim_work is a presence heartbeat: status/progress writes by the claiming agent refresh it; a live claim by another agent on that entity blocks writes — take another task or work your own list.
+- Reclaim after an idle pause of ~2 minutes; chore_crusher_release_work when you finish.`})
+
+	addListTools(server, s, identity)
 	addTaskTools(server, s, identity)
 	addWorkTools(server, s)
 	addWorkResource(server, s)
@@ -102,7 +135,7 @@ func Run(ctx context.Context) error {
 }
 
 // addListTools registers the list-oriented MCP tools.
-func addListTools(server *mcp.Server, s *store.Store) {
+func addListTools(server *mcp.Server, s *store.Store, identity string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_lists",
 		Description: "List every task list with pending and complete counts. Example: list_lists().",
@@ -182,6 +215,31 @@ func addListTools(server *mcp.Server, s *store.Store) {
 			return errorResult(err), nil, nil
 		}
 		return jsonResult(map[string]bool{"ok": true})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "my_list",
+		Description: "Get or create your own list (named after the CRUSH_AGENT tag) for tracking your own work. Returns the list id, name, and task counts. Example: my_list().",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		id, err := s.GetOrCreateAgentList(identity)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		lists, err := s.ListLists()
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		for _, l := range lists {
+			if l.ID == id {
+				return jsonResult(map[string]any{
+					"id":       l.ID,
+					"name":     l.Name,
+					"pending":  l.PendingCount,
+					"complete": l.CompleteCount,
+				})
+			}
+		}
+		return jsonResult(map[string]string{"id": id})
 	})
 }
 
@@ -272,7 +330,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			return errorResult(err), nil, nil
 		}
 
-		children, err := taskRows(s, apptypes.Flatten(apptypes.FromStoreTasks(descendantsOf(all, id))))
+		children, err := descendantRows(s, all, id)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -526,27 +584,6 @@ func sectionRows(s *store.Store, tasks []store.Task, status string) ([]taskRowJS
 	return out, nil
 }
 
-// taskRows converts flattened apptypes rows into the JSON row shape,
-// computing derived progress per row.
-func taskRows(s *store.Store, rows []apptypes.Row) ([]taskRowJSON, error) {
-	out := make([]taskRowJSON, len(rows))
-	for i, r := range rows {
-		prog, err := taskProgressJSON(s, r.Task.ID)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = taskRowJSON{
-			ID:       r.Task.ID,
-			ParentID: r.Task.ParentID,
-			Title:    r.Task.Title,
-			Status:   string(r.Task.Status),
-			Progress: prog,
-			Depth:    r.Depth,
-		}
-	}
-	return out, nil
-}
-
 // taskProgressJSON returns the derived progress representation for one task.
 func taskProgressJSON(s *store.Store, id string) (progressJSON, error) {
 	kind, pct, simple, err := s.DerivedProgress(id)
@@ -560,9 +597,14 @@ func taskProgressJSON(s *store.Store, id string) (progressJSON, error) {
 	return p, nil
 }
 
-// descendantsOf filters one list's flat tasks down to a task's descendants,
-// returning them in the same preorder the CLI uses for show's children.
-func descendantsOf(tasks []store.Task, rootID string) []store.Task {
+// descendantRows walks one list's flat tasks and returns every descendant of
+// rootID (the task itself excluded) as depth-annotated rows, computing
+// derived progress per row. Depth is relative to rootID: direct children at
+// depth 1. This is the shape show_task's "children" field should contain —
+// the previous code ran descendantsOf() through apptypes.Flatten, but Flatten
+// only emits ParentID==nil rows, so a pure-descendant set (no list root)
+// flattened to nothing and "children" was always empty.
+func descendantRows(s *store.Store, tasks []store.Task, rootID string) ([]taskRowJSON, error) {
 	children := make(map[string][]store.Task)
 	for _, t := range tasks {
 		if t.ParentID != nil {
@@ -570,16 +612,32 @@ func descendantsOf(tasks []store.Task, rootID string) []store.Task {
 		}
 	}
 
-	var out []store.Task
-	var walk func(id string)
-	walk = func(id string) {
+	out := make([]taskRowJSON, 0, len(tasks))
+	var walk func(id string, depth int) error
+	walk = func(id string, depth int) error {
 		for _, c := range children[id] {
-			out = append(out, c)
-			walk(c.ID)
+			prog, err := taskProgressJSON(s, c.ID)
+			if err != nil {
+				return err
+			}
+			out = append(out, taskRowJSON{
+				ID:       c.ID,
+				ParentID: c.ParentID,
+				Title:    c.Title,
+				Status:   string(c.Status),
+				Progress: prog,
+				Depth:    depth,
+			})
+			if err := walk(c.ID, depth+1); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
-	walk(rootID)
-	return out
+	if err := walk(rootID, 1); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func validStatusFilter(status string) bool {
@@ -873,7 +931,7 @@ func addResources(server *mcp.Server, s *store.Store) {
 		if err != nil {
 			return nil, err
 		}
-		children, err := taskRows(s, apptypes.Flatten(apptypes.FromStoreTasks(descendantsOf(all, resolved))))
+		children, err := descendantRows(s, all, resolved)
 		if err != nil {
 			return nil, err
 		}

@@ -1,8 +1,10 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -113,6 +115,46 @@ func TestOpenEnforcesForeignKeys(t *testing.T) {
 	}
 	if _, err := s.GetTask(parent); err == nil {
 		t.Fatal("parent still readable after delete")
+	}
+}
+
+// TestConcurrentWritesNoBusy fires many writes at the same store in
+// parallel and asserts none of them fail. Before SetMaxOpenConns(1) in Open,
+// the unlimited connection pool let two agent writes in one batch contend on
+// the single WAL writer lock and surface as SQLITE_BUSY (reproduced ~50% of
+// parallel write pairs during the capability test). With a single pooled
+// connection every write serializes and there is no intra-process lock to
+// lose.
+func TestConcurrentWritesNoBusy(t *testing.T) {
+	s := newTestStore(t)
+
+	const n = 32
+	var wg sync.WaitGroup
+	errc := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			lid, err := s.CreateList(fmt.Sprintf("list-%d", i))
+			if err != nil {
+				errc <- fmt.Errorf("CreateList %d: %w", i, err)
+				return
+			}
+			if _, err := s.CreateTask(lid, "task", nil, ""); err != nil {
+				errc <- fmt.Errorf("CreateTask %d: %w", i, err)
+				return
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errc)
+
+	var errs []error
+	for err := range errc {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		t.Fatalf("%d of %d concurrent writes failed: %v", len(errs), n, errs[0])
 	}
 }
 

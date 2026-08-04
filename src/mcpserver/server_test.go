@@ -123,9 +123,117 @@ func TestMCPListLists(t *testing.T) {
 	}
 }
 
-func TestMCPAddAndCompleteTask(t *testing.T) {
+// TestMCPMyList guards S3: my_list auto-provisions the agent's own list
+// (named after the CRUSH_AGENT tag) so the agent never has to run an
+// add_list + copy-id dance before writing its first task. Idempotent: a
+// second call returns the same list without creating a duplicate.
+func TestMCPMyList(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
 	session := setupMCP(t)
 
+	// First call creates the agent's list.
+	var first map[string]any
+	mustUnmarshal(t, callTool(t, session, "my_list", nil), &first)
+	if first["id"] == "" || first["name"] != "pi: Inbox" {
+		t.Fatalf("my_list (first) = %+v, want id set and name \"pi: Inbox\"", first)
+	}
+
+	// Counts come along: 0 pending / 0 complete on a fresh list.
+	if first["pending"] != float64(0) || first["complete"] != float64(0) {
+		t.Fatalf("my_list counts = pending=%v complete=%v, want 0/0", first["pending"], first["complete"])
+	}
+
+	// Second call returns the same list (idempotent — no duplicate created).
+	var second map[string]any
+	mustUnmarshal(t, callTool(t, session, "my_list", nil), &second)
+	if second["id"] != first["id"] {
+		t.Fatalf("my_list not idempotent: %v != %v", second["id"], first["id"])
+	}
+
+	// list_lists sees exactly one list, matching my_list's id.
+	var lists []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
+	if len(lists) != 1 || lists[0]["id"] != first["id"] {
+		t.Fatalf("list_lists = %+v, want one list matching my_list", lists)
+	}
+}
+
+// TestMCPInstructionsUsesPrefixedToolNames guards S2: the QUICK REFERENCE in
+// the Instructions doc the agent reads at session start must list tools with the
+// host-registered chore_crusher_<name> prefix. An unprefixed name (the original
+// bug) makes the agent's first call fail to resolve.
+func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
+	session := setupMCP(t)
+
+	instructions := session.InitializeResult().Instructions
+	if instructions == "" {
+		t.Fatal("Instructions is empty")
+	}
+
+	lines := strings.Split(instructions, "\n")
+	inQuickRef := false
+	found := 0
+	var unprefixed []string
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "QUICK REFERENCE"):
+			inQuickRef = true
+			continue
+		case inQuickRef && strings.TrimSpace(line) == "":
+			// blank line ends the QUICK REFERENCE block
+			inQuickRef = false
+			continue
+		case inQuickRef:
+			tool := strings.TrimSpace(strings.TrimPrefix(line, "- "))
+			if tool == "" {
+				continue
+			}
+			found++
+			name := tool
+			if i := strings.Index(name, "("); i >= 0 {
+				name = name[:i]
+			}
+			if !strings.HasPrefix(name, "chore_crusher_") {
+				unprefixed = append(unprefixed, tool)
+			}
+		}
+	}
+	if found == 0 {
+		t.Fatal("no tools found in Instructions QUICK REFERENCE block")
+	}
+	if len(unprefixed) > 0 {
+		t.Fatalf("Instructions QUICK REFERENCE lists unprefixed tool names (the agent would fail to call them): %v", unprefixed)
+	}
+}
+
+// TestMCPInstructionsAlwaysOnTodoRule guards S1: the Instructions doc the agent
+// reads at session start must steer it away from the host's built-in todo tool
+// and toward a pi:-owned list. Without this line the agent's base AGENTS.md
+// wins and it tracks work in the wrong (non-Chore-Crusher) store.
+func TestMCPInstructionsAlwaysOnTodoRule(t *testing.T) {
+	session := setupMCP(t)
+
+	instructions := session.InitializeResult().Instructions
+	if instructions == "" {
+		t.Fatal("Instructions is empty")
+	}
+
+	lower := strings.ToLower(instructions)
+	for _, want := range []string{
+		// The explicit, verbatim rule from S1.
+		"do not use the host's built-in todo tool",
+		// Actionable guidance: where the agent should actually track its work.
+		"pi: ",
+		"chore_crusher_add_list",
+	} {
+		if !strings.Contains(lower, want) {
+			t.Fatalf("Instructions missing always-on todo rule element %q;\nfull text:\n%s", want, instructions)
+		}
+	}
+}
+
+func TestMCPAddAndCompleteTask(t *testing.T) {
+	session := setupMCP(t)
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Projects"}), &list)
 
@@ -199,6 +307,88 @@ func TestMCPNestedTask(t *testing.T) {
 	}
 	if rows[1].Title != "Buy paint" || rows[1].Depth != 1 {
 		t.Fatalf("second row = %+v", rows[1])
+	}
+}
+
+// TestMCPShowTaskIncludesChildren guards S6: show_task must return a task's
+// descendants in its "children" field. The old code flattened descendantsOf()
+// through apptypes.Flatten, which only emits ParentID==nil rows, so a
+// pure-descendant set flattened to nothing and "children" was always [].
+func TestMCPShowTaskIncludesChildren(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+
+	var parent map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Renovation",
+	}), &parent)
+
+	var child map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Buy paint",
+		"parent":  parent["id"],
+	}), &child)
+
+	// A grandchild to confirm the whole subtree is returned, not just
+	// direct children.
+	var grand map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Pick colour",
+		"parent":  child["id"],
+	}), &grand)
+
+	var details struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Children []struct {
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Depth  int    `json:"depth"`
+			Status string `json:"status"`
+		} `json:"children"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"task_id": parent["id"],
+	}), &details)
+
+	if details.ID != parent["id"] || details.Title != "Renovation" {
+		t.Fatalf("show_task root = %+v", details)
+	}
+	if len(details.Children) != 2 {
+		t.Fatalf("want 2 children (child + grandchild), got %+v", details.Children)
+	}
+	byID := make(map[string]int)
+	for _, c := range details.Children {
+		byID[c.ID] = c.Depth
+	}
+	if byID[child["id"]] != 1 {
+		t.Fatalf("child depth = %d, want 1", byID[child["id"]])
+	}
+	if byID[grand["id"]] != 2 {
+		t.Fatalf("grandchild depth = %d, want 2", byID[grand["id"]])
+	}
+
+	// The crush:///tasks/{id} resource shares the same code path and must
+	// also return the children.
+	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
+		URI: "crush:///tasks/" + parent["id"],
+	})
+	if err != nil {
+		t.Fatalf("ReadResource crush:///tasks/%s: %v", parent["id"], err)
+	}
+	var resDetails struct {
+		Children []struct {
+			ID string `json:"id"`
+		} `json:"children"`
+	}
+	mustUnmarshal(t, res.Contents[0].Text, &resDetails)
+	if len(resDetails.Children) != 2 {
+		t.Fatalf("resource children = %+v, want 2", resDetails.Children)
 	}
 }
 
