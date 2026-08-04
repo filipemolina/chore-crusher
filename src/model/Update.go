@@ -195,7 +195,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activeListID = msg.Lists[0].List.ID
 				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 			} else if m.store != nil {
-				if id, err := m.store.CreateList("New List"); err == nil {
+				if id, err := m.store.CreateList("New List", ""); err == nil {
 					m.activeListID = id
 					finalCmds = append(finalCmds, cmds.RefreshLists(m.store))
 				}
@@ -215,7 +215,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.activeListID = msg.Lists[0].List.ID
 					finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 				} else if m.store != nil {
-					if id, err := m.store.CreateList("New List"); err == nil {
+					if id, err := m.store.CreateList("New List", ""); err == nil {
 						m.activeListID = id
 						finalCmds = append(finalCmds, cmds.RefreshLists(m.store))
 					}

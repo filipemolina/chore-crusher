@@ -9,7 +9,12 @@ import (
 // CreateList creates a list with the given name, appended after the current
 // last list, and returns its id. An empty name is rejected here so both the
 // CLI and the TUI get the same error.
-func (s *Store) CreateList(name string) (string, error) {
+//
+// createdBy is the owning agent tag ("pi", "claudecode", ...); an empty
+// string marks the list as owned by nobody (human-managed) — see
+// docs/plan/list-ownership-enforcement.md §3.3. The store does not validate
+// the tag format; that is the MCP layer's job.
+func (s *Store) CreateList(name, createdBy string) (string, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("list name must not be empty")
 	}
@@ -22,12 +27,30 @@ func (s *Store) CreateList(name string) (string, error) {
 		return "", err
 	}
 	if _, err := s.db.Exec(
-		`INSERT INTO List (id, name, created_at, position) VALUES (?, ?, ?, ?)`,
-		id, name, now, position,
+		`INSERT INTO List (id, name, created_at, position, created_by) VALUES (?, ?, ?, ?, ?)`,
+		id, name, now, position, createdBy,
 	); err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// GetList returns the list with the given id, including its CreatedBy owner.
+// An empty CreatedBy means the list is owned by nobody (human-managed); the MCP
+// policy layer uses this to gate structural writes
+// (docs/plan/list-ownership-enforcement.md).
+func (s *Store) GetList(id string) (List, error) {
+	var l List
+	if err := s.db.QueryRow(
+		`SELECT id, name, created_at, position, created_by FROM List WHERE id = ?`,
+		id,
+	).Scan(&l.ID, &l.Name, &l.CreatedAt, &l.Position, &l.CreatedBy); err != nil {
+		if isNoRows(err) {
+			return List{}, fmt.Errorf("list %q not found", id)
+		}
+		return List{}, err
+	}
+	return l, nil
 }
 
 // ListLists returns every list, in creation order, each with its pending and
@@ -98,7 +121,7 @@ func (s *Store) GetOrCreateAgentList(identity string) (string, error) {
 		if !isNoRows(err) {
 			return "", err
 		}
-		return s.CreateList(prefix + "Inbox")
+		return s.CreateList(prefix+"Inbox", identity)
 	}
 	return id, nil
 }

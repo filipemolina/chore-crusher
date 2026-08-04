@@ -22,7 +22,7 @@ func newTestStore(t *testing.T) *Store {
 
 func mustList(t *testing.T, s *Store, name string) string {
 	t.Helper()
-	id, err := s.CreateList(name)
+	id, err := s.CreateList(name, "")
 	if err != nil {
 		t.Fatalf("CreateList(%q): %v", name, err)
 	}
@@ -135,7 +135,7 @@ func TestConcurrentWritesNoBusy(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			lid, err := s.CreateList(fmt.Sprintf("list-%d", i))
+			lid, err := s.CreateList(fmt.Sprintf("list-%d", i), "")
 			if err != nil {
 				errc <- fmt.Errorf("CreateList %d: %w", i, err)
 				return

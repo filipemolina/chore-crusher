@@ -22,7 +22,7 @@ func testStore(t *testing.T) *store.Store {
 // name so the picker can render "<list> › <title>" without a second lookup.
 func TestRankTitlesFirstThenNotes(t *testing.T) {
 	s := testStore(t)
-	lid, err := s.CreateList("Errands")
+	lid, err := s.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestRankTitlesFirstThenNotes(t *testing.T) {
 // rank must carry that through.
 func TestRankCarriesListID(t *testing.T) {
 	s := testStore(t)
-	lid, err := s.CreateList("List")
+	lid, err := s.CreateList("List", "")
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}

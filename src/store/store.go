@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,6 +64,7 @@ type List struct {
 	Name      string
 	CreatedAt int64
 	Position  int
+	CreatedBy string
 }
 
 // ListSummary is a List plus its task counts, as returned by ListLists.
@@ -119,7 +121,63 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
 	}
+	// Adopt A's "<tag>:" name convention into created_by for any list still
+	// untagged. Runs once at Open (see backfillOwners for the rationale).
+	if err := s.backfillOwners(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("backfill list owners %s: %w", path, err)
+	}
 	return s, nil
+}
+
+// ownerTagRE matches the leading "<tag>:" prefix of a list name — A's
+// ownership convention (docs/plan/list-ownership-enforcement.md §3.7). The
+// capture is the owner tag. modernc.org/sqlite exposes no REGEXP, so the scan
+// runs in Go over the rows whose created_by is still empty.
+var ownerTagRE = regexp.MustCompile(`^([A-Za-z0-9_-]+):`)
+
+// backfillOwners adopts A's "<tag>:" name convention into the created_by
+// column for every list still untagged. It runs once, at Open, after
+// migrations. The selection + update are split into two phases on purpose:
+// SetMaxOpenConns(1) leaves a single pooled connection, so UPDATEs cannot run
+// while the SELECT's rows still hold that connection — we drain the rows into
+// a slice, close them, then issue the UPDATEs.
+//
+// The pass is idempotent: it only touches rows where created_by = "", and a
+// row once tagged keeps its tag, so re-opening never re-adopts it. Lists
+// created after Open with a "<tag>:" name stay untagged until the next Open —
+// a documented limitation (§3.7).
+func (s *Store) backfillOwners() error {
+	rows, err := s.db.Query(`SELECT id, name FROM List WHERE created_by = ''`)
+	if err != nil {
+		return err
+	}
+	type taggedList struct{ id, owner string }
+	var tagged []taggedList
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		if m := ownerTagRE.FindStringSubmatch(name); m != nil {
+			tagged = append(tagged, taggedList{id, m[1]})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, tl := range tagged {
+		if _, err := s.db.Exec(
+			`UPDATE List SET created_by = ? WHERE id = ?`, tl.owner, tl.id,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close releases the underlying database handle. The TUI holds a Store for

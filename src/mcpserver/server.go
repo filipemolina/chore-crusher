@@ -173,7 +173,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		Name string `json:"name" jsonschema:"name of the new list"`
 	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.CreateList(in.Name)
+		id, err := s.CreateList(in.Name, identity)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

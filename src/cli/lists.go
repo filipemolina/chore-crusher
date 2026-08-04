@@ -95,7 +95,7 @@ func runListsAdd(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	return runStore(cmd, func(s *store.Store) error {
-		id, err := s.CreateList(args[0])
+		id, err := s.CreateList(args[0], "")
 		if err != nil {
 			return err
 		}

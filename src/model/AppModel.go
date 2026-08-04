@@ -66,7 +66,7 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 			if len(lists) > 0 {
 				activeListID = lists[0].List.ID
 			} else {
-				if id, err := s.CreateList("New List"); err == nil {
+				if id, err := s.CreateList("New List", ""); err == nil {
 					activeListID = id
 				}
 			}

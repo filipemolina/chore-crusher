@@ -120,7 +120,7 @@ func TestFirstRefreshSelectsFirstList(t *testing.T) {
 	if len(lists) > 0 {
 		m.store.DeleteList(lists[0].ID)
 	}
-	listID, err := m.store.CreateList("Errands")
+	listID, err := m.store.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestFirstRefreshSelectsFirstList(t *testing.T) {
 // poll cycle end to end.
 func TestRefreshPreservesSelectionThroughPoll(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
-	listID, err := m.store.CreateList("Errands")
+	listID, err := m.store.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}
@@ -202,11 +202,11 @@ func TestListNavigationSwitchesActiveList(t *testing.T) {
 	for _, l := range lists {
 		m.store.DeleteList(l.ID)
 	}
-	listA, err := m.store.CreateList("Errands")
+	listA, err := m.store.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list A: %v", err)
 	}
-	listB, err := m.store.CreateList("Work")
+	listB, err := m.store.CreateList("Work", "")
 	if err != nil {
 		t.Fatalf("create list B: %v", err)
 	}
@@ -251,11 +251,11 @@ func TestTypingInCreateInputDoesNotNavigateLists(t *testing.T) {
 	for _, l := range lists {
 		m.store.DeleteList(l.ID)
 	}
-	listA, err := m.store.CreateList("Errands")
+	listA, err := m.store.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list A: %v", err)
 	}
-	if _, err := m.store.CreateList("Work"); err != nil {
+	if _, err := m.store.CreateList("Work", ""); err != nil {
 		t.Fatalf("create list B: %v", err)
 	}
 	if _, err := m.store.CreateTask(listA, "Buy milk", nil, ""); err != nil {
@@ -315,7 +315,7 @@ func TestTabCyclesFocusWhileCreating(t *testing.T) {
 	for _, l := range lists {
 		m.store.DeleteList(l.ID)
 	}
-	listID, err := m.store.CreateList("Errands")
+	listID, err := m.store.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestInlineCreateCircuitEndToEnd(t *testing.T) {
 	for _, l := range lists {
 		m.store.DeleteList(l.ID)
 	}
-	listID, err := m.store.CreateList("Errands")
+	listID, err := m.store.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestInlineCreateCircuitEndToEnd(t *testing.T) {
 // (model/Update.go).
 func TestEscCancelsInlineCreationThroughAppModel(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
-	listID, err := m.store.CreateList("Errands")
+	listID, err := m.store.CreateList("Errands", "")
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}

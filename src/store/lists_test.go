@@ -1,6 +1,7 @@
 package store
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -167,5 +168,124 @@ func TestDeleteListRequiresExisting(t *testing.T) {
 	err := s.DeleteList("no-such-id")
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("DeleteList on missing id error = %v, want a not-found error", err)
+	}
+}
+
+func TestCreateListStoresOwner(t *testing.T) {
+	s := newTestStore(t)
+
+	id, err := s.CreateList("Inbox", "pi")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
+	l, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if l.CreatedBy != "pi" {
+		t.Fatalf("CreatedBy = %q, want %q", l.CreatedBy, "pi")
+	}
+}
+
+func TestGetListReturnsCreatedBy(t *testing.T) {
+	s := newTestStore(t)
+
+	// An explicitly unowned (human-created) list stays empty.
+	id, err := s.CreateList("Groceries", "")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
+	l, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if l.CreatedBy != "" {
+		t.Fatalf("CreatedBy = %q, want empty (owned by nobody)", l.CreatedBy)
+	}
+}
+
+func TestGetListNotFound(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetList("no-such-id"); err == nil {
+		t.Fatal("GetList on a missing id did not error")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("GetList error = %q, want a not-found error", err)
+	}
+}
+
+// TestBackfillAdoptsTaggedLists exercises the Open-time backfill: lists named
+// with A's "<tag>:" convention but empty created_by (the pre-B shape, as
+// CreateList writes when no owner is given) are adopted into created_by, an
+// untagged list stays owned by nobody, and the pass runs automatically on the
+// second Open.
+func TestBackfillAdoptsTaggedLists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s1, err := Open(path)
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+	piList := mustList(t, s1, "pi: Main")
+	claudeList := mustList(t, s1, "claude: Backlog")
+	untagged := mustList(t, s1, "Groceries")
+	s1.Close()
+
+	// Reopen: Open runs the backfill, adopting the "<tag>:" convention.
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatalf("second Open (backfill): %v", err)
+	}
+	t.Cleanup(func() { s2.Close() })
+
+	assertOwner := func(id, want string) {
+		t.Helper()
+		l, err := s2.GetList(id)
+		if err != nil {
+			t.Fatalf("GetList(%q): %v", id, err)
+		}
+		if l.CreatedBy != want {
+			t.Fatalf("list %q (name %q) CreatedBy = %q, want %q", id, l.Name, l.CreatedBy, want)
+		}
+	}
+	assertOwner(piList, "pi")
+	assertOwner(claudeList, "claude")
+	assertOwner(untagged, "") // no tag → owned by nobody
+}
+
+// TestBackfillIsIdempotent confirms repeated passes never clobber an owner
+// that is already set: the backfill only touches rows where created_by = ”
+// (so a hand-set owner survives), and an already-adopted tag is not re-applied.
+func TestBackfillIsIdempotent(t *testing.T) {
+	s := newTestStore(t)
+
+	piList := mustList(t, s, "pi: Main")
+	if err := s.backfillOwners(); err != nil {
+		t.Fatalf("first backfillOwners: %v", err)
+	}
+	if err := s.backfillOwners(); err != nil {
+		t.Fatalf("second backfillOwners: %v", err)
+	}
+	l, err := s.GetList(piList)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if l.CreatedBy != "pi" {
+		t.Fatalf("after idempotent passes CreatedBy = %q, want %q", l.CreatedBy, "pi")
+	}
+
+	// A manually-set owner (not via the tag) must survive a later pass: the
+	// backfill only adopts rows whose created_by is still empty.
+	if _, err := s.db.Exec(`UPDATE List SET created_by = 'claude' WHERE id = ?`, piList); err != nil {
+		t.Fatalf("override owner: %v", err)
+	}
+	if err := s.backfillOwners(); err != nil {
+		t.Fatalf("third backfillOwners: %v", err)
+	}
+	l, err = s.GetList(piList)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if l.CreatedBy != "claude" {
+		t.Fatalf("backfill overwrote a manually-set owner: CreatedBy = %q, want %q", l.CreatedBy, "claude")
 	}
 }

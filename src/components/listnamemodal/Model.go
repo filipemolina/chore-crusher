@@ -69,7 +69,7 @@ func (m Model) createFollowCmd(name string) tea.Cmd {
 		}
 
 		if m.mode == ModeNew {
-			_, err := m.store.CreateList(name)
+			_, err := m.store.CreateList(name, "")
 			if err != nil {
 				// TODO: surface error to user
 				return nil

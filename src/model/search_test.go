@@ -32,11 +32,11 @@ func TestJumpToTaskSwitchesListAndSelects(t *testing.T) {
 		m.store.DeleteList(lists[0].ID)
 	}
 
-	listA, err := m.store.CreateList("Alpha")
+	listA, err := m.store.CreateList("Alpha", "")
 	if err != nil {
 		t.Fatalf("create list A: %v", err)
 	}
-	listB, err := m.store.CreateList("Beta")
+	listB, err := m.store.CreateList("Beta", "")
 	if err != nil {
 		t.Fatalf("create list B: %v", err)
 	}
