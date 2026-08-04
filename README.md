@@ -103,7 +103,9 @@ and the task.
 on a task or list while it works; the TUI renders an animated spinner on that
 row until the claim is released or expires after two minutes of silence.
 Status and progress writes keep a live claim alive (a write-heartbeat), and
-the skill tells the agent to re-claim after a pause. The
+the skill tells the agent to re-claim after a pause. The lists panel shows
+the spinner on any list an agent is working inside, not just on lists claimed
+as a whole. The
 pane stays open, and you see *which* row the agent is on — not just that the
 store changed.
 

@@ -399,7 +399,7 @@ nearest surviving row, the same "what do you do when the ground moves"
 question stack-stitcher answers by re-selecting by name after a config
 reload.
 
-**Agent activity claims are read by the same poll.** Each `RefreshLists` and `RefreshTasks` call also runs `store.ListWork()` to fetch the current set of live agent claims (entities claimed within the `WorkTTL` window). The returned `[]AgentActivity` travels with the refresh messages so the task tree and lists panel can render a spinner on claimed rows. The same 1s poll tick governs both data and claims — no separate IPC or interval is needed.
+**Agent activity claims are read by the same poll.** Each `RefreshLists` and `RefreshTasks` call also runs `store.ListWork()` to fetch the current set of live agent claims (entities claimed within the `WorkTTL` window). The returned `[]AgentActivity` travels with the refresh messages so the task tree and lists panel can render a spinner on claimed rows. `RefreshLists` additionally computes the set of lists with any live task claim (`ClaimedTaskListIDs`) and carries it on the message, so the lists panel shows a spinner on a list row when an agent is working inside it — not only when the list itself is claimed. The same 1s poll tick governs both data and claims — no separate IPC or interval is needed.
 
 **The TUI never holds a write transaction, and no poll tick is allowed to
 block on one.** It opens a read connection at startup and keeps it; every
