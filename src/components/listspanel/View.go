@@ -17,10 +17,13 @@ import (
 // listDelegate renders each list row as a Height-4 card with a full-height ▌
 // bar, matching stack-stitcher's groups-list card contract (phase B step 1).
 // When an agent has claimed the list, a spinner glyph and short agent id
-// are appended after the count line (docs/plan/mcp-server-enhancement.md §3.7).
+// are appended after the count line (docs/plan/mcp-server-enhancement.md §3.7);
+// when only a task inside the list is claimed, a bare spinner is appended
+// (docs/plan/agent-presence-heartbeat.md §3.4).
 type listDelegate struct {
 	isParentFocused bool
 	work            map[string]apptypes.AgentActivity
+	claimedLists    map[string]bool
 	animFrame       int
 }
 
@@ -66,6 +69,8 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	// If this list is claimed by an agent, append the spinner + agent id,
 	// colored per the row's selection: Accent when selected, TextDim otherwise
 	// — matching the task-tree spinner (docs/plan/mcp-server-enhancement.md §3.7).
+	// If instead only a task inside the list is claimed, append a bare spinner:
+	// the row is an aggregate, so no single agent id is named.
 	claimedLine := countLine
 	if a, ok := d.work[l.List.ID]; ok {
 		spinner := chrome.Spinner(d.animFrame)
@@ -77,6 +82,12 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 			Foreground(spinnerFg(isSelected)).
 			Background(rowBg).
 			Render(spinner+" "+agent)
+	} else if d.claimedLists[l.List.ID] {
+		spinner := chrome.Spinner(d.animFrame)
+		claimedLine = countLine + " " + lipgloss.NewStyle().
+			Foreground(spinnerFg(isSelected)).
+			Background(rowBg).
+			Render(spinner)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,

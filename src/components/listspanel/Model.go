@@ -22,6 +22,7 @@ type Model struct {
 	list         list.Model
 	listDelegate listDelegate
 	work         map[string]apptypes.AgentActivity
+	claimedLists map[string]bool
 	animFrame    int
 }
 
@@ -57,7 +58,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, a := range msg.Activities {
 				m.work[a.EntityID] = a
 			}
+			m.claimedLists = msg.ClaimedLists
 			m.listDelegate.work = m.work
+			m.listDelegate.claimedLists = m.claimedLists
 			m.listDelegate.animFrame = m.animFrame
 			m.list.SetDelegate(m.listDelegate)
 

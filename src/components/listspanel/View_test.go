@@ -60,3 +60,43 @@ func TestRenderListRowShowsSpinnerWhenClaimed(t *testing.T) {
 		t.Errorf("unclaimed row must render no spinner, got: %q", free)
 	}
 }
+
+// TestRenderListRowShowsSpinnerWhenTaskClaimed pins the task-claim aggregate
+// (docs/plan/agent-presence-heartbeat.md §3.4): a list with any live task
+// claim renders the spinner without an agent id, and a simultaneous
+// list-level claim wins (spinner + agent id).
+func TestRenderListRowShowsSpinnerWhenTaskClaimed(t *testing.T) {
+	item := apptypes.ListSummary{
+		List:          apptypes.List{ID: "L1", Name: "Groceries"},
+		PendingCount:  2,
+		CompleteCount: 1,
+	}
+
+	taskClaimed := listDelegate{
+		claimedLists: map[string]bool{"L1": true},
+		animFrame:    3,
+	}
+	var buf strings.Builder
+	taskClaimed.Render(&buf, list.New([]list.Item{item}, taskClaimed, 30, 10), 0, item)
+
+	rendered := ansi.Strip(buf.String())
+	if !strings.Contains(rendered, chrome.Spinner(3)) {
+		t.Errorf("task-claimed row must render the spinner, got: %q", rendered)
+	}
+	if strings.Contains(rendered, "claude") {
+		t.Errorf("task-claimed row is an aggregate and must not name an agent, got: %q", rendered)
+	}
+
+	// A list-level claim wins over a task-level one: spinner + agent id.
+	both := taskClaimed
+	both.work = map[string]apptypes.AgentActivity{
+		"L1": {EntityType: "list", EntityID: "L1", AgentID: "claude", Kind: "working"},
+	}
+	buf.Reset()
+	both.Render(&buf, list.New([]list.Item{item}, both, 30, 10), 0, item)
+
+	bothRendered := ansi.Strip(buf.String())
+	if !strings.Contains(bothRendered, chrome.Spinner(3)+" claude") {
+		t.Errorf("list-claim must win over task-claim, got: %q", bothRendered)
+	}
+}
