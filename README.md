@@ -101,7 +101,9 @@ and the task.
 
 **Live agent presence.** An agent driving the MCP server calls `claim_work`
 on a task or list while it works; the TUI renders an animated spinner on that
-row until the claim is released or expires after two minutes of silence. The
+row until the claim is released or expires after two minutes of silence.
+Status and progress writes keep a live claim alive (a write-heartbeat), and
+the skill tells the agent to re-claim after a pause. The
 pane stays open, and you see *which* row the agent is on — not just that the
 store changed.
 

@@ -167,7 +167,7 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (`claim_work`) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above.
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (`claim_work`) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above.
 
 **The store owns every transition.** None of the above should be duplicated
 in both `store` and `cli` (or `store` and `components`). `store.Complete`,
