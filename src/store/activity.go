@@ -144,6 +144,28 @@ func (s *Store) ReleaseWork(entityType, entityID, agentID string) error {
 	return nil
 }
 
+// TouchWork extends a live claim held by the same agent — a write-heartbeat:
+// the agent just wrote to this entity. It never creates a claim, never
+// touches another agent's, and never revives an expired row (the WHERE
+// acquired_at >= cutoff guard): a stale claim only comes back via ClaimWork
+// (a re-claim). The TUI renders a claim only while acquired_at is within
+// WorkTTL, so extending it keeps the spinner alive through continuous work
+// (docs/plan/agent-presence-heartbeat.md §3.2).
+func (s *Store) TouchWork(entityType, entityID, agentID string) error {
+	switch entityType {
+	case "task", "list":
+	default:
+		return fmt.Errorf("touch work: unknown entity type %q (must be \"task\" or \"list\")", entityType)
+	}
+	cutoff := time.Now().Add(-WorkTTL).Unix()
+	_, err := s.db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ?
+		 WHERE entity_type = ? AND entity_id = ? AND agent_id = ? AND acquired_at >= ?`,
+		time.Now().Unix(), entityType, entityID, agentID, cutoff,
+	)
+	return err
+}
+
 // ListWork returns claims whose acquired_at is within WorkTTL of now —
 // the set the TUI renders a spinner for. Stale rows are excluded by the
 // WHERE, not deleted, so a briefly-quiet agent re-appears without a write.

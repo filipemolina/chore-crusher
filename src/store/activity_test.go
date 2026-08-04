@@ -291,3 +291,123 @@ func TestPruneStaleWorkKeepsFresh(t *testing.T) {
 		t.Fatalf("expected 0 deletions for fresh claim, got %d", n)
 	}
 }
+
+func TestTouchWorkRefreshesLiveClaim(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid := mustTask(t, s, lid, "task", nil)
+
+	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+
+	// Age the claim within the TTL window; a touch must push acquired_at forward.
+	aged := time.Now().Add(-30 * time.Second).Unix()
+	if _, err := s.db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+		aged, tid,
+	); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	if err := s.TouchWork("task", tid, "a1"); err != nil {
+		t.Fatalf("TouchWork: %v", err)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 1 {
+		t.Fatalf("expected 1 active claim, got %d", len(work))
+	}
+	if work[0].AcquiredAt <= aged {
+		t.Fatalf("TouchWork should refresh acquired_at (was %d, now %d)", aged, work[0].AcquiredAt)
+	}
+}
+
+func TestTouchWorkNoOpWithoutClaim(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid := mustTask(t, s, lid, "task", nil)
+
+	if err := s.TouchWork("task", tid, "a1"); err != nil {
+		t.Fatalf("TouchWork on unclaimed entity: %v", err)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 0 {
+		t.Fatalf("TouchWork must not create a claim, got %v", work)
+	}
+}
+
+func TestTouchWorkNoOpForOtherAgent(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid := mustTask(t, s, lid, "task", nil)
+
+	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	aged := time.Now().Add(-30 * time.Second).Unix()
+	if _, err := s.db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+		aged, tid,
+	); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	if err := s.TouchWork("task", tid, "a2"); err != nil {
+		t.Fatalf("TouchWork: %v", err)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(work))
+	}
+	if work[0].AcquiredAt != aged {
+		t.Fatalf("a2's touch must not touch a1's claim (acquired_at %d, want %d)", work[0].AcquiredAt, aged)
+	}
+}
+
+func TestTouchWorkDoesNotReviveStale(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid := mustTask(t, s, lid, "task", nil)
+
+	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	stale := time.Now().Add(-WorkTTL - time.Minute).Unix()
+	if _, err := s.db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+		stale, tid,
+	); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	if err := s.TouchWork("task", tid, "a1"); err != nil {
+		t.Fatalf("TouchWork: %v", err)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 0 {
+		t.Fatalf("TouchWork must not revive a stale claim, got %v", work)
+	}
+}
+
+func TestTouchWorkValidatesEntityType(t *testing.T) {
+	s := newActivityStore(t)
+	if err := s.TouchWork("invalid", "x", "a1"); err == nil {
+		t.Fatal("expected error for invalid entity type")
+	}
+}
