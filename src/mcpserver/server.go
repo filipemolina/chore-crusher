@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -64,13 +65,22 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		return nil, nil, err
 	}
 
+	// identity is the agent tag this server acts as: status/progress writes
+	// refresh a live claim held by this identity (a presence heartbeat,
+	// docs/plan/agent-presence-heartbeat.md §3.3). Ownership enforcement
+	// (docs/plan/list-ownership-enforcement.md) will reuse the same read.
+	identity := os.Getenv("CRUSH_AGENT")
+	if identity == "" {
+		identity = "agent"
+	}
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "chore-crusher",
 		Version: constants.Version(),
 	}, nil)
 
 	addListTools(server, s)
-	addTaskTools(server, s)
+	addTaskTools(server, s, identity)
 	addWorkTools(server, s)
 	addWorkResource(server, s)
 	addResources(server, s)
@@ -175,8 +185,9 @@ func addListTools(server *mcp.Server, s *store.Store) {
 	})
 }
 
-// addTaskTools registers the task-oriented MCP tools.
-func addTaskTools(server *mcp.Server, s *store.Store) {
+// addTaskTools registers the task-oriented MCP tools. identity is the agent
+// tag whose live claims status/progress writes refresh (a presence heartbeat).
+func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_tasks",
 		Description: "List a list's tasks as a depth-annotated tree. Example: list_tasks(list_id='01ABC...', status='pending'). status defaults to 'all'; one of all, pending, in_progress, complete.",
@@ -283,17 +294,17 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "complete_task",
 		Description: "Mark a task complete; cascades to all descendants. Example: complete_task(id='01ABC...').",
-	}, taskMutator(s, func(id string) error { return s.Complete(id) }))
+	}, taskMutator(s, identity, func(id string) error { return s.Complete(id) }))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "reopen_task",
 		Description: "Reopen a task to pending; does not cascade to children. Example: reopen_task(id='01ABC...').",
-	}, taskMutator(s, func(id string) error { return s.Reopen(id) }))
+	}, taskMutator(s, identity, func(id string) error { return s.Reopen(id) }))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "toggle_task",
 		Description: "Toggle a task between complete and pending. Example: toggle_task(id='01ABC...').",
-	}, taskMutator(s, func(id string) error { return s.Toggle(id) }))
+	}, taskMutator(s, identity, func(id string) error { return s.Toggle(id) }))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_task",
@@ -364,6 +375,9 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 		if err := s.SetProgress(id, store.ProgressKind(in.Mode), in.Percent); err != nil {
 			return errorResult(err), nil, nil
 		}
+		// Presence heartbeat, same as taskMutator below: best-effort refresh
+		// of the writing agent's live claim on this task.
+		_ = s.TouchWork("task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
 	})
 
@@ -443,7 +457,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 // taskMutator builds a tool handler around a store call that takes a resolved
 // task id and returns only an error.
-func taskMutator(s *store.Store, fn func(string) error) func(context.Context, *mcp.CallToolRequest, struct {
+func taskMutator(s *store.Store, identity string, fn func(string) error) func(context.Context, *mcp.CallToolRequest, struct {
 	ID string `json:"id" jsonschema:"task id or unambiguous prefix"`
 }) (*mcp.CallToolResult, any, error) {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
@@ -456,6 +470,11 @@ func taskMutator(s *store.Store, fn func(string) error) func(context.Context, *m
 		if err := fn(id); err != nil {
 			return errorResult(err), nil, nil
 		}
+		// Best-effort presence heartbeat: the write committed, so refresh the
+		// writing agent's live claim on this task if it holds one. A touch
+		// failure is not a write failure (docs/plan/agent-presence-heartbeat.md
+		// §7), so it is deliberately swallowed.
+		_ = s.TouchWork("task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
 	}
 }

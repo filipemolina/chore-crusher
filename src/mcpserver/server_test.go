@@ -2,13 +2,16 @@ package mcpserver_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/filipemolina/chore-crusher/src/config"
 	"github.com/filipemolina/chore-crusher/src/mcpserver"
 )
 
@@ -326,6 +329,113 @@ func TestMCPClaimWorkConflict(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
 	if len(work) != 1 || work[0].AgentID != "a1" {
 		t.Fatalf("expected a1 still holding, got %+v", work)
+	}
+}
+
+func TestMCPStatusWritesRefreshClaim(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	// Claim as the server identity (CRUSH_AGENT=pi).
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "pi",
+	})
+
+	// Age the claim through a second connection to the same store file.
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	for _, tc := range []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{"set_progress", "set_progress", map[string]any{"id": task["id"], "mode": "simple"}},
+		{"complete_task", "complete_task", map[string]any{"id": task["id"]}},
+	} {
+		// Age the claim inside the TTL window; a status write must push it forward.
+		aged := time.Now().Add(-30 * time.Second).Unix()
+		if _, err := db.Exec(
+			`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+			aged, task["id"],
+		); err != nil {
+			t.Fatalf("%s: age claim: %v", tc.name, err)
+		}
+
+		callTool(t, session, tc.tool, tc.args)
+
+		var after int64
+		if err := db.QueryRow(
+			`SELECT acquired_at FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`,
+			task["id"],
+		).Scan(&after); err != nil {
+			t.Fatalf("%s: read acquired_at: %v", tc.name, err)
+		}
+		if after <= aged {
+			t.Fatalf("%s: status write must refresh the claim (acquired_at %d, want > %d)", tc.name, after, aged)
+		}
+	}
+}
+
+func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	// Another agent holds the claim; pi's writes must not touch it.
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "other",
+	})
+
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	aged := time.Now().Add(-30 * time.Second).Unix()
+	if _, err := db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+		aged, task["id"],
+	); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	callTool(t, session, "complete_task", map[string]any{"id": task["id"]})
+
+	var after int64
+	if err := db.QueryRow(
+		`SELECT acquired_at FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`,
+		task["id"],
+	).Scan(&after); err != nil {
+		t.Fatalf("read acquired_at: %v", err)
+	}
+	if after != aged {
+		t.Fatalf("pi's write must not refresh another agent's claim (acquired_at %d, want %d)", after, aged)
 	}
 }
 
