@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,6 +15,16 @@ import (
 	"github.com/filipemolina/chore-crusher/src/constants"
 	"github.com/filipemolina/chore-crusher/src/store"
 )
+
+// ownerTagPattern is the human-readable form of createdByRE, used in error
+// messages (docs/plan/list-ownership-enforcement.md §4.C).
+const ownerTagPattern = "^[A-Za-z0-9_-]{1,32}$"
+
+// createdByRE validates an explicit created_by tag an agent may pass to
+// add_list (docs/plan/list-ownership-enforcement.md §4.C). The store does not
+// re-validate the tag format, so the MCP layer is the only place this check
+// lives.
+var createdByRE = regexp.MustCompile(ownerTagPattern)
 
 // progressJSON is the derived-progress shape shared by task rows.
 type progressJSON struct {
@@ -150,6 +161,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 			Name      string `json:"name"`
 			Pending   int    `json:"pending"`
 			Complete  int    `json:"complete"`
+			CreatedBy string `json:"created_by"`
 			CreatedAt int64  `json:"created_at"`
 			Position  int    `json:"position"`
 		}
@@ -160,6 +172,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 				Name:      l.List.Name,
 				Pending:   l.PendingCount,
 				Complete:  l.CompleteCount,
+				CreatedBy: l.CreatedBy,
 				CreatedAt: l.List.CreatedAt,
 				Position:  l.List.Position,
 			}
@@ -169,11 +182,18 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_list",
-		Description: "Create a new task list and return its id. Example: add_list(name='Shopping').",
+		Description: "Create a new task list and return its id. Example: add_list(name='Shopping'). Owned by created_by (an agent tag like 'pi'), which defaults to this server's identity; only the owner may add/edit/delete tasks and rename/delete the list — other agents may read it and update task status/progress only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		Name string `json:"name" jsonschema:"name of the new list"`
+		Name      string `json:"name" jsonschema:"name of the new list"`
+		CreatedBy string `json:"created_by,omitempty" jsonschema:"owning agent tag (e.g. pi); defaults to this server's identity"`
 	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.CreateList(in.Name, identity)
+		owner := in.CreatedBy
+		if owner == "" {
+			owner = identity
+		} else if !createdByRE.MatchString(owner) {
+			return errorResult(fmt.Errorf("created_by must match %s, got %q", ownerTagPattern, owner)), nil, nil
+		}
+		id, err := s.CreateList(in.Name, owner)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -189,6 +209,9 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 	}) (*mcp.CallToolResult, any, error) {
 		id, err := s.ResolveID("list", in.ID)
 		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		if err := requireWritable(s, identity, id); err != nil {
 			return errorResult(err), nil, nil
 		}
 		if err := s.RenameList(id, in.Name); err != nil {
@@ -209,6 +232,9 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 		}
 		id, err := s.ResolveID("list", in.ID)
 		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		if err := requireWritable(s, identity, id); err != nil {
 			return errorResult(err), nil, nil
 		}
 		if err := s.DeleteList(id); err != nil {
@@ -535,6 +561,29 @@ func taskMutator(s *store.Store, identity string, fn func(string) error) func(co
 		_ = s.TouchWork("task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
 	}
+}
+
+// requireWritable rejects a structural write to a list the requester does
+// not own (docs/plan/list-ownership-enforcement.md §3.8). An untagged list
+// (CreatedBy "") is owned by nobody and is therefore foreign to every agent:
+// a human manages it via the CLI/TUI, which are deliberately unenforced. The
+// check runs after ResolveID, so listID is the suffix-free id; the error
+// names that id so the agent knows which list refused it. Step D wires this
+// into the structural tools; it is defined here (Step C) so the identity
+// read and the helper land together.
+func requireWritable(s *store.Store, identity, listID string) error {
+	l, err := s.GetList(listID)
+	if err != nil {
+		return err
+	}
+	if l.CreatedBy == identity {
+		return nil
+	}
+	owner := l.CreatedBy
+	if owner == "" {
+		owner = "no one (untagged)"
+	}
+	return fmt.Errorf("list %s is owned by %s — you may read it and update task status/progress only", l.ID, owner)
 }
 
 // sectionRows returns the preorder task rows for a status filter, mirroring
