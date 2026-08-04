@@ -166,6 +166,35 @@ func (s *Store) TouchWork(entityType, entityID, agentID string) error {
 	return err
 }
 
+// ClaimedTaskListIDs returns the set of list ids that have at least one live
+// task claim (any task in the list — nested or root, every Task row carries
+// its ListID). The lists panel uses it to show a spinner on a list row when
+// an agent is working inside it (docs/plan/agent-presence-heartbeat.md §3.4).
+// List-level claims are excluded; the caller renders those from ListWork.
+func (s *Store) ClaimedTaskListIDs() (map[string]bool, error) {
+	cutoff := time.Now().Add(-WorkTTL).Unix()
+	rows, err := s.db.Query(
+		`SELECT DISTINCT t.list_id
+		 FROM AgentActivity a JOIN Task t ON t.id = a.entity_id
+		 WHERE a.entity_type = 'task' AND a.acquired_at >= ?`,
+		cutoff,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 // ListWork returns claims whose acquired_at is within WorkTTL of now —
 // the set the TUI renders a spinner for. Stale rows are excluded by the
 // WHERE, not deleted, so a briefly-quiet agent re-appears without a write.

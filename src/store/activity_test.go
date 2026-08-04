@@ -411,3 +411,92 @@ func TestTouchWorkValidatesEntityType(t *testing.T) {
 		t.Fatal("expected error for invalid entity type")
 	}
 }
+
+func TestClaimedTaskListIDs(t *testing.T) {
+	s := newActivityStore(t)
+	lid1 := mustList(t, s, "one")
+	lid2 := mustList(t, s, "two")
+	tid1 := mustTask(t, s, lid1, "t1", nil)
+	tid2 := mustTask(t, s, lid2, "t2", nil)
+
+	// No claims yet — empty set.
+	set, err := s.ClaimedTaskListIDs()
+	if err != nil {
+		t.Fatalf("ClaimedTaskListIDs: %v", err)
+	}
+	if len(set) != 0 {
+		t.Fatalf("expected empty set, got %v", set)
+	}
+
+	// Claim a task in list one.
+	if _, err := s.ClaimWork("task", tid1, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	set, err = s.ClaimedTaskListIDs()
+	if err != nil {
+		t.Fatalf("ClaimedTaskListIDs: %v", err)
+	}
+	if len(set) != 1 || !set[lid1] {
+		t.Fatalf("expected only list one, got %v", set)
+	}
+
+	// A list-level claim on list one must not add it again (task claims only),
+	// and a task claim in list two must add list two.
+	if _, err := s.ClaimWork("list", lid1, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork list: %v", err)
+	}
+	if _, err := s.ClaimWork("task", tid2, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork task two: %v", err)
+	}
+	set, err = s.ClaimedTaskListIDs()
+	if err != nil {
+		t.Fatalf("ClaimedTaskListIDs: %v", err)
+	}
+	if len(set) != 2 || !set[lid1] || !set[lid2] {
+		t.Fatalf("expected lists one and two, got %v", set)
+	}
+}
+
+func TestClaimedTaskListIDsCountsNestedTasks(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "one")
+	parent := mustTask(t, s, lid, "parent", nil)
+	child := mustTask(t, s, lid, "child", &parent)
+
+	if _, err := s.ClaimWork("task", child, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork child: %v", err)
+	}
+
+	set, err := s.ClaimedTaskListIDs()
+	if err != nil {
+		t.Fatalf("ClaimedTaskListIDs: %v", err)
+	}
+	if len(set) != 1 || !set[lid] {
+		t.Fatalf("a nested task claim must count toward its list, got %v", set)
+	}
+}
+
+func TestClaimedTaskListIDsExcludesStale(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "one")
+	tid := mustTask(t, s, lid, "t1", nil)
+
+	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	stale := time.Now().Add(-WorkTTL - time.Minute).Unix()
+	if _, err := s.db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+		stale, tid,
+	); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	set, err := s.ClaimedTaskListIDs()
+	if err != nil {
+		t.Fatalf("ClaimedTaskListIDs: %v", err)
+	}
+	if len(set) != 0 {
+		t.Fatalf("stale task claim must be excluded, got %v", set)
+	}
+}
