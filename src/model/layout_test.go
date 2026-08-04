@@ -204,6 +204,21 @@ func TestTaskTreeStartsFocused(t *testing.T) {
 	}
 }
 
+// L opens the hidden Lists panel and moves focus to it, so its list keys work
+// immediately without requiring a separate tab keypress.
+func TestToggleListsPanelFocusesLists(t *testing.T) {
+	m := startup(120, 40)
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "L", Code: 'L'})
+
+	if !m.listsPanelVisible {
+		t.Fatal("lists panel is hidden after L")
+	}
+	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
+		t.Errorf("focused zone after L = %d, want lists panel (%d)", m.focusedZone, constants.COMPONENT_LISTS_PANEL)
+	}
+}
+
 // tab/shift+tab move focus through the computed cycle: the task tree and,
 // when visible, the lists panel. With the lists panel hidden the cycle is a
 // single zone, so cycling is a no-op rather than landing on an invisible

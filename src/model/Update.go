@@ -127,9 +127,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bodyLayout = m.calculateBodyLayout()
 				finalCmds = append(finalCmds, m.broadcastBodyLayout(), m.footerContextCmd())
 				// A panel leaving the layout cannot keep the focus: fall back
-				// to the task tree. A panel entering it is not focused either —
-				// focus stays where it is until tab moves it.
-				if !m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL {
+				// to the task tree. Opening Lists makes it the active surface.
+				if m.listsPanelVisible {
+					finalCmds = append(finalCmds, m.ChangeFocus(1))
+				} else if m.focusedZone == constants.COMPONENT_LISTS_PANEL {
 					finalCmds = append(finalCmds, m.ChangeFocus(1))
 				}
 			}

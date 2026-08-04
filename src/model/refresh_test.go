@@ -309,6 +309,8 @@ func TestTypingInCreateInputDoesNotNavigateLists(t *testing.T) {
 // stuck on the tree once inline creation started).
 func TestTabCyclesFocusWhileCreating(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
+	// This test exercises the two-panel cycle; Lists is hidden by default.
+	m.listsPanelVisible = true
 	lists, _ := m.store.ListLists()
 	for _, l := range lists {
 		m.store.DeleteList(l.ID)
