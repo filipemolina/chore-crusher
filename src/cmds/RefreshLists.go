@@ -8,10 +8,13 @@ import (
 
 // RefreshListsMsg carries the store's lists, converted to apptypes at the
 // boundary. Lists is nil when the query failed; Err holds the failure.
+// Activities carries the live agent-claim set so the TUI can render
+// spinners on claimed rows (docs/plan/mcp-server-enhancement.md §3.5).
 // The poll loop's RefreshLists routes this to the lists panel.
 type RefreshListsMsg struct {
-	Lists []apptypes.ListSummary
-	Err   error
+	Lists      []apptypes.ListSummary
+	Activities []apptypes.AgentActivity
+	Err        error
 }
 
 // RefreshLists queries the store and converts the rows at the boundary.
@@ -24,6 +27,13 @@ func RefreshLists(s *store.Store) tea.Cmd {
 		if err != nil {
 			return RefreshListsMsg{Err: err}
 		}
-		return RefreshListsMsg{Lists: apptypes.FromStoreLists(lists)}
+		work, err := s.ListWork()
+		if err != nil {
+			return RefreshListsMsg{Err: err}
+		}
+		return RefreshListsMsg{
+			Lists:      apptypes.FromStoreLists(lists),
+			Activities: apptypes.FromStoreActivities(work),
+		}
 	}
 }

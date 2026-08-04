@@ -15,8 +15,12 @@ import (
 
 // listDelegate renders each list row as a Height-4 card with a full-height ▌
 // bar, matching stack-stitcher's groups-list card contract (phase B step 1).
+// When an agent has claimed the list, a spinner glyph and short agent id
+// are appended after the count line (docs/plan/mcp-server-enhancement.md §3.7).
 type listDelegate struct {
 	isParentFocused bool
+	work            map[string]apptypes.AgentActivity
+	animFrame       int
 }
 
 func (d listDelegate) Height() int                             { return 4 }
@@ -46,10 +50,24 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		nameStyle = nameStyle.Foreground(appstyles.Active.TextMuted)
 	}
 
+	countLine := strconv.Itoa(l.PendingCount) + " pending · " + strconv.Itoa(l.CompleteCount) + " done"
+
+	// If this list is claimed by an agent, append the spinner + agent id.
+	var claimedLine string
+	if a, ok := d.work[l.List.ID]; ok {
+		spinner := chrome.Spinner(d.animFrame)
+		agent := a.AgentID
+		if len(agent) > 6 {
+			agent = agent[:6]
+		}
+		claimedLine = countLine + " " + spinner + " " + agent
+	} else {
+		claimedLine = countLine
+	}
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		nameStyle.Render(l.List.Name),
-		countStyle.Render(
-			strconv.Itoa(l.PendingCount)+" pending · "+strconv.Itoa(l.CompleteCount)+" done"))
+		countStyle.Render(claimedLine))
 
 	wrapper := lipgloss.NewStyle().
 		Width(m.Width() - 1).

@@ -172,12 +172,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
 
+	case cmds.AnimTickMsg:
+		m.animFrame = (m.animFrame + 1) % 8
+		finalCmds = append(finalCmds, cmds.SetAnimFrame(m.animFrame))
+		if m.animActive {
+			finalCmds = append(finalCmds, cmds.AnimTick(cmds.AnimInterval))
+		}
+
 	case cmds.RefreshListsMsg:
 		if msg.Err != nil {
 			m.lastError = msg.Err.Error()
 			break
 		}
 		m.lists = msg.Lists
+		wasActive := m.animActive
+		m.animActive = len(msg.Activities) > 0
+		if m.animActive && !wasActive {
+			finalCmds = append(finalCmds, cmds.AnimTick(cmds.AnimInterval))
+		}
 		if m.activeListID == "" {
 			if len(msg.Lists) > 0 {
 				m.activeListID = msg.Lists[0].List.ID
@@ -216,6 +228,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.lastError = msg.Err.Error()
 			break
+		}
+		wasActive := m.animActive
+		m.animActive = len(msg.Activities) > 0
+		if m.animActive && !wasActive {
+			finalCmds = append(finalCmds, cmds.AnimTick(cmds.AnimInterval))
 		}
 		if draftCmd := m.applyCreateDraft(msg.Rows); draftCmd != nil {
 			finalCmds = append(finalCmds, draftCmd)

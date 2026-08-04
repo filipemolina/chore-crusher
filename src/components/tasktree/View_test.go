@@ -39,7 +39,7 @@ func TestComputeTaskRowColsDropOrder(t *testing.T) {
 
 	for width := 1; width <= 120; width++ {
 		for _, details := range []bool{false, true} {
-			cols := computeTaskRowCols(width, checkbox, status, progress, details)
+			cols := computeTaskRowCols(width, checkbox, status, progress, details, "")
 
 			// checkbox is fixed identity, never shed
 			if cols.checkbox != checkbox {

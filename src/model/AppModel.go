@@ -33,6 +33,12 @@ type AppModel struct {
 	activeModal       tea.Model
 	lastError         string
 
+	// animFrame is the current spinner frame (0..7), advanced by AnimTickMsg.
+	// animActive tracks whether any agent claim is live — the spinner only
+	// ticks when this is true (docs/plan/mcp-server-enhancement.md §3.6).
+	animFrame  int
+	animActive bool
+
 	// createDraft is an inline creation the tree has submitted but AppModel has
 	// not yet written. It is resolved against the next RefreshTasksMsg's rows
 	// (fresh from the store) so an insert or delete during typing can't anchor

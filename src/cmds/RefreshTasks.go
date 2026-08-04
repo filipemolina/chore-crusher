@@ -8,11 +8,14 @@ import (
 
 // RefreshTasksMsg carries one list's tasks as flattened tree rows, converted
 // to apptypes at the boundary. Rows is nil when the query failed; Err holds
-// the failure. The poll loop's RefreshTasks routes this to the task tree.
+// the failure. Activities carries the live agent-claim set so the TUI can
+// render spinners on claimed rows (docs/plan/mcp-server-enhancement.md §3.5).
+// The poll loop's RefreshTasks routes this to the task tree.
 type RefreshTasksMsg struct {
-	ListID string
-	Rows   []apptypes.Row
-	Err    error
+	ListID     string
+	Rows       []apptypes.Row
+	Activities []apptypes.AgentActivity
+	Err        error
 }
 
 // RefreshTasks queries one list's tasks and flattens them into renderable
@@ -24,9 +27,14 @@ func RefreshTasks(s *store.Store, listID string) tea.Cmd {
 		if err != nil {
 			return RefreshTasksMsg{ListID: listID, Err: err}
 		}
+		work, err := s.ListWork()
+		if err != nil {
+			return RefreshTasksMsg{ListID: listID, Err: err}
+		}
 		return RefreshTasksMsg{
-			ListID: listID,
-			Rows:   apptypes.Flatten(apptypes.FromStoreTasks(tasks)),
+			ListID:     listID,
+			Rows:       apptypes.Flatten(apptypes.FromStoreTasks(tasks)),
+			Activities: apptypes.FromStoreActivities(work),
 		}
 	}
 }

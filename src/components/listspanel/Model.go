@@ -21,6 +21,8 @@ type Model struct {
 	body          cmds.SetBodyLayoutMsg
 	list          list.Model
 	listDelegate  listDelegate
+	work          map[string]apptypes.AgentActivity
+	animFrame     int
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -50,6 +52,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmds.RefreshListsMsg:
 		if msg.Err == nil {
+			// Build the work map so the delegate can render spinners.
+			m.work = make(map[string]apptypes.AgentActivity, len(msg.Activities))
+			for _, a := range msg.Activities {
+				m.work[a.EntityID] = a
+			}
+			m.listDelegate.work = m.work
+			m.listDelegate.animFrame = m.animFrame
+			m.list.SetDelegate(m.listDelegate)
+
 			items := make([]list.Item, len(msg.Lists))
 			for i, l := range msg.Lists {
 				items[i] = l
@@ -60,6 +71,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.selectList()
 			}
 		}
+
+	case cmds.AnimFrameMsg:
+		m.animFrame = msg.Frame
+		m.listDelegate.animFrame = msg.Frame
+		m.list.SetDelegate(m.listDelegate)
 
 	case tea.KeyPressMsg:
 		if !m.focused {

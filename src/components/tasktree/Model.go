@@ -62,6 +62,11 @@ type Model struct {
 	// changes (docs/plan/task-row-cards-and-status.md).
 	createSuppressed bool
 	activeListID     string // id of the list the rows belong to; a change clears createSuppressed
+
+	// Agent presence: the live claim set and the current spinner frame.
+	// work is keyed by entity_id for EntityType=="task" claims.
+	work      map[string]apptypes.AgentActivity
+	animFrame int
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -204,6 +209,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			return m, nil
 		}
+		// Build the work map for spinner rendering.
+		m.work = make(map[string]apptypes.AgentActivity, len(msg.Activities))
+		for _, a := range msg.Activities {
+			if a.EntityType == "task" {
+				m.work[a.EntityID] = a
+			}
+		}
 		if m.activeListID != msg.ListID {
 			// A list switch ends any esc-suppression: the next empty list
 			// auto-shows its input again.
@@ -216,6 +228,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if row := m.findRow(m.selectedID); row != nil {
 			return m, cmds.SetSelection(row.Task.ID, row.Depth)
 		}
+
+	case cmds.AnimFrameMsg:
+		m.animFrame = msg.Frame
 
 	case cmds.StartCreatingMsg:
 		m.StartCreating(m.selectedID)

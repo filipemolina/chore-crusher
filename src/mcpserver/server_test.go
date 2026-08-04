@@ -246,6 +246,86 @@ func TestMCPSearchTasks(t *testing.T) {
 	}
 }
 
+func TestMCPClaimAndReleaseWork(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	// Claim the task.
+	var claim map[string]string
+	mustUnmarshal(t, callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "claude",
+	}), &claim)
+	if claim["id"] == "" {
+		t.Fatalf("claim_work returned empty id")
+	}
+
+	// list_work should show it.
+	var work []struct {
+		EntityType string `json:"entity_type"`
+		EntityID   string `json:"entity_id"`
+		AgentID    string `json:"agent_id"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	if len(work) != 1 || work[0].EntityID != task["id"] || work[0].AgentID != "claude" {
+		t.Fatalf("list_work = %+v", work)
+	}
+
+	// Release it.
+	callTool(t, session, "release_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "claude",
+	})
+
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	if len(work) != 0 {
+		t.Fatalf("expected empty after release, got %+v", work)
+	}
+}
+
+func TestMCPClaimWorkConflict(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "a1",
+	})
+
+	// Second agent should get an error.
+	callToolErr(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "a2",
+	})
+
+	// Original claim still holds.
+	var work []struct{ AgentID string `json:"agent_id"` }
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	if len(work) != 1 || work[0].AgentID != "a1" {
+		t.Fatalf("expected a1 still holding, got %+v", work)
+	}
+}
+
 func TestMain(m *testing.M) {
 	// Tests set XDG_DATA_HOME explicitly; make sure the default HOME-based
 	// path is not accidentally used when t.Setenv is active.

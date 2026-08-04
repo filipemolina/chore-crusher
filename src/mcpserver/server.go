@@ -71,6 +71,8 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 
 	addListTools(server, s)
 	addTaskTools(server, s)
+	addWorkTools(server, s)
+	addWorkResource(server, s)
 
 	return server, s, nil
 }
@@ -577,6 +579,151 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
 	}, nil, nil
+}
+
+// addWorkTools registers the agent-presence tools: claim_work,
+// release_work, list_work (docs/plan/mcp-server-enhancement.md §3.8).
+func addWorkTools(server *mcp.Server, s *store.Store) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "claim_work",
+		Description: "Claim a task or list as being worked on by an agent. The TUI " +
+			"shows a live spinner on the row while the claim is active. Re-claiming " +
+			"by the same agent refreshes the timer (heartbeat). A different agent " +
+			"holding the entity returns an error. entity_type is \"task\" or \"list\".",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		EntityType string `json:"entity_type"` // "task" or "list"
+		EntityID   string `json:"entity_id"`   // task or list id, or unambiguous prefix
+		AgentID    string `json:"agent_id,omitempty"` // short label; default "agent"
+		Kind       string `json:"kind,omitempty"`     // "working" or "inspecting"; default "working"
+	}) (*mcp.CallToolResult, any, error) {
+		if in.EntityType != "task" && in.EntityType != "list" {
+			return errorResult(fmt.Errorf("entity_type must be \"task\" or \"list\", got %q", in.EntityType)), nil, nil
+		}
+		if in.AgentID == "" {
+			in.AgentID = "agent"
+		}
+		if in.Kind == "" {
+			in.Kind = "working"
+		}
+		if in.Kind != "working" && in.Kind != "inspecting" {
+			return errorResult(fmt.Errorf("kind must be \"working\" or \"inspecting\", got %q", in.Kind)), nil, nil
+		}
+		id, err := s.ResolveID(in.EntityType, in.EntityID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		activityID, err := s.ClaimWork(in.EntityType, id, in.AgentID, store.ActivityKind(in.Kind))
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]string{"id": activityID})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "release_work",
+		Description: "Release an agent's claim on a task or list. The TUI spinner " +
+			"stops. A no-op if the entity is not claimed.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		EntityType string `json:"entity_type"` // "task" or "list"
+		EntityID   string `json:"entity_id"`   // task or list id, or unambiguous prefix
+		AgentID    string `json:"agent_id,omitempty"` // default "agent"
+	}) (*mcp.CallToolResult, any, error) {
+		if in.EntityType != "task" && in.EntityType != "list" {
+			return errorResult(fmt.Errorf("entity_type must be \"task\" or \"list\", got %q", in.EntityType)), nil, nil
+		}
+		if in.AgentID == "" {
+			in.AgentID = "agent"
+		}
+		id, err := s.ResolveID(in.EntityType, in.EntityID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		if err := s.ReleaseWork(in.EntityType, id, in.AgentID); err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]bool{"ok": true})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_work",
+		Description: "List active agent claims (tasks/lists an agent is working on). Shows the live spinner state the TUI renders.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		work, err := s.ListWork()
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		out := make([]struct {
+			ID         string `json:"id"`
+			EntityType string `json:"entity_type"`
+			EntityID   string `json:"entity_id"`
+			AgentID    string `json:"agent_id"`
+			Kind       string `json:"kind"`
+			AcquiredAt int64  `json:"acquired_at"`
+		}, len(work))
+		for i, w := range work {
+			out[i] = struct {
+				ID         string `json:"id"`
+				EntityType string `json:"entity_type"`
+				EntityID   string `json:"entity_id"`
+				AgentID    string `json:"agent_id"`
+				Kind       string `json:"kind"`
+				AcquiredAt int64  `json:"acquired_at"`
+			}{
+				ID: w.ID, EntityType: w.EntityType, EntityID: w.EntityID,
+				AgentID: w.AgentID, Kind: string(w.Kind), AcquiredAt: w.AcquiredAt,
+			}
+		}
+		return jsonResult(out)
+	})
+}
+
+// addWorkResource registers the crush://work static resource — a read-only
+// mirror of list_work so any MCP host that auto-reads resources surfaces it
+// (docs/plan/mcp-server-enhancement.md §3.8).
+func addWorkResource(server *mcp.Server, s *store.Store) {
+	server.AddResource(&mcp.Resource{
+		URI:         "crush://work",
+		Name:        "Agent activity",
+		Description: "Which tasks/lists an agent is currently working on, as seen by the TUI.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		work, err := s.ListWork()
+		if err != nil {
+			return nil, err
+		}
+		out := make([]struct {
+			ID         string `json:"id"`
+			EntityType string `json:"entity_type"`
+			EntityID   string `json:"entity_id"`
+			AgentID    string `json:"agent_id"`
+			Kind       string `json:"kind"`
+			AcquiredAt int64  `json:"acquired_at"`
+		}, len(work))
+		for i, w := range work {
+			out[i] = struct {
+				ID         string `json:"id"`
+				EntityType string `json:"entity_type"`
+				EntityID   string `json:"entity_id"`
+				AgentID    string `json:"agent_id"`
+				Kind       string `json:"kind"`
+				AcquiredAt int64  `json:"acquired_at"`
+			}{
+				ID: w.ID, EntityType: w.EntityType, EntityID: w.EntityID,
+				AgentID: w.AgentID, Kind: string(w.Kind), AcquiredAt: w.AcquiredAt,
+			}
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return nil, err
+		}
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{{
+				URI:      req.Params.URI,
+				MIMEType: "application/json",
+				Text:     string(b),
+			}},
+	}, nil
+	})
 }
 
 // errorResult turns a domain error into a tool error the client can see.

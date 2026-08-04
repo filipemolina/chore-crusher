@@ -121,3 +121,38 @@ func FromStoreLists(ls []store.ListSummary) []ListSummary {
 	}
 	return out
 }
+
+// AgentActivity is a live claim that an agent is working on an entity.
+// It mirrors store.AgentActivity — the TUI reads this from the store
+// via the cmds layer and uses it to render a spinner on claimed rows
+// (docs/plan/mcp-server-enhancement.md §3.4).
+type AgentActivity struct {
+	ID         string
+	EntityType string // "task" | "list"
+	EntityID   string
+	AgentID    string
+	Kind       string // "working" | "inspecting"
+	AcquiredAt int64
+}
+
+// FromStoreActivity converts one store.AgentActivity into the
+// component-facing shape.
+func FromStoreActivity(a store.AgentActivity) AgentActivity {
+	return AgentActivity{
+		ID:         a.ID,
+		EntityType: a.EntityType,
+		EntityID:   a.EntityID,
+		AgentID:    a.AgentID,
+		Kind:       string(a.Kind),
+		AcquiredAt: a.AcquiredAt,
+	}
+}
+
+// FromStoreActivities converts a slice of store activity rows in one pass.
+func FromStoreActivities(as []store.AgentActivity) []AgentActivity {
+	out := make([]AgentActivity, len(as))
+	for i, a := range as {
+		out[i] = FromStoreActivity(a)
+	}
+	return out
+}

@@ -244,8 +244,20 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 	if row.Task.Notes != "" {
 		detailsGlyph = detailsIcon
 	}
+	// Build the agent spinner text: "⠙ agentA" when claimed, "" otherwise.
+	agentSpinner := ""
+	if a, ok := m.work[row.Task.ID]; ok {
+		spinner := chrome.Spinner(m.animFrame)
+		agent := a.AgentID
+		if len(agent) > 6 {
+			agent = agent[:6]
+		}
+		agentSpinner = spinner + " " + agent
+	}
+
 	content := buildRowContent(checkboxColored, title, trailing,
-		statusLabel(row.Task.Status), progressLabel(row, m.rows), detailsGlyph, 1,
+		statusLabel(row.Task.Status), progressLabel(row, m.rows), detailsGlyph,
+		agentSpinner, 1,
 		cardWidth-cardInset, statusFg(row.Task.Status))
 
 	return cardIndent + renderTaskCard(cardWidth, rowBg, barFgFor(row.Task.Status, isSelected), content)
@@ -294,22 +306,25 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 
 // taskRowCols describes the computed width of each column in a task row.
 type taskRowCols struct {
-	checkbox int
-	title    int
-	status   int
-	progress int
+	checkbox    int
+	title       int
+	status      int
+	progress    int
+	agentSpinner int
 }
 
 // computeTaskRowCols distributes tableWidth among the task row's columns.
-// checkbox is never dropped; title is never dropped; status and progress are
-// dropped whole (in that order) when the table is too narrow. When the task
-// carries the details marker, its column grows by the marker's two cells so
-// the status still ends flush at the card's right padding.
-func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string, details bool) taskRowCols {
+// checkbox is never dropped; title is never dropped; progress, agentSpinner,
+// and status are dropped whole (in that order) when the table is too narrow.
+// When the task carries the details marker, its column grows by the marker's
+// two cells so the status still ends flush at the card's right padding.
+// Drop order matches docs/plan/mcp-server-enhancement.md §3.7.
+func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string, details bool, agentSpinner string) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 
 	statusW := 0
 	progressW := 0
+	agentW := 0
 	if status != "" {
 		statusW = len(status) + 1 // +1 for trailing gap
 		if details {
@@ -319,18 +334,25 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string, 
 	if progress != "" {
 		progressW = len(progress) + 1 // +1 for trailing gap
 	}
+	if agentSpinner != "" {
+		agentW = len(agentSpinner) + 1 // +1 for trailing gap
+	}
 
-	// Drop order: progress first, then status
-	if progressW > 0 && tableWidth-statusW-progressW < 1 {
+	// Drop order: progress first, then agent-spinner, then status
+	if progressW > 0 && tableWidth-statusW-agentW-progressW < 1 {
 		progressW = 0
 	}
-	if statusW > 0 && tableWidth-statusW-progressW < 1 {
+	if agentW > 0 && tableWidth-statusW-agentW < 1 {
+		agentW = 0
+	}
+	if statusW > 0 && tableWidth-statusW < 1 {
 		statusW = 0
 	}
 
 	cols.status = statusW
 	cols.progress = progressW
-	cols.title = max(1, tableWidth-statusW-progressW)
+	cols.agentSpinner = agentW
+	cols.title = max(1, tableWidth-statusW-agentW-progressW)
 
 	return cols
 }
@@ -411,13 +433,13 @@ const detailsIcon = "🗎"
 
 // buildRowContent renders a task row's columns — checkbox, title (plus the
 // optional trailing expand/collapse marker), and the right-aligned
-// progress+status block — to fit a card's inner content width. cols.title
-// absorbs the remaining budget after the progress and status columns, so the
-// status cell ends flush at the card's right padding: that is the
-// right-alignment ("status at the end of the line"). Drop order under
-// narrowness is unchanged: progress sheds first, then status, both whole
-// (docs/plan/task-row-cards-and-status.md).
-func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph string,
+// progress+agent-spinner+status block — to fit a card's inner content width.
+// cols.title absorbs the remaining budget after the progress, agent-spinner,
+// and status columns, so the status cell ends flush at the card's right
+// padding: that is the right-alignment ("status at the end of the line").
+// Drop order under narrowness: progress sheds first, then agent-spinner,
+// then status, all whole (docs/plan/mcp-server-enhancement.md §3.7).
+func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, agentSpinner string,
 	checkboxWidth, contentWidth int, statusColor color.Color) string {
 	prefixWidth := checkboxWidth + 1
 	tableWidth := contentWidth - prefixWidth
@@ -425,7 +447,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph s
 		tableWidth = 1
 	}
 
-	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, detailsGlyph != "")
+	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, detailsGlyph != "", agentSpinner)
 
 	checkboxCell := lipgloss.NewStyle().Width(cols.checkbox).Render(checkbox)
 
@@ -445,12 +467,18 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph s
 	}
 	titleCell := lipgloss.NewStyle().Width(cols.title).Render(titleText)
 
-	var progressCell, statusCell string
+	var progressCell, agentSpinnerCell, statusCell string
 	if cols.progress > 0 && progress != "" {
 		progressCell = lipgloss.NewStyle().
 			Foreground(appstyles.Active.TextDim).
 			Width(cols.progress).
 			Render(chrome.Truncate(progress, max(1, cols.progress-1)))
+	}
+	if cols.agentSpinner > 0 && agentSpinner != "" {
+		agentSpinnerCell = lipgloss.NewStyle().
+			Foreground(appstyles.Active.TextDim).
+			Width(cols.agentSpinner).
+			Render(chrome.Truncate(agentSpinner, max(1, cols.agentSpinner-1)))
 	}
 	if cols.status > 0 && status != "" {
 		label := status
@@ -463,7 +491,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph s
 			Render(chrome.Truncate(label, max(1, cols.status-1)))
 	}
 
-	parts := []string{checkboxCell, " ", titleCell, progressCell, statusCell}
+	parts := []string{checkboxCell, " ", titleCell, progressCell, agentSpinnerCell, statusCell}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 
