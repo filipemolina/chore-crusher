@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -319,7 +320,9 @@ func TestMCPClaimWorkConflict(t *testing.T) {
 	})
 
 	// Original claim still holds.
-	var work []struct{ AgentID string `json:"agent_id"` }
+	var work []struct {
+		AgentID string `json:"agent_id"`
+	}
 	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
 	if len(work) != 1 || work[0].AgentID != "a1" {
 		t.Fatalf("expected a1 still holding, got %+v", work)
@@ -495,6 +498,94 @@ func TestMCPResourcesListed(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("crush:///tasks/{id} not in templates: %+v", tres.ResourceTemplates)
+	}
+}
+
+func TestMCPPromptsListed(t *testing.T) {
+	session := setupMCP(t)
+
+	res, err := session.ListPrompts(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListPrompts(): %v", err)
+	}
+	if len(res.Prompts) == 0 {
+		t.Fatalf("expected at least one prompt, got %d", len(res.Prompts))
+	}
+	found := make(map[string]bool, len(res.Prompts))
+	for _, p := range res.Prompts {
+		found[p.Name] = true
+	}
+	for _, name := range []string{"crush_daily_agenda", "crush_breakdown"} {
+		if !found[name] {
+			t.Fatalf("prompt %q not listed: %+v", name, res.Prompts)
+		}
+	}
+}
+
+func TestMCPDailyAgendaPrompt(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Buy groceries",
+	})
+
+	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name: "crush_daily_agenda",
+	})
+	if err != nil {
+		t.Fatalf("GetPrompt crush_daily_agenda: %v", err)
+	}
+	if len(res.Messages) != 1 {
+		t.Fatalf("want 1 message, got %d", len(res.Messages))
+	}
+	if res.Messages[0].Role != "user" {
+		t.Fatalf("role = %q, want user", res.Messages[0].Role)
+	}
+	tc, ok := res.Messages[0].Content.(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content type = %T, want *mcp.TextContent", res.Messages[0].Content)
+	}
+	if !strings.Contains(tc.Text, "Home") || !strings.Contains(tc.Text, "Buy groceries") {
+		t.Fatalf("daily agenda text missing list/task: %s", tc.Text)
+	}
+	if !strings.Contains(tc.Text, "claim_work") {
+		t.Fatalf("daily agenda text missing tool guidance: %s", tc.Text)
+	}
+}
+
+func TestMCPBreakdownPrompt(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Ship the project",
+		"notes":   "needs a README and CI",
+	}), &task)
+
+	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
+		Name:      "crush_breakdown",
+		Arguments: map[string]string{"task_id": task["id"]},
+	})
+	if err != nil {
+		t.Fatalf("GetPrompt crush_breakdown: %v", err)
+	}
+	if len(res.Messages) != 1 {
+		t.Fatalf("want 1 message, got %d", len(res.Messages))
+	}
+	tc, ok := res.Messages[0].Content.(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content type = %T, want *mcp.TextContent", res.Messages[0].Content)
+	}
+	if !strings.Contains(tc.Text, "Ship the project") || !strings.Contains(tc.Text, "README") {
+		t.Fatalf("breakdown text missing task/notes: %s", tc.Text)
 	}
 }
 

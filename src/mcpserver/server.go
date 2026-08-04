@@ -74,6 +74,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 	addWorkTools(server, s)
 	addWorkResource(server, s)
 	addResources(server, s)
+	addPrompts(server, s)
 
 	return server, s, nil
 }
@@ -94,7 +95,7 @@ func Run(ctx context.Context) error {
 func addListTools(server *mcp.Server, s *store.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_lists",
-		Description: "List every task list with pending and complete counts.",
+		Description: "List every task list with pending and complete counts. Example: list_lists().",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		lists, err := s.ListLists()
 		if err != nil {
@@ -125,7 +126,7 @@ func addListTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_list",
-		Description: "Create a new task list and return its id.",
+		Description: "Create a new task list and return its id. Example: add_list(name='Shopping').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		Name string `json:"name" jsonschema:"name of the new list"`
 	}) (*mcp.CallToolResult, any, error) {
@@ -138,7 +139,7 @@ func addListTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "rename_list",
-		Description: "Rename an existing task list.",
+		Description: "Rename an existing task list. Example: rename_list(id='01ABC...', name='Groceries'). id is a full id or unambiguous prefix.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID   string `json:"id" jsonschema:"list id or unambiguous prefix"`
 		Name string `json:"name" jsonschema:"new name"`
@@ -155,7 +156,7 @@ func addListTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_list",
-		Description: "Delete a task list and every task in it. Requires force=true.",
+		Description: "Delete a task list and every task in it. Requires force=true. Example: delete_list(id='01ABC...', force=true).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID    string `json:"id" jsonschema:"list id or unambiguous prefix"`
 		Force bool   `json:"force" jsonschema:"must be true to confirm deletion"`
@@ -178,7 +179,7 @@ func addListTools(server *mcp.Server, s *store.Store) {
 func addTaskTools(server *mcp.Server, s *store.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_tasks",
-		Description: "List the tasks in one list as a depth-annotated tree. Use status=all (default), pending, in_progress, or complete.",
+		Description: "List a list's tasks as a depth-annotated tree. Example: list_tasks(list_id='01ABC...', status='pending'). status defaults to 'all'; one of all, pending, in_progress, complete.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ListID string `json:"list_id" jsonschema:"list id or unambiguous prefix"`
 		Status string `json:"status,omitempty" jsonschema:"all, pending, in_progress, or complete"`
@@ -209,7 +210,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_task",
-		Description: "Add a task to a list. Optionally provide a parent task id to nest it, and notes.",
+		Description: "Add a task to a list, optionally nested under a parent. Example: add_task(list_id='01ABC...', title='Buy milk', parent='01DEF...', notes='whole milk').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ListID string `json:"list_id" jsonschema:"list id or unambiguous prefix"`
 		Title  string `json:"title" jsonschema:"task title"`
@@ -237,7 +238,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "show_task",
-		Description: "Show a task's details, including its children as depth-annotated rows.",
+		Description: "Show one task's details and its children as depth-annotated rows. Example: show_task(task_id='01ABC...').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		TaskID string `json:"task_id" jsonschema:"task id or unambiguous prefix"`
 	}) (*mcp.CallToolResult, any, error) {
@@ -281,22 +282,22 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "complete_task",
-		Description: "Mark a task complete. This cascades to all descendants.",
+		Description: "Mark a task complete; cascades to all descendants. Example: complete_task(id='01ABC...').",
 	}, taskMutator(s, func(id string) error { return s.Complete(id) }))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "reopen_task",
-		Description: "Reopen a task (mark pending). This does not cascade to children.",
+		Description: "Reopen a task to pending; does not cascade to children. Example: reopen_task(id='01ABC...').",
 	}, taskMutator(s, func(id string) error { return s.Reopen(id) }))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "toggle_task",
-		Description: "Toggle a task between complete and pending.",
+		Description: "Toggle a task between complete and pending. Example: toggle_task(id='01ABC...').",
 	}, taskMutator(s, func(id string) error { return s.Toggle(id) }))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_task",
-		Description: "Delete a task and its descendants. Requires force=true.",
+		Description: "Delete a task and its descendants. Requires force=true. Example: delete_task(id='01ABC...', force=true).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID    string `json:"id" jsonschema:"task id or unambiguous prefix"`
 		Force bool   `json:"force" jsonschema:"must be true to confirm deletion"`
@@ -316,7 +317,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "rename_task",
-		Description: "Rename a task.",
+		Description: "Rename a task. Example: rename_task(id='01ABC...', title='New name').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID    string `json:"id" jsonschema:"task id or unambiguous prefix"`
 		Title string `json:"title" jsonschema:"new title"`
@@ -333,7 +334,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set_notes",
-		Description: "Replace a task's notes (whole text, not append). Pass an empty string to clear notes.",
+		Description: "Replace a task's notes (whole text, not append); empty string clears them. Example: set_notes(id='01ABC...', notes='...').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID    string `json:"id" jsonschema:"task id or unambiguous prefix"`
 		Notes string `json:"notes" jsonschema:"replacement notes"`
@@ -350,7 +351,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set_progress",
-		Description: "Set a task's progress mode: simple, subtasks, or percentage. Percent is required only for percentage.",
+		Description: "Set a task's progress mode: simple, subtasks, or percentage. Example: set_progress(id='01ABC...', mode='percentage', percent=50). percent is required only when mode='percentage'.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID      string `json:"id" jsonschema:"task id or unambiguous prefix"`
 		Mode    string `json:"mode" jsonschema:"simple, percentage, or subtasks"`
@@ -368,7 +369,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "move_task",
-		Description: "Re-parent a task. Omit parent (or pass empty string) to move it to the list root.",
+		Description: "Re-parent a task, or move it to the list root by omitting parent. Example: move_task(id='01ABC...', parent='01DEF...').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID     string `json:"id" jsonschema:"task id or unambiguous prefix"`
 		Parent string `json:"parent,omitempty" jsonschema:"new parent task id or prefix; omit for root"`
@@ -393,7 +394,7 @@ func addTaskTools(server *mcp.Server, s *store.Store) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_tasks",
-		Description: "Fuzzy search task titles and notes across all lists, or within one list if list_id is given. Title matches rank before notes-only matches.",
+		Description: "Fuzzy search task titles and notes across all lists, or within one list if list_id is given; title matches rank first. Example: search_tasks(query='budget').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		Query  string `json:"query" jsonschema:"search query"`
 		ListID string `json:"list_id,omitempty" jsonschema:"optional list id or prefix to limit the search"`
@@ -592,8 +593,8 @@ func addWorkTools(server *mcp.Server, s *store.Store) {
 			"by the same agent refreshes the timer (heartbeat). A different agent " +
 			"holding the entity returns an error. entity_type is \"task\" or \"list\".",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		EntityType string `json:"entity_type"` // "task" or "list"
-		EntityID   string `json:"entity_id"`   // task or list id, or unambiguous prefix
+		EntityType string `json:"entity_type"`        // "task" or "list"
+		EntityID   string `json:"entity_id"`          // task or list id, or unambiguous prefix
 		AgentID    string `json:"agent_id,omitempty"` // short label; default "agent"
 		Kind       string `json:"kind,omitempty"`     // "working" or "inspecting"; default "working"
 	}) (*mcp.CallToolResult, any, error) {
@@ -625,8 +626,8 @@ func addWorkTools(server *mcp.Server, s *store.Store) {
 		Description: "Release an agent's claim on a task or list. The TUI spinner " +
 			"stops. A no-op if the entity is not claimed.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		EntityType string `json:"entity_type"` // "task" or "list"
-		EntityID   string `json:"entity_id"`   // task or list id, or unambiguous prefix
+		EntityType string `json:"entity_type"`        // "task" or "list"
+		EntityID   string `json:"entity_id"`          // task or list id, or unambiguous prefix
 		AgentID    string `json:"agent_id,omitempty"` // default "agent"
 	}) (*mcp.CallToolResult, any, error) {
 		if in.EntityType != "task" && in.EntityType != "list" {
@@ -723,7 +724,7 @@ func addWorkResource(server *mcp.Server, s *store.Store) {
 				MIMEType: "application/json",
 				Text:     string(b),
 			}},
-	}, nil
+		}, nil
 	})
 }
 
@@ -899,6 +900,115 @@ func addResources(server *mcp.Server, s *store.Store) {
 			}
 		}
 		return marshalResource(req.Params.URI, out)
+	})
+}
+
+// addPrompts registers canned agent workflows that embed the current app
+// state, so an agent that reads prompts/list can pick one and get a
+// ready-made message (docs/plan/mcp-server-enhancement.md §4.2).
+func addPrompts(server *mcp.Server, s *store.Store) {
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "crush_daily_agenda",
+		Description: "Get a ready-made agent message containing the current lists and tasks, so you can triage today's work without assembling context first.",
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		lists, err := s.ListLists()
+		if err != nil {
+			return nil, err
+		}
+
+		type taskRow struct {
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Status string `json:"status"`
+			Depth  int    `json:"depth"`
+		}
+		type listBlock struct {
+			ID       string    `json:"id"`
+			Name     string    `json:"name"`
+			Pending  int       `json:"pending"`
+			Complete int       `json:"complete"`
+			Tasks    []taskRow `json:"tasks"`
+		}
+
+		blocks := make([]listBlock, 0, len(lists))
+		for _, l := range lists {
+			block := listBlock{
+				ID: l.List.ID, Name: l.List.Name,
+				Pending: l.PendingCount, Complete: l.CompleteCount,
+			}
+			tasks, err := s.ListTasks(l.List.ID)
+			if err != nil {
+				return nil, err
+			}
+			// Only pending/in_progress rows matter for triage; complete rows
+			// are counted in Done above and would only pad the context.
+			for _, r := range apptypes.Flatten(apptypes.FromStoreTasks(tasks)) {
+				if r.Task.Status == apptypes.StatusComplete {
+					continue
+				}
+				block.Tasks = append(block.Tasks, taskRow{
+					ID: r.Task.ID, Title: r.Task.Title,
+					Status: string(r.Task.Status), Depth: r.Depth,
+				})
+			}
+			blocks = append(blocks, block)
+		}
+
+		b, err := json.Marshal(blocks)
+		if err != nil {
+			return nil, err
+		}
+
+		msg := "You are Chore Crusher's autonomous agent. Current state:\n" +
+			string(b) + "\n\n" +
+			"Your job: triage today's work. Create what's missing, break down what's " +
+			"too big, start the next pending task (claim_work + set_progress), and " +
+			"complete what's done. Call the MCP tools directly — do not narrate."
+
+		return &mcp.GetPromptResult{
+			Messages: []*mcp.PromptMessage{{
+				Role:    "user",
+				Content: &mcp.TextContent{Text: msg},
+			}},
+		}, nil
+	})
+
+	server.AddPrompt(&mcp.Prompt{
+		Name:        "crush_breakdown",
+		Description: "Break a task into subtasks. Give the task's id (prefix ok) and the agent walks the task and asks for sub-bullets.",
+		Arguments: []*mcp.PromptArgument{{
+			Name:        "task_id",
+			Description: "task id or prefix",
+			Required:    true,
+		}},
+	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		arg := req.Params.Arguments["task_id"]
+		if strings.TrimSpace(arg) == "" {
+			return nil, fmt.Errorf("crush_breakdown requires a task_id argument")
+		}
+		id, err := s.ResolveID("task", arg)
+		if err != nil {
+			return nil, err
+		}
+		t, err := s.GetTask(id)
+		if err != nil {
+			return nil, err
+		}
+
+		msg := fmt.Sprintf(
+			"Break this task into concrete, shippable subtasks.\n\n"+
+				"Task: %s\nStatus: %s\nNotes: %s\n\n"+
+				"Return a numbered list of subtasks, each a single actionable unit. "+
+				"Capture each one with add_task, passing this task's id as parent.",
+			t.Title, t.Status, t.Notes,
+		)
+
+		return &mcp.GetPromptResult{
+			Messages: []*mcp.PromptMessage{{
+				Role:    "user",
+				Content: &mcp.TextContent{Text: msg},
+			}},
+		}, nil
 	})
 }
 
