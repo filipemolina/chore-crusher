@@ -52,7 +52,7 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 			strconv.Itoa(l.PendingCount)+" pending · "+strconv.Itoa(l.CompleteCount)+" done"))
 
 	wrapper := lipgloss.NewStyle().
-		Width(m.Width()-1).
+		Width(m.Width() - 1).
 		Padding(1).
 		Background(rowBg).
 		Render(content)

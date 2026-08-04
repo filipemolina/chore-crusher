@@ -47,7 +47,7 @@ type AppModel struct {
 	}
 }
 
-// GetInitialModel builds the app model. The lists panel starts visible,
+// GetInitialModel builds the app model. The lists panel starts hidden,
 // and if the store has no lists yet a default "New List" is created so the
 // add input always has somewhere to create its first task. The task tree is
 // the startup focus zone — the app's premise is "spend your time in one
@@ -71,7 +71,7 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 		store:             s,
 		cfg:               cfg,
 		focusedZone:       constants.COMPONENT_TASK_TREE,
-		listsPanelVisible: true,
+		listsPanelVisible: false,
 		activeListID:      activeListID,
 	}
 	m.components.MainMenu = mainmenu.New()
