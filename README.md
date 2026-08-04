@@ -10,7 +10,10 @@ Chore Crusher is a keyboard-driven terminal UI for to-do lists, paired with a
 full command-line interface for the exact same operations. Leave the TUI open
 in a pane while an agent — Claude Code, Pi, a shell script, whatever runs
 `crush` — adds, completes, and updates tasks from the command line, and
-watch it happen live. Nothing here is agent-specific plumbing bolted onto a
+watch it happen live. When an agent claims a task or list through the MCP
+server, the TUI draws a live spinner on that row — you see *which* row the
+agent is on, not just that something changed. Nothing here is agent-specific
+plumbing bolted onto a
 human app, or a human UI bolted onto an agent tool: the TUI and the CLI are two
 views of one store, and every state change either can make, the other can see
 within a second.
@@ -96,6 +99,12 @@ without leaving the list.
 opens a picker across every list, GNOME-Tasks style, returning both the list
 and the task.
 
+**Live agent presence.** An agent driving the MCP server calls `claim_work`
+on a task or list while it works; the TUI renders an animated spinner on that
+row until the claim is released or expires after two minutes of silence. The
+pane stays open, and you see *which* row the agent is on — not just that the
+store changed.
+
 **Fourteen themes**, ported from stack-stitcher's registry — same hex values,
 same live-preview picker (`T`), same persisted choice
 (`~/.config/chore-crusher/config.yaml`).
@@ -120,6 +129,28 @@ crush search "paint" --json
 `--json` on every read command, on both success and failure, so a script or
 an agent parses one shape either way. Full contract:
 [`docs/DESIGN.md` §The CLI contract](docs/DESIGN.md#the-cli-contract).
+
+## The MCP server
+
+`crush mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server over stdin/stdout — the same store, exposed to an agent as a surface it
+can discover without reading source:
+
+- **19 tools** — every CLI operation (`list_tasks`, `complete_task`,
+  `set_progress`, `move_task`, …) returning the same `--json` shapes, plus the
+  presence trio: `claim_work` marks a task or list as being worked on,
+  `release_work` drops the claim, `list_work` lists what is claimed.
+- **6 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
+  `crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
+  `crush:///tasks/{id}`, `crush:///search/{query}`, and `crush://work` (the
+  live claim set).
+- **2 prompts** — canned workflows with current state already filled in:
+  `crush_daily_agenda` (triage today's lists and tasks) and `crush_breakdown`
+  (decompose a task into subtasks).
+
+Destructive tools require `force=true`, and every response — success or error
+— is one JSON shape, mirroring the CLI contract. Full contract, including
+`crush mcp`: [`docs/DESIGN.md` §The CLI contract](docs/DESIGN.md#the-cli-contract).
 
 ## Status
 

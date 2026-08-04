@@ -47,7 +47,7 @@ type Model struct {
 	// keystroke for itself and renders a special "new task" row at the
 	// computed insertion point (task-row redesign + inline creation,
 	// docs/plans/task-row-redesign-and-inline-creation.md).
-	creating          bool
+	creating bool
 	// createBeforeID is the data-insertion anchor: the task the new task is
 	// created as a sibling of (at createLevelOffset's relationship). The
 	// create row's visual position is computed by createRenderAnchorID,

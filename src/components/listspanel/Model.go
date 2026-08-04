@@ -17,12 +17,12 @@ const focusedZoneID = constants.COMPONENT_LISTS_PANEL
 // list with the same card-style rows as stack-stitcher's groups list
 // (docs/plans/stack-stitcher-sister-tui.md, phase B step 1).
 type Model struct {
-	focused       bool
-	body          cmds.SetBodyLayoutMsg
-	list          list.Model
-	listDelegate  listDelegate
-	work          map[string]apptypes.AgentActivity
-	animFrame     int
+	focused      bool
+	body         cmds.SetBodyLayoutMsg
+	list         list.Model
+	listDelegate listDelegate
+	work         map[string]apptypes.AgentActivity
+	animFrame    int
 }
 
 func (m Model) Init() tea.Cmd { return nil }

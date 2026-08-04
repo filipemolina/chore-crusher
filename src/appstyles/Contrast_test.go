@@ -209,10 +209,10 @@ func TestWCAGContrastAgainstSurfaces(t *testing.T) {
 			// tiers — the spinner is a small decorative glyph, not body text.
 			// (docs/plan/mcp-server-enhancement.md §3.7, §12 glyph vocabulary.)
 			spinnerCases := []struct {
-				label  string
-				ink    color.Color
+				label   string
+				ink     color.Color
 				surface color.Color
-				floor  float64
+				floor   float64
 			}{
 				{"Accent on modal (active row)", theme.Accent, modal, 3.0},
 				{"TextDim on panel (unfocused row)", theme.TextDim, panel, 2.2},

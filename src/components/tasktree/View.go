@@ -258,7 +258,7 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 	content := buildRowContent(checkboxColored, title, trailing,
 		statusLabel(row.Task.Status), progressLabel(row, m.rows), detailsGlyph,
 		agentSpinner, 1,
-		cardWidth-cardInset, statusFg(row.Task.Status))
+		cardWidth-cardInset, statusFg(row.Task.Status), spinnerFg(isSelected))
 
 	return cardIndent + renderTaskCard(cardWidth, rowBg, barFgFor(row.Task.Status, isSelected), content)
 }
@@ -306,10 +306,10 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 
 // taskRowCols describes the computed width of each column in a task row.
 type taskRowCols struct {
-	checkbox    int
-	title       int
-	status      int
-	progress    int
+	checkbox     int
+	title        int
+	status       int
+	progress     int
 	agentSpinner int
 }
 
@@ -396,6 +396,17 @@ func barFgFor(status apptypes.Status, isSelected bool) color.Color {
 	return statusFg(status)
 }
 
+// spinnerFg is the agent-spinner color rule (docs/plan/mcp-server-enhancement.md
+// §3.7): accent on the selected row, TextDim otherwise — the same selected-row
+// rule as the bar column, so a claimed selected row reads accent all the way
+// across.
+func spinnerFg(isSelected bool) color.Color {
+	if isSelected {
+		return appstyles.Active.Accent
+	}
+	return appstyles.Active.TextDim
+}
+
 // progressLabel returns the display label for an in-progress task's progress,
 // or "" when the task has no progress to show.
 func progressLabel(row apptypes.Row, rows []apptypes.Row) string {
@@ -440,7 +451,7 @@ const detailsIcon = "🗎"
 // Drop order under narrowness: progress sheds first, then agent-spinner,
 // then status, all whole (docs/plan/mcp-server-enhancement.md §3.7).
 func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, agentSpinner string,
-	checkboxWidth, contentWidth int, statusColor color.Color) string {
+	checkboxWidth, contentWidth int, statusColor, spinnerColor color.Color) string {
 	prefixWidth := checkboxWidth + 1
 	tableWidth := contentWidth - prefixWidth
 	if tableWidth < 1 {
@@ -476,7 +487,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 	}
 	if cols.agentSpinner > 0 && agentSpinner != "" {
 		agentSpinnerCell = lipgloss.NewStyle().
-			Foreground(appstyles.Active.TextDim).
+			Foreground(spinnerColor).
 			Width(cols.agentSpinner).
 			Render(chrome.Truncate(agentSpinner, max(1, cols.agentSpinner-1)))
 	}

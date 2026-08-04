@@ -2,6 +2,7 @@ package listspanel
 
 import (
 	"fmt"
+	"image/color"
 	"io"
 	"strconv"
 
@@ -26,6 +27,16 @@ type listDelegate struct {
 func (d listDelegate) Height() int                             { return 4 }
 func (d listDelegate) Spacing() int                            { return 0 }
 func (d listDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+
+// spinnerFg is the agent-spinner color rule (docs/plan/mcp-server-enhancement.md
+// §3.7): Accent on the selected row, TextDim otherwise — matching the task
+// tree's spinner and this delegate's bar rule.
+func spinnerFg(isSelected bool) color.Color {
+	if isSelected {
+		return appstyles.Active.Accent
+	}
+	return appstyles.Active.TextDim
+}
 
 func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
 	l, ok := listItem.(apptypes.ListSummary)
@@ -52,17 +63,20 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 	countLine := strconv.Itoa(l.PendingCount) + " pending · " + strconv.Itoa(l.CompleteCount) + " done"
 
-	// If this list is claimed by an agent, append the spinner + agent id.
-	var claimedLine string
+	// If this list is claimed by an agent, append the spinner + agent id,
+	// colored per the row's selection: Accent when selected, TextDim otherwise
+	// — matching the task-tree spinner (docs/plan/mcp-server-enhancement.md §3.7).
+	claimedLine := countLine
 	if a, ok := d.work[l.List.ID]; ok {
 		spinner := chrome.Spinner(d.animFrame)
 		agent := a.AgentID
 		if len(agent) > 6 {
 			agent = agent[:6]
 		}
-		claimedLine = countLine + " " + spinner + " " + agent
-	} else {
-		claimedLine = countLine
+		claimedLine = countLine + " " + lipgloss.NewStyle().
+			Foreground(spinnerFg(isSelected)).
+			Background(rowBg).
+			Render(spinner+" "+agent)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,

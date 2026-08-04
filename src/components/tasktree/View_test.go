@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
 )
 
 // testBg is a concrete background the row renderer seals itself against so a
@@ -89,6 +90,14 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 	}}
 	m.rows = []apptypes.Row{row}
 	m.selectedID = "1"
+	// The sweep row is claimed: the spinner+agent unit is part of the budget
+	// this overflow sweep must exercise (§6 #1 of
+	// docs/plan/mcp-server-enhancement.md).
+	m.work = map[string]apptypes.AgentActivity{
+		"1": {EntityType: "task", EntityID: "1", AgentID: "claude", Kind: "working"},
+	}
+	m.animFrame = 2
+	spinnerUnit := chrome.Spinner(2) + " claude"
 
 	for width := 20; width <= 200; width += 10 {
 		rendered := m.renderRow(row, width, testBg)
@@ -125,6 +134,11 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 		// vertical padding is gone.
 		if width >= 40 && !strings.HasSuffix(strings.TrimRight(stripped, " "), "IN PROGRESS") {
 			t.Fatalf("width %d: expected right-aligned IN PROGRESS suffix in: %q", width, stripped)
+		}
+		// A claimed row shows the full spinner+agent unit un-clipped when there
+		// is room — never a fragment.
+		if width >= 120 && !strings.Contains(stripped, spinnerUnit) {
+			t.Fatalf("width %d: expected claimed spinner unit %q in: %q", width, spinnerUnit, stripped)
 		}
 	}
 }
@@ -231,6 +245,87 @@ func TestBarFgRule(t *testing.T) {
 		}
 		if got := barFgFor(s, false); got != statusFg(s) {
 			t.Errorf("unselected %v bar = %v, want its status color", s, got)
+		}
+	}
+}
+
+// TestSpinnerFgRule pins the spinner color rule: Accent on the selected row,
+// TextDim otherwise (docs/plan/mcp-server-enhancement.md §3.7).
+func TestSpinnerFgRule(t *testing.T) {
+	if got := spinnerFg(true); got != appstyles.Active.Accent {
+		t.Errorf("selected spinner fg = %v, want Accent", got)
+	}
+	if got := spinnerFg(false); got != appstyles.Active.TextDim {
+		t.Errorf("unselected spinner fg = %v, want TextDim", got)
+	}
+}
+
+// TestRenderRowShowsSpinnerWhenClaimed pins the agent-presence render
+// (docs/plan/mcp-server-enhancement.md §3.7): a row whose task is in m.work
+// appends the animated spinner glyph for m.animFrame plus the short agent id
+// after the status label, and an unclaimed row renders no spinner.
+func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
+	m := &Model{
+		rows: []apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "claimed", Status: apptypes.StatusPending}}},
+		work: map[string]apptypes.AgentActivity{
+			"1": {EntityType: "task", EntityID: "1", AgentID: "claude", Kind: "working"},
+		},
+		animFrame: 3,
+	}
+
+	claimed := ansi.Strip(m.renderRow(m.rows[0], 80, testBg))
+	if !strings.Contains(claimed, chrome.Spinner(3)+" claude") {
+		t.Errorf("claimed row must render spinner %q + agent id, got: %q", chrome.Spinner(3), claimed)
+	}
+	if !strings.Contains(claimed, "PENDING") {
+		t.Errorf("claimed row must keep its status label, got: %q", claimed)
+	}
+
+	m.work = map[string]apptypes.AgentActivity{}
+	free := ansi.Strip(m.renderRow(m.rows[0], 80, testBg))
+	if strings.Contains(free, chrome.Spinner(3)) {
+		t.Errorf("unclaimed row must render no spinner, got: %q", free)
+	}
+}
+
+// TestSpinnerUnitShedsBeforeProgress pins the right-block drop order with a
+// claimed row (docs/plan/mcp-server-enhancement.md §3.7, §6): each unit is
+// atomic (full width or zero, never a fragment), progress sheds before the
+// agent-spinner unit, and the agent-spinner sheds before status.
+func TestSpinnerUnitShedsBeforeProgress(t *testing.T) {
+	const checkbox = 1
+	status := "IN PROGRESS" // 11 runes -> status column = 12 (label + gap)
+	progress := "42%"       // 3 runes -> progress column = 4 (label + gap)
+	agent := chrome.Spinner(1) + " claude"
+
+	statusFull := len(status) + 1
+	progressFull := len(progress) + 1
+	agentFull := len(agent) + 1
+
+	for width := 1; width <= 120; width++ {
+		cols := computeTaskRowCols(width, checkbox, status, progress, false, agent)
+
+		if cols.progress != 0 && cols.progress != progressFull {
+			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
+		}
+		if cols.agentSpinner != 0 && cols.agentSpinner != agentFull {
+			t.Fatalf("width %d: agent-spinner = %d, want 0 or %d", width, cols.agentSpinner, agentFull)
+		}
+		if cols.status != 0 && cols.status != statusFull {
+			t.Fatalf("width %d: status = %d, want 0 or %d", width, cols.status, statusFull)
+		}
+		// Drop order: progress first, then agent-spinner, then status. A unit
+		// shed while an earlier one is kept is the wrong order — progress must
+		// not survive the agent-spinner, nor the agent-spinner the status.
+		if cols.progress != 0 && cols.agentSpinner == 0 {
+			t.Fatalf("width %d: progress kept but agent-spinner shed (wrong drop order)", width)
+		}
+		if cols.agentSpinner != 0 && cols.status == 0 {
+			t.Fatalf("width %d: agent-spinner kept but status shed (wrong drop order)", width)
+		}
+		if cols.title+cols.progress+cols.agentSpinner+cols.status > width {
+			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
+				cols.title+cols.progress+cols.agentSpinner+cols.status, width)
 		}
 	}
 }
