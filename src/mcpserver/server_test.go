@@ -774,7 +774,8 @@ func TestMCPWorkResource(t *testing.T) {
 func TestMCPListsResource(t *testing.T) {
 	session := setupMCP(t)
 
-	callTool(t, session, "add_list", map[string]any{"name": "Home"})
+	var created map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &created)
 
 	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
 		URI: "crush:///lists",
@@ -784,12 +785,43 @@ func TestMCPListsResource(t *testing.T) {
 	}
 
 	var lists []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		CreatedBy string `json:"created_by"`
 	}
 	mustUnmarshal(t, res.Contents[0].Text, &lists)
 	if len(lists) != 1 || lists[0].Name != "Home" {
 		t.Fatalf("crush:///lists = %+v", lists)
+	}
+
+	// H5: the resource row must carry created_by, matching list_lists — no
+	// CRUSH_AGENT is set here, so the default identity is "agent".
+	if lists[0].CreatedBy != "agent" {
+		t.Fatalf("crush:///lists created_by = %q, want the server identity (agent)", lists[0].CreatedBy)
+	}
+	var toolLists []struct {
+		ID        string `json:"id"`
+		CreatedBy string `json:"created_by"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &toolLists)
+	if len(toolLists) != 1 || toolLists[0].CreatedBy != lists[0].CreatedBy {
+		t.Fatalf("list_lists and crush:///lists diverged on created_by: tool=%+v resource=%+v", toolLists, lists)
+	}
+
+	// The single-list resource carries the same owner.
+	res, err = session.ReadResource(context.Background(), &mcp.ReadResourceParams{
+		URI: "crush:///lists/" + created["id"],
+	})
+	if err != nil {
+		t.Fatalf("ReadResource crush:///lists/{id}: %v", err)
+	}
+	var one struct {
+		ID        string `json:"id"`
+		CreatedBy string `json:"created_by"`
+	}
+	mustUnmarshal(t, res.Contents[0].Text, &one)
+	if one.ID != created["id"] || one.CreatedBy != "agent" {
+		t.Fatalf("crush:///lists/{id} = %+v, want id %q owned by agent", one, created["id"])
 	}
 }
 

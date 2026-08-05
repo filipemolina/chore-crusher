@@ -913,6 +913,7 @@ func addResources(server *mcp.Server, s *store.Store) {
 			Name      string `json:"name"`
 			Pending   int    `json:"pending"`
 			Complete  int    `json:"complete"`
+			CreatedBy string `json:"created_by"`
 			CreatedAt int64  `json:"created_at"`
 			Position  int    `json:"position"`
 		}
@@ -923,6 +924,7 @@ func addResources(server *mcp.Server, s *store.Store) {
 				Name:      l.List.Name,
 				Pending:   l.PendingCount,
 				Complete:  l.CompleteCount,
+				CreatedBy: l.CreatedBy,
 				CreatedAt: l.List.CreatedAt,
 				Position:  l.List.Position,
 			}
@@ -956,10 +958,11 @@ func addResources(server *mcp.Server, s *store.Store) {
 					Name      string `json:"name"`
 					Pending   int    `json:"pending"`
 					Complete  int    `json:"complete"`
+					CreatedBy string `json:"created_by"`
 					CreatedAt int64  `json:"created_at"`
 				}{
 					ID: l.List.ID, Name: l.List.Name, Pending: l.PendingCount,
-					Complete: l.CompleteCount, CreatedAt: l.List.CreatedAt,
+					Complete: l.CompleteCount, CreatedBy: l.CreatedBy, CreatedAt: l.List.CreatedAt,
 				})
 			}
 		}
