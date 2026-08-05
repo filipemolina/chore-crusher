@@ -88,7 +88,17 @@ func (s *Store) RenameList(id, name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("list name must not be empty")
 	}
-	res, err := s.db.Exec(`UPDATE List SET name = ? WHERE id = ?`, name, id)
+	// Adopt-on-tag (docs/plan/mcp-agent-todo-hardening.md §4.7): renaming an
+	// untagged list into the "<tag>:" convention adopts the tag as owner in
+	// the same write — the human handoff path (rename Groceries to
+	// "pi: Groceries") takes effect immediately instead of at the next
+	// store.Open. An existing owner is kept: a rename never transfers
+	// ownership. The CASE leaves created_by untouched when it is non-empty,
+	// and stays a no-op when the new name has no tag.
+	owner := adoptOwnerTag(name)
+	res, err := s.db.Exec(`UPDATE List SET name = ?,
+		created_by = CASE WHEN created_by = '' THEN ? ELSE created_by END
+		WHERE id = ?`, name, owner, id)
 	if err != nil {
 		return err
 	}

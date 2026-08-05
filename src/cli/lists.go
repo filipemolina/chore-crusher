@@ -43,12 +43,20 @@ func newListsCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "add <name>",
-			Short: "create a list; prints its id",
-			Args:  cobra.ExactArgs(1),
-			RunE:  runListsAdd,
-		},
+		func() *cobra.Command {
+			addCmd := &cobra.Command{
+				Use:   "add <name>",
+				Short: "create a list; prints its id",
+				Args:  cobra.ExactArgs(1),
+				RunE:  runListsAdd,
+			}
+			// --owner provisions the list for an agent up front (the MCP server
+			// refuses structural writes on an untagged list); empty keeps the
+			// human-managed behaviour where only the human restructures it
+			// (docs/plan/mcp-agent-todo-hardening.md §4.6).
+			addCmd.Flags().String("owner", "", "owning agent tag (e.g. pi); empty keeps the list human-managed")
+			return addCmd
+		}(),
 		&cobra.Command{
 			Use:   "rename <list-id> <name>",
 			Short: "rename a list",
@@ -94,8 +102,9 @@ func runLists(cmd *cobra.Command, args []string) error {
 func runListsAdd(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	owner, _ := cmd.Flags().GetString("owner")
 	return runStore(cmd, func(s *store.Store) error {
-		id, err := s.CreateList(args[0], "")
+		id, err := s.CreateList(args[0], owner)
 		if err != nil {
 			return err
 		}

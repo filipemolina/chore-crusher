@@ -163,6 +163,62 @@ func TestGetOrCreateAgentList(t *testing.T) {
 	}
 }
 
+// TestRenameListAdoptsTagIntoOwner pins hardening §4.7 / §6 assertion 7: a
+// rename into the "<tag>:" convention adopts the tag as owner in the same
+// write (no store.Open needed), and an existing owner is never overwritten
+// by a rename.
+func TestRenameListAdoptsTagIntoOwner(t *testing.T) {
+	s := newTestStore(t)
+
+	id, err := s.CreateList("Groceries", "")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
+	if err := s.RenameList(id, "pi: Groceries"); err != nil {
+		t.Fatalf("RenameList into tag: %v", err)
+	}
+	got, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if got.CreatedBy != "pi" || got.Name != "pi: Groceries" {
+		t.Fatalf("after rename-into-tag: %+v, want name pi: Groceries owned by pi", got)
+	}
+
+	// A rename never transfers ownership: claude's list keeps claude even
+	// when renamed into a pi: name.
+	id2, err := s.CreateList("claude: Backlog", "claude")
+	if err != nil {
+		t.Fatalf("CreateList(owned): %v", err)
+	}
+	if err := s.RenameList(id2, "pi: Backlog"); err != nil {
+		t.Fatalf("RenameList over owner: %v", err)
+	}
+	got2, err := s.GetList(id2)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if got2.CreatedBy != "claude" {
+		t.Fatalf("rename transferred ownership: %+v, want owner claude untouched", got2)
+	}
+
+	// A tagless rename stays untagged.
+	id3, err := s.CreateList("Errands", "")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
+	if err := s.RenameList(id3, "Shopping"); err != nil {
+		t.Fatalf("RenameList tagless: %v", err)
+	}
+	got3, err := s.GetList(id3)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if got3.CreatedBy != "" {
+		t.Fatalf("tagless rename adopted an owner: %+v", got3)
+	}
+}
+
 // TestGetOrCreateAgentListIsOwnerFirst pins hardening §4.3 (H3): the lookup
 // must be by created_by, not by the "<identity>:" name prefix. A list the
 // human created in the CLI/TUI with a pi: name but an empty owner is foreign

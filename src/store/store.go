@@ -136,6 +136,17 @@ func Open(path string) (*Store, error) {
 // runs in Go over the rows whose created_by is still empty.
 var ownerTagRE = regexp.MustCompile(`^([A-Za-z0-9_-]+):`)
 
+// adoptOwnerTag returns the owner tag a "<tag>:" name adopts, or "" when the
+// name has no tag. Shared by the Open-time backfill and RenameList's
+// adopt-on-tag write (docs/plan/mcp-agent-todo-hardening.md §4.7) so the two
+// use exactly the same regex.
+func adoptOwnerTag(name string) string {
+	if m := ownerTagRE.FindStringSubmatch(name); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 // backfillOwners adopts A's "<tag>:" name convention into the created_by
 // column for every list still untagged. It runs once, at Open, after
 // migrations. The selection + update are split into two phases on purpose:
@@ -160,8 +171,8 @@ func (s *Store) backfillOwners() error {
 			rows.Close()
 			return err
 		}
-		if m := ownerTagRE.FindStringSubmatch(name); m != nil {
-			tagged = append(tagged, taggedList{id, m[1]})
+		if owner := adoptOwnerTag(name); owner != "" {
+			tagged = append(tagged, taggedList{id, owner})
 		}
 	}
 	if err := rows.Err(); err != nil {
