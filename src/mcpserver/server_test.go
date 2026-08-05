@@ -207,11 +207,33 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	}
 }
 
+// TestMCPInstructionsUsesIdentity guards H1: the Instructions doc must name
+// the configured CRUSH_AGENT, not a hardcoded "pi" — an agent running under
+// another tag is otherwise told to use pi: lists it does not own.
+func TestMCPInstructionsUsesIdentity(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "claude")
+	session := setupMCP(t)
+
+	instructions := session.InitializeResult().Instructions
+	if instructions == "" {
+		t.Fatal("Instructions is empty")
+	}
+	if !strings.Contains(instructions, "claude:") {
+		t.Fatalf("Instructions must name the configured identity (claude);\nfull text:\n%s", instructions)
+	}
+	if strings.Contains(instructions, "pi:") {
+		t.Fatalf("Instructions must not hardcode pi: when CRUSH_AGENT=claude;\nfull text:\n%s", instructions)
+	}
+}
+
 // TestMCPInstructionsAlwaysOnTodoRule guards S1: the Instructions doc the agent
 // reads at session start must steer it away from the host's built-in todo tool
 // and toward a pi:-owned list. Without this line the agent's base AGENTS.md
 // wins and it tracks work in the wrong (non-Chore-Crusher) store.
 func TestMCPInstructionsAlwaysOnTodoRule(t *testing.T) {
+	// The doc names the configured identity, so pin it to the agent this test
+	// expects (the default would be "agent").
+	t.Setenv("CRUSH_AGENT", "pi")
 	session := setupMCP(t)
 
 	instructions := session.InitializeResult().Instructions

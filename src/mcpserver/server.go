@@ -92,7 +92,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "chore-crusher",
 		Version: constants.Version(),
-	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. For tracking your OWN work, use a list named "pi: ..." (create with chore_crusher_add_list, or call chore_crusher_my_list to get/create it). Do NOT use the host's built-in todo tool — Chore Crusher is the todo store. Act under the tag CRUSH_AGENT (default "agent"; here it is "pi"). Every list has an owner tag, reported as created_by by chore_crusher_list_lists; a list is yours only when its created_by equals your tag. The server ENFORCES this — it is not just a convention: structure/content edits (chore_crusher_rename_list, chore_crusher_delete_list, chore_crusher_add_task, chore_crusher_rename_task, chore_crusher_delete_task, chore_crusher_set_notes, chore_crusher_move_task) on a list you do not own are refused with "list <id> is owned by <owner> — you may read it and update task status/progress only". An untagged list (created_by empty — typically one the human made in the CLI or TUI) belongs to nobody and is foreign to every agent, so those edits are refused there too. On any list, owned or not, you may read everything and change status and progress (chore_crusher_complete_task, chore_crusher_reopen_task, chore_crusher_toggle_task, chore_crusher_set_progress) and chore_crusher_claim_work / chore_crusher_release_work. chore_crusher_add_list and chore_crusher_my_list always create a list owned by you.
+	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. For tracking your OWN work, use a list named "` + identity + `: ..." (create with chore_crusher_add_list, or call chore_crusher_my_list to get/create it). Do NOT use the host's built-in todo tool — Chore Crusher is the todo store. Act under the tag CRUSH_AGENT (default "agent"; here it is "` + identity + `"). Every list has an owner tag, reported as created_by by chore_crusher_list_lists; a list is yours only when its created_by equals your tag. The server ENFORCES this — it is not just a convention: structure/content edits (chore_crusher_rename_list, chore_crusher_delete_list, chore_crusher_add_task, chore_crusher_rename_task, chore_crusher_delete_task, chore_crusher_set_notes, chore_crusher_move_task) on a list you do not own are refused with "list <id> is owned by <owner> — you may read it and update task status/progress only". An untagged list (created_by empty — typically one the human made in the CLI or TUI) belongs to nobody and is foreign to every agent, so those edits are refused there too. On any list, owned or not, you may read everything and change status and progress (chore_crusher_complete_task, chore_crusher_reopen_task, chore_crusher_toggle_task, chore_crusher_set_progress) and chore_crusher_claim_work / chore_crusher_release_work. chore_crusher_add_list and chore_crusher_my_list always create a list owned by you.
 
 Tools are exposed to MCP hosts as chore_crusher_<name> (shown verbatim below). Every id-bearing parameter accepts a short unambiguous prefix of the full id. Lists are addressed by id prefix, never by name.
 
@@ -112,7 +112,7 @@ QUICK REFERENCE (tool: parameters)
 - chore_crusher_delete_task(id, force=true) / chore_crusher_delete_list(id, force=true)   deletes require force=true
 - chore_crusher_add_list(name, created_by)       created_by is optional and defaults to your own tag
 - chore_crusher_rename_list(id, name)            rename a list you own
-- chore_crusher_my_list()                       get or create your own "pi:" list (where to track your own work)
+- chore_crusher_my_list()                       get or create your own "` + identity + `:" list (where to track your own work)
 - chore_crusher_claim_work(entity_type, entity_id, agent_id, kind)   entity_type = task|list, kind = working|inspecting
 - chore_crusher_release_work(entity_type, entity_id, agent_id)       release a claim; no-op if not claimed
 - chore_crusher_list_work()                       active agent claims (the TUI spinners)
@@ -122,6 +122,7 @@ BEHAVIOUR & GOTCHAS
 - A percentage of 100 does NOT auto-complete. To finish a parent, complete its final child (which auto-completes it) or call chore_crusher_complete_task on the parent.
 - chore_crusher_set_progress on an already-complete task errors ("reopen it first"): set progress before completing the last child.
 - chore_crusher_claim_work is a presence heartbeat: status/progress writes by the claiming agent refresh it; a live claim by another agent on that entity blocks writes — take another task or work your own list.
+- chore_crusher_claim_work's agent_id defaults to your identity: omit it, or set it equal to your tag, or your writes will not refresh the spinner.
 - Reclaim after an idle pause of ~2 minutes; chore_crusher_release_work when you finish.`})
 
 	addListTools(server, s, identity)
