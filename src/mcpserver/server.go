@@ -184,7 +184,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_list",
-		Description: "Create a new task list and return its id. Example: add_list(name='Shopping'). Owned by created_by (an agent tag like 'pi'), which defaults to this server's identity; only the owner may add/edit/delete tasks and rename/delete the list — other agents may read it and update task status/progress only.",
+		Description: "Create a new task list and return its id. Example: add_list(name='Shopping'). Owned by created_by (an agent tag like 'pi'), which defaults to this server's identity; only the owner may add/edit/delete tasks and rename/delete the list — other agents may read it and update task status/progress only. Warning: setting created_by to a tag other than your own provisions a list you cannot write — the server refuses structural edits on it — so only do that for a list you intend another agent to own.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		Name      string `json:"name" jsonschema:"name of the new list"`
 		CreatedBy string `json:"created_by,omitempty" jsonschema:"owning agent tag (e.g. pi); defaults to this server's identity"`

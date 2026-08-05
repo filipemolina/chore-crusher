@@ -551,6 +551,15 @@ operation. The server is a thin adapter over `src/store` in
 `src/mcpserver`, not a layer on `src/cli`, preserving the "two front ends
 over one store" rule from §1 and §10.
 
+**MCP rows are a superset of the CLI's `--json` shapes** (CONTRIBUTING rule
+6): `list_lists` adds `position` and `created_by` to the `lists` row
+(`id`/`name`/`pending`/`complete`/`created_at`), and the read-only
+resources mirror the tools row-for-row (including `created_by` on
+`crush:///lists` and `crush:///lists/{id}`). Both surfaces read the same
+store rows (`ListLists`, `ListTasks`), so a field added to one appears in
+the other (hardening plan §4.5, §4.7); the server-side tests that pin the
+MCP shapes live in `src/mcpserver/server_test.go`.
+
 **List ownership, and what the MCP server refuses.** Every `List` carries a
 `created_by` tag (§2). The MCP server reads its own identity once at start
 from the `CRUSH_AGENT` environment variable (default `"agent"`); the *human*
@@ -579,7 +588,12 @@ explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `list_lists` reports
 `created_by` on every row. Ownership is also adopted from the
 `<tag>: <name>` naming convention by one idempotent backfill pass at
 `store.Open`, so a list a human renames into a tag becomes owned at the next
-open, not immediately.
+open, not immediately. The backfill cannot tell intent: any `^tag:` prefix
+is adopted, so a human list named `Note: buy milk` becomes owned by tag
+`Note` at the next open — an accepted false-positive class (hardening plan
+§4.10). The inverse is deliberately *not* done: `GetOrCreateAgentList` and
+`my_list` match `created_by` only, never the name, so an untagged
+`pi: ...` list is never silently adopted.
 
 Enforcement lives in `src/mcpserver` alone (the `requireWritable` helper) —
 the store stays a dumb data layer and the CLI and TUI stay unenforced, which
