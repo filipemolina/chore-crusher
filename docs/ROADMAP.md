@@ -5,6 +5,7 @@ order**. The alpha (phases 0–9) is shipped; the rest of this file is the
 live backlog after it.
 
 `docs/plans/` holds the original how for each shipped phase.
+`docs/plan/` holds post-alpha feature plans (MCP, UI, etc.).
 
 ## Alpha shipped
 
@@ -80,23 +81,74 @@ equivalent list asks for:
   additive to an already-usable list-and-tree app, while the tree, the
   add-flow, and the lists panel are not.
 
-## Live order: after the alpha
+---
 
-Not scheduled, and not forgotten — each needs a decision this plan
-deliberately isn't making yet. Treat these as the current backlog; pick one
-up only after writing down the product decision it depends on, so the choice
-is explicit rather than inferred from the first implementation.
+## MCP server track (agent todo store)
+
+The founding use case after alpha: **agents use Chore Crusher as their todo
+list, and humans create tasks for agents to work on**, with the TUI as the
+live dashboard. Plans live under `docs/plan/` (and the comfort plan at the
+repo root). Do not add MCP tools past the ~20 ceiling without revisiting
+comfort S4.
+
+### Shipped
+
+| Plan | What landed | Status |
+| --- | --- | --- |
+| [`docs/plan/mcp-server-enhancement.md`](plan/mcp-server-enhancement.md) | Discovery (resources + prompts), agent presence (`claim_work` / spinner), tightened tool descriptions | ✅ Complete (A–L) |
+| [`docs/plan/agent-presence-heartbeat.md`](plan/agent-presence-heartbeat.md) | Write-heartbeat on status/progress; lists-panel spinner for any claimed task inside a list; `CRUSH_AGENT` identity | ✅ Complete (A–F) |
+| [`MCP_COMFORT_PLAN.md`](../MCP_COMFORT_PLAN.md) | `SQLITE_BUSY` fix, `show_task` children, prefixed `Instructions` names, always-on todo rule, `my_list` | ✅ Complete (S1–S6) |
+| [`docs/plan/list-ownership-enforcement.md`](plan/list-ownership-enforcement.md) | `created_by` on lists; MCP refuses structural writes on foreign/untagged lists; status/progress stay open | ✅ Complete (A–F) |
+
+**Surface today:** `crush mcp` — **20 tools**, **6 resources**, **2 prompts**;
+identity from `CRUSH_AGENT` (default `agent`); cooperative-trust ownership
+(not auth). Full contract: `docs/DESIGN.md` §9.
+
+### Next (do this before new MCP features)
+
+| Plan | Why it is next | Status |
+| --- | --- | --- |
+| [`docs/plan/mcp-agent-todo-hardening.md`](plan/mcp-agent-todo-hardening.md) | Closes P0 bugs left by the four plans above: hardcoded `"pi"` in `Instructions`, `claim_work` defaulting `agent_id` to `"agent"` (breaks the write-heartbeat when `CRUSH_AGENT≠agent`), `my_list` returning an untagged name-prefixed list, CLI `crush show` empty children, missing `created_by` on list resources, no clean human→agent handoff (`--owner` / rename-adopt) | 🔲 Planned |
+
+Recommended order inside that plan: **A → B → C** (presence + identity
+lies) before **D–I** (CLI parity, handoff, docs/tests).
+
+### Deferred MCP follow-ups (after hardening)
+
+- Session-end claim release (enhancement promised it; TTL covers it today).
+- Optional: show list owner in the TUI; comments gated by `requireWritable`.
+- Do **not** add an `adopt_list` MCP tool unless the hardening CLI path
+  proves insufficient — keep the tool-count ceiling.
+
+---
+
+## Other live backlog
+
+Not scheduled as a single queue — pick one up after writing down the product
+decision it depends on.
+
+### Product / data model
 
 - **Due dates and a `StatusOverdue` that means something.** The theme
   registry already reserves the color (`docs/DESIGN.md` §11); nothing reads
   it until this lands.
+- **Priorities and assignees.** Two more optional columns on `Task`, cheap in
+  the schema, deferred because neither was part of the founding use case.
 - **Sync or export** (git-friendly export a la Backlog.md; a CalDAV bridge).
   Needs a decision about which, if either, before any code — see
-  `docs/DESIGN.md` §1 on why this isn't "just add a sync target."
-- **An MCP server wrapper** — ✅ done. `crush mcp` runs a Model Context
-  Protocol server over stdin/stdout; the tools mirror the CLI and return the
-  same JSON shapes. See `docs/DESIGN.md` §9 and `src/mcpserver`.
-- **Priorities and assignees.** Two more optional columns on `Task`, cheap in
-  the schema, deferred because neither was part of the founding use case and
-  adding fields nobody asked for yet is exactly the kind of scope creep
-  `docs/DESIGN.md` §1 rules out for the first alpha.
+  `docs/DESIGN.md` §1.
+
+### UI (post-alpha)
+
+| Plan | Notes | Status |
+| --- | --- | --- |
+| [`docs/plan/ui-improvements.md`](plan/ui-improvements.md) | Nord default, loading animation, responsive lists panel, document-icon column, scrollable panels | Active plan |
+| [`docs/plans/details-as-sidepanel.md`](plans/details-as-sidepanel.md) | Details as a side panel instead of a full screen | Proposal |
+| [`docs/plan/task-row-redesign-and-inline-creation.md`](plan/task-row-redesign-and-inline-creation.md) | Task row / inline creation redesign | See plan status |
+| [`docs/plan/task-row-cards-and-status.md`](plan/task-row-cards-and-status.md) | Card chrome + status presentation | See plan status |
+| [`docs/plans/ux-redesign.md`](plans/ux-redesign.md) | Broader UX redesign notes | Historical / reference |
+
+### Sister / context
+
+- [`docs/plans/stack-stitcher-sister-tui.md`](plans/stack-stitcher-sister-tui.md) —
+  why this project mirrors stack-stitcher's discipline.

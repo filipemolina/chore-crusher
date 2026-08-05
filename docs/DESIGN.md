@@ -60,6 +60,10 @@ List
   name          text not null
   created_at    integer not null   -- unix seconds
   position      integer not null   -- manual ordering among lists
+  created_by    text not null default ''
+                -- declared owner tag ("pi", "claude", …); empty = owned by
+                -- nobody. Only the MCP server reads it (§9); the CLI and TUI
+                -- write '' and ignore it.
 
 Task
   id             text primary key   -- ULID
@@ -546,6 +550,45 @@ that `--json` would emit on the command line, so an agent host can call
 operation. The server is a thin adapter over `src/store` in
 `src/mcpserver`, not a layer on `src/cli`, preserving the "two front ends
 over one store" rule from §1 and §10.
+
+**List ownership, and what the MCP server refuses.** Every `List` carries a
+`created_by` tag (§2). The MCP server reads its own identity once at start
+from the `CRUSH_AGENT` environment variable (default `"agent"`); the *human*
+sets it per server in the MCP client config, so one stdio session is one
+identity and no tool lets an agent change it. A list is writable by that
+session only when `created_by` equals the identity. The seven **structural**
+tools — `rename_list`, `delete_list`, `add_task`, `rename_task`, `set_notes`,
+`move_task`, `delete_task` — resolve their id first (the §9 prefix rule
+still applies), then refuse a foreign list with one error shape:
+`list <id> is owned by <owner> — you may read it and update task
+status/progress only`. `move_task` checks the list it would move *into* — the
+parent's list when a `parent` is given, the task's own list when moving to
+the root — before any write, so a refused move never half-happens.
+(`store.Reparent` independently rejects a parent on a different list, so on a
+move that would otherwise succeed the two are the same list; the owner check
+runs first and reports ownership rather than the cross-list error.)
+
+**Status and progress are never gated.** `complete_task`, `reopen_task`,
+`toggle_task`, and `set_progress` work on every list, as do all reads, the
+presence trio, the resources, and the prompts. An **empty** `created_by`
+means owned by nobody, which makes the list foreign to *every* identity: an
+untagged list — the shape `crush lists add` and the TUI create — is read +
+status/progress only for all agents, and only a human can restructure it.
+`add_list` defaults `created_by` to the session identity and accepts an
+explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `list_lists` reports
+`created_by` on every row. Ownership is also adopted from the
+`<tag>: <name>` naming convention by one idempotent backfill pass at
+`store.Open`, so a list a human renames into a tag becomes owned at the next
+open, not immediately.
+
+Enforcement lives in `src/mcpserver` alone (the `requireWritable` helper) —
+the store stays a dumb data layer and the CLI and TUI stay unenforced, which
+is the deliberate front-end divergence CONTRIBUTING rule 5 asks to be written
+down. Identity is self-declared and unauthenticated: this is cooperative
+trust between agents, not a security boundary. When comments arrive they join
+the owner-only bucket behind the same `requireWritable` helper. Full
+rationale and the rejected alternatives:
+`docs/plan/list-ownership-enforcement.md`.
 
 **Output shapes, pinned.** The subcommand list above fixes *which* commands
 and flags exist; this fixes *what each prints*. The shapes below were

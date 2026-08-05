@@ -92,7 +92,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "chore-crusher",
 		Version: constants.Version(),
-	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. For tracking your OWN work, use a list named "pi: ..." (create with chore_crusher_add_list, or call chore_crusher_my_list to get/create it). Do NOT use the host's built-in todo tool — Chore Crusher is the todo store. Act under the tag CRUSH_AGENT (default "agent"; here it is "pi"). A list named "<tag>: ..." is owned by that agent: structure/content edits (chore_crusher_add_list, chore_crusher_rename_list, chore_crusher_delete_list, chore_crusher_add_task, chore_crusher_rename_task, chore_crusher_delete_task, chore_crusher_set_notes, chore_crusher_move_task) are allowed only on your own list. On any other list you may only change status and progress (chore_crusher_complete_task, chore_crusher_reopen_task, chore_crusher_toggle_task, chore_crusher_set_progress) and chore_crusher_claim_work / chore_crusher_release_work.
+	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. For tracking your OWN work, use a list named "pi: ..." (create with chore_crusher_add_list, or call chore_crusher_my_list to get/create it). Do NOT use the host's built-in todo tool — Chore Crusher is the todo store. Act under the tag CRUSH_AGENT (default "agent"; here it is "pi"). Every list has an owner tag, reported as created_by by chore_crusher_list_lists; a list is yours only when its created_by equals your tag. The server ENFORCES this — it is not just a convention: structure/content edits (chore_crusher_rename_list, chore_crusher_delete_list, chore_crusher_add_task, chore_crusher_rename_task, chore_crusher_delete_task, chore_crusher_set_notes, chore_crusher_move_task) on a list you do not own are refused with "list <id> is owned by <owner> — you may read it and update task status/progress only". An untagged list (created_by empty — typically one the human made in the CLI or TUI) belongs to nobody and is foreign to every agent, so those edits are refused there too. On any list, owned or not, you may read everything and change status and progress (chore_crusher_complete_task, chore_crusher_reopen_task, chore_crusher_toggle_task, chore_crusher_set_progress) and chore_crusher_claim_work / chore_crusher_release_work. chore_crusher_add_list and chore_crusher_my_list always create a list owned by you.
 
 Tools are exposed to MCP hosts as chore_crusher_<name> (shown verbatim below). Every id-bearing parameter accepts a short unambiguous prefix of the full id. Lists are addressed by id prefix, never by name.
 
@@ -110,7 +110,8 @@ QUICK REFERENCE (tool: parameters)
 - chore_crusher_set_notes(id, notes)              replace a task's notes (whole text; empty clears)
 - chore_crusher_move_task(id, parent)             re-parent; omit parent to move to the list root
 - chore_crusher_delete_task(id, force=true) / chore_crusher_delete_list(id, force=true)   deletes require force=true
-- chore_crusher_add_list(name) / chore_crusher_rename_list(id, name)
+- chore_crusher_add_list(name, created_by)       created_by is optional and defaults to your own tag
+- chore_crusher_rename_list(id, name)            rename a list you own
 - chore_crusher_my_list()                       get or create your own "pi:" list (where to track your own work)
 - chore_crusher_claim_work(entity_type, entity_id, agent_id, kind)   entity_type = task|list, kind = working|inspecting
 - chore_crusher_release_work(entity_type, entity_id, agent_id)       release a claim; no-op if not claimed
@@ -316,6 +317,9 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		if err := requireWritable(s, identity, listID); err != nil {
+			return errorResult(err), nil, nil
+		}
 		var parentID *string
 		if strings.TrimSpace(in.Parent) != "" {
 			pid, err := s.ResolveID("task", in.Parent)
@@ -404,6 +408,9 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		if err := requireWritableTask(s, identity, id); err != nil {
+			return errorResult(err), nil, nil
+		}
 		if err := s.DeleteTask(id); err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -421,6 +428,9 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		if err := requireWritableTask(s, identity, id); err != nil {
+			return errorResult(err), nil, nil
+		}
 		if err := s.RenameTask(id, in.Title); err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -436,6 +446,9 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	}) (*mcp.CallToolResult, any, error) {
 		id, err := s.ResolveID("task", in.ID)
 		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		if err := requireWritableTask(s, identity, id); err != nil {
 			return errorResult(err), nil, nil
 		}
 		if err := s.SetNotes(id, in.Notes); err != nil {
@@ -476,13 +489,33 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		// Decide the target list (the parent's list for a cross-list move, or
+		// the task's own list when moving to root) and require it be writable
+		// before any write — the store must not half-move a task into a list
+		// the requester does not own (docs/plan/list-ownership-enforcement.md
+		// §4.D, §7).
 		var parentID *string
+		var targetList string
 		if strings.TrimSpace(in.Parent) != "" {
 			pid, err := s.ResolveID("task", in.Parent)
 			if err != nil {
 				return errorResult(err), nil, nil
 			}
 			parentID = &pid
+			p, err := s.GetTask(*parentID)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			targetList = p.ListID
+		} else {
+			t, err := s.GetTask(id)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			targetList = t.ListID
+		}
+		if err := requireWritable(s, identity, targetList); err != nil {
+			return errorResult(err), nil, nil
 		}
 		if err := s.Reparent(id, parentID); err != nil {
 			return errorResult(err), nil, nil
@@ -584,6 +617,20 @@ func requireWritable(s *store.Store, identity, listID string) error {
 		owner = "no one (untagged)"
 	}
 	return fmt.Errorf("list %s is owned by %s — you may read it and update task status/progress only", l.ID, owner)
+}
+
+// requireWritableTask rejects a structural write to the list a task belongs
+// to (docs/plan/list-ownership-enforcement.md §4.D). It resolves the task,
+// reads its ListID, and applies requireWritable — so rename_task/set_notes/
+// delete_task defer to the same owner check as the list tools. move_task is
+// handled inline because its target list is the *parent's* list, not the
+// task's own.
+func requireWritableTask(s *store.Store, identity, taskID string) error {
+	t, err := s.GetTask(taskID)
+	if err != nil {
+		return err
+	}
+	return requireWritable(s, identity, t.ListID)
 }
 
 // sectionRows returns the preorder task rows for a status filter, mirroring

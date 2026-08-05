@@ -13,6 +13,7 @@ import (
 
 	"github.com/filipemolina/chore-crusher/src/config"
 	"github.com/filipemolina/chore-crusher/src/mcpserver"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // setupMCP starts an in-memory MCP server backed by a fresh temporary store
@@ -886,6 +887,328 @@ func TestMCPBreakdownPrompt(t *testing.T) {
 	}
 	if !strings.Contains(tc.Text, "Ship the project") || !strings.Contains(tc.Text, "README") {
 		t.Fatalf("breakdown text missing task/notes: %s", tc.Text)
+	}
+}
+
+// TestMCPForeignListWriteRefused guards §4.D / §5 assertion 2: every
+// structural write tool (add_task, rename_task, set_notes, move_task,
+// delete_task, rename_list, delete_list) errors on a list owned by another
+// agent — not just one of them. The server here acts as "pi"; the list is
+// created as "claude".
+func TestMCPForeignListWriteRefused(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	// A list owned by claude (created explicitly as claude via the enforced
+	// add_list surface). The server here is "pi", so every structural write
+	// to it must be refused.
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
+		"name": "claude: Backlog", "created_by": "claude",
+	}), &list)
+
+	// add_task on a foreign list is refused.
+	msg := callToolErr(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "intrude",
+	})
+	if !strings.Contains(msg, "owned by claude") {
+		t.Fatalf("add_task foreign-list error = %q, want it to name the owner", msg)
+	}
+
+	// Seed a task on claude's list (the CLI shape) so we can probe the
+	// task-content tools. The server identity cannot be switched after
+	// NewServer, so seed directly via the shared DB.
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	taskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, 'real work', '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		taskID, list["id"], now, now,
+	); err != nil {
+		t.Fatalf("seed task on claude's list: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{"rename_task", "rename_task", map[string]any{"id": taskID, "title": "hijack"}},
+		{"set_notes", "set_notes", map[string]any{"id": taskID, "notes": "tamper"}},
+		{"delete_task", "delete_task", map[string]any{"id": taskID, "force": true}},
+		{"rename_list", "rename_list", map[string]any{"id": list["id"], "name": "claude: Hijacked"}},
+		{"delete_list", "delete_list", map[string]any{"id": list["id"], "force": true}},
+	} {
+		msg := callToolErr(t, session, tc.tool, tc.args)
+		if !strings.Contains(msg, "owned by claude") {
+			t.Fatalf("%s foreign-list error = %q, want it to name the owner", tc.name, msg)
+		}
+	}
+
+	// move_task to the foreign list is refused before any write.
+	msg = callToolErr(t, session, "move_task", map[string]any{
+		"id": taskID, "parent": "",
+	})
+	if !strings.Contains(msg, "owned by claude") {
+		t.Fatalf("move_task foreign-list error = %q, want it to name the owner", msg)
+	}
+
+	// The task was never moved/deleted: claude's list still has exactly one
+	// task, proving no structural write slipped through.
+	var rows []struct{ Title string }
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"],
+	}), &rows)
+	if len(rows) != 1 || rows[0].Title != "real work" {
+		t.Fatalf("foreign-list structural writes leaked: rows = %+v", rows)
+	}
+}
+
+// TestMCPOwnerCanWriteEverything guards that the owner of a list can run every
+// structural tool on it (the mirror of TestMCPForeignListWriteRefused).
+func TestMCPOwnerCanWriteEverything(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "claude")
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
+		"name": "claude: Backlog", "created_by": "claude",
+	}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "real work",
+	}), &task)
+
+	callTool(t, session, "rename_task", map[string]any{"id": task["id"], "title": "renamed"})
+	callTool(t, session, "set_notes", map[string]any{"id": task["id"], "notes": "annotated"})
+	callTool(t, session, "rename_list", map[string]any{"id": list["id"], "name": "claude: Renamed"})
+
+	// move_task within the owner's own list (to root) succeeds.
+	callTool(t, session, "move_task", map[string]any{"id": task["id"]})
+
+	// delete_task requires force and succeeds for the owner.
+	callTool(t, session, "delete_task", map[string]any{"id": task["id"], "force": true})
+	var rows []struct{ Title string }
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"],
+	}), &rows)
+	if len(rows) != 0 {
+		t.Fatalf("owner delete_task left rows = %+v", rows)
+	}
+
+	callTool(t, session, "delete_list", map[string]any{"id": list["id"], "force": true})
+	if got := callTool(t, session, "list_lists", nil); got != "[]" {
+		t.Fatalf("list_lists = %q, want [] after owner deletes the list", got)
+	}
+}
+
+// TestMCPStatusToolsOpenOnForeignList guards §5 assertion 3: status/progress
+// tools are never gated, so complete_task / set_progress succeed on a list
+// owned by another agent.
+func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
+		"name": "claude: Backlog", "created_by": "claude",
+	}), &list)
+
+	// Seed a task on claude's list (CLI shape); the server is "pi" so an MCP
+	// add_task would be refused — seed directly via the shared DB.
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	taskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, 'needs status', '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		taskID, list["id"], now, now,
+	); err != nil {
+		t.Fatalf("seed task on claude's list: %v", err)
+	}
+
+	// pi (foreign) may still flip status/progress.
+	callTool(t, session, "set_progress", map[string]any{"id": taskID, "mode": "simple"})
+	callTool(t, session, "complete_task", map[string]any{"id": taskID})
+
+	var rows []struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"], "status": "complete",
+	}), &rows)
+	if len(rows) != 1 || rows[0].Status != "complete" {
+		t.Fatalf("foreign status write did not take: rows = %+v", rows)
+	}
+}
+
+// TestMCPUntaggedListForeignToEveryAgent guards §5 assertion 4: a list with
+// no owner (created the human/CLI way, created_by="") is foreign to *every*
+// agent identity — structural writes error for all of them, yet
+// status/progress writes succeed. MCP's add_list defaults the owner to the
+// server identity, so an untagged list cannot be produced through the
+// enforced surface; this test seeds it directly (the CLI shape) via the same
+// DB the MCP server opened.
+func TestMCPUntaggedListForeignToEveryAgent(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	// Seed an untagged list + a task, mirroring the CLI/TUI (created_by="").
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	listID := store.NewID()
+	taskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO List (id, name, created_at, position, created_by) VALUES (?, ?, ?, 0, "")`,
+		listID, "Groceries", now,
+	); err != nil {
+		t.Fatalf("seed untagged list: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, 'buy milk', '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		taskID, listID, now, now,
+	); err != nil {
+		t.Fatalf("seed task on untagged list: %v", err)
+	}
+
+	// pi is refused from structurally writing to the untagged list.
+	msg := callToolErr(t, session, "add_task", map[string]any{
+		"list_id": listID, "title": "sneak in",
+	})
+	if !strings.Contains(msg, "no one (untagged)") {
+		t.Fatalf("add_task untagged-list error = %q, want it to say untagged", msg)
+	}
+	msg = callToolErr(t, session, "rename_list", map[string]any{
+		"id": listID, "name": "Renamed",
+	})
+	if !strings.Contains(msg, "no one (untagged)") {
+		t.Fatalf("rename_list untagged-list error = %q, want it to say untagged", msg)
+	}
+	msg = callToolErr(t, session, "delete_list", map[string]any{
+		"id": listID, "force": true,
+	})
+	if !strings.Contains(msg, "no one (untagged)") {
+		t.Fatalf("delete_list untagged-list error = %q, want it to say untagged", msg)
+	}
+
+	// Yet status/progress writes succeed on the untagged list's task — the
+	// read + status/progress-only rule holds for *every* identity.
+	callTool(t, session, "set_progress", map[string]any{"id": taskID, "mode": "simple"})
+	callTool(t, session, "complete_task", map[string]any{"id": taskID})
+
+	var rows []struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": listID, "status": "complete",
+	}), &rows)
+	if len(rows) != 1 || rows[0].ID != taskID || rows[0].Status != "complete" {
+		t.Fatalf("untagged-list status write did not take: rows = %+v", rows)
+	}
+}
+
+// TestMCPAddListDefaultsToIdentity guards §5 assertion 5 (default owner):
+// add_list with no created_by yields a list_lists entry whose created_by is
+// the server identity.
+func TestMCPAddListDefaultsToIdentity(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	var created map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
+		"name": "My list",
+	}), &created)
+
+	var lists []struct {
+		ID        string `json:"id"`
+		CreatedBy string `json:"created_by"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
+	if len(lists) != 1 || lists[0].ID != created["id"] || lists[0].CreatedBy != "pi" {
+		t.Fatalf("list_lists = %+v, want created_by=pi for the new list", lists)
+	}
+}
+
+// TestMCPListListsIncludesCreatedBy guards §5 assertion 5: list_lists reports
+// the owner of each list.
+func TestMCPListListsIncludesCreatedBy(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	var owned map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
+		"name": "mine", "created_by": "pi",
+	}), &owned)
+	var theirs map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
+		"name": "theirs", "created_by": "claude",
+	}), &theirs)
+
+	// An untagged list (created_by="") cannot be produced through the
+	// enforced MCP surface — add_list defaults the owner to the identity —
+	// so seed it directly (the CLI shape) via the shared DB.
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	untaggedID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO List (id, name, created_at, position, created_by) VALUES (?, ?, ?, 0, "")`,
+		untaggedID, "shared", now,
+	); err != nil {
+		t.Fatalf("seed untagged list: %v", err)
+	}
+
+	byID := make(map[string]string)
+	var lists []struct {
+		ID        string `json:"id"`
+		CreatedBy string `json:"created_by"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
+	for _, l := range lists {
+		byID[l.ID] = l.CreatedBy
+	}
+	if byID[owned["id"]] != "pi" {
+		t.Fatalf("owned list created_by = %q, want pi", byID[owned["id"]])
+	}
+	if byID[theirs["id"]] != "claude" {
+		t.Fatalf("their list created_by = %q, want claude", byID[theirs["id"]])
+	}
+	if byID[untaggedID] != "" {
+		t.Fatalf("untagged list created_by = %q, want empty", byID[untaggedID])
+	}
+}
+
+// TestMCPAddListRejectsBadTag guards §4.C: an explicit created_by that fails
+// the tag pattern is rejected.
+func TestMCPAddListRejectsBadTag(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	msg := callToolErr(t, session, "add_list", map[string]any{
+		"name": "x", "created_by": "p i",
+	})
+	if !strings.Contains(msg, "created_by must match") {
+		t.Fatalf("add_list bad tag error = %q, want the pattern error", msg)
 	}
 }
 

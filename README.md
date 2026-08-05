@@ -138,12 +138,21 @@ an agent parses one shape either way. Full contract:
 
 `crush mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
 server over stdin/stdout — the same store, exposed to an agent as a surface it
-can discover without reading source:
+can discover without reading source. Two jobs, one board:
 
-- **19 tools** — every CLI operation (`list_tasks`, `complete_task`,
-  `set_progress`, `move_task`, …) returning the same `--json` shapes, plus the
-  presence trio: `claim_work` marks a task or list as being worked on,
-  `release_work` drops the claim, `list_work` lists what is claimed.
+1. **Agent todo store** — the agent tracks its own work on a list named after
+   its tag (`my_list` get-or-creates `<tag>: Inbox`).
+2. **Human dispatcher** — you create tasks in the TUI or CLI and tell the
+   agent to work them; it may complete and set progress anywhere, and may
+   restructure only lists it owns.
+
+### Surface
+
+- **20 tools** — every CLI operation (`list_tasks`, `complete_task`,
+  `set_progress`, `move_task`, …) returning the same `--json` shapes, plus
+  `my_list`, plus the presence trio: `claim_work` marks a task or list as
+  being worked on, `release_work` drops the claim, `list_work` lists what is
+  claimed.
 - **6 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
   `crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
   `crush:///tasks/{id}`, `crush:///search/{query}`, and `crush://work` (the
@@ -153,21 +162,65 @@ can discover without reading source:
   (decompose a task into subtasks).
 
 Destructive tools require `force=true`, and every response — success or error
-— is one JSON shape, mirroring the CLI contract. Full contract, including
-`crush mcp`: [`docs/DESIGN.md` §The CLI contract](docs/DESIGN.md#the-cli-contract).
+— is one JSON shape, mirroring the CLI contract.
+
+### Ownership and identity
+
+Every list carries a declared owner (`created_by`). The server acts under the
+tag in the `CRUSH_AGENT` environment variable (default `agent`), which you set
+per server in the MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "chore-crusher": {
+      "command": "crush",
+      "args": ["mcp"],
+      "env": { "CRUSH_AGENT": "pi" }
+    }
+  }
+}
+```
+
+Structural writes (adding, renaming, moving or deleting lists, tasks and
+notes) are refused on a list owned by another agent or on an untagged one;
+reads and status/progress writes are open on every list. The CLI and the TUI
+are human surfaces and stay unenforced — so you can drop tasks onto an
+agent-owned list from the TUI without fighting the gate.
+
+Claim with `agent_id` equal to `CRUSH_AGENT` (or omit it once hardening
+lands — see roadmap): status/progress writes keep a live claim alive only
+when the claim's agent matches the server identity.
+
+Full contract:
+[`docs/DESIGN.md` §The CLI contract](docs/DESIGN.md#the-cli-contract).
+
+### Plans and next steps
+
+MCP work is tracked as its own track on the roadmap:
+
+| Status | Plan |
+| --- | --- |
+| ✅ Done | [`docs/plan/mcp-server-enhancement.md`](docs/plan/mcp-server-enhancement.md) — presence, resources, prompts |
+| ✅ Done | [`docs/plan/agent-presence-heartbeat.md`](docs/plan/agent-presence-heartbeat.md) — write-heartbeat + lists-panel aggregation |
+| ✅ Done | [`MCP_COMFORT_PLAN.md`](MCP_COMFORT_PLAN.md) — busy-fix, children, `my_list`, always-on instructions |
+| ✅ Done | [`docs/plan/list-ownership-enforcement.md`](docs/plan/list-ownership-enforcement.md) — `created_by` enforcement |
+| 🔲 Next | [`docs/plan/mcp-agent-todo-hardening.md`](docs/plan/mcp-agent-todo-hardening.md) — identity/claim defaults, `my_list` owner match, CLI handoff |
 
 ## Status
 
 Alpha shipped — phases 0–9 of `docs/ROADMAP.md` are complete and tagged
-`v0.1.0`. The TUI, the CLI, and the MCP server wrapper all talk to the same
-SQLite store; choose whichever surface fits the caller.
+`v0.1.0`. The TUI, the CLI, and the MCP server all talk to the same SQLite
+store; choose whichever surface fits the caller. The MCP track above is the
+active post-alpha focus (agent todo store + human dispatch).
 
 - [`docs/DESIGN.md`](docs/DESIGN.md) — the data model, the state machine, the
   keybinding and focus contract, theming, storage, the CLI contract, and the
   MCP server. *Why* things are shaped the way they are.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — the shipped alpha and the live
-  post-alpha backlog.
-- [`docs/plans/`](docs/plans/) — one file per shipped phase, step by step.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — the shipped alpha, the MCP track, and
+  the live post-alpha backlog.
+- [`docs/plans/`](docs/plans/) — one file per shipped alpha phase.
+- [`docs/plan/`](docs/plan/) — post-alpha feature plans (MCP, UI, …).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — the build/test loop and the rules
   that keep a contributor (especially an unsupervised one) from drifting from
   the plan above.
