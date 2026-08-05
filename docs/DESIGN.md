@@ -585,13 +585,16 @@ untagged list — the shape `crush lists add` and the TUI create — is read +
 status/progress only for all agents, and only a human can restructure it.
 `add_list` defaults `created_by` to the session identity and accepts an
 explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `list_lists` reports
-`created_by` on every row. Ownership is also adopted from the
-`<tag>: <name>` naming convention by one idempotent backfill pass at
-`store.Open`, so a list a human renames into a tag becomes owned at the next
-open, not immediately. The backfill cannot tell intent: any `^tag:` prefix
-is adopted, so a human list named `Note: buy milk` becomes owned by tag
-`Note` at the next open — an accepted false-positive class (hardening plan
-§4.10). The inverse is deliberately *not* done: `GetOrCreateAgentList` and
+`created_by` on every row. Ownership is adopted from the `<tag>: <name>`
+naming convention in two places (hardening plan §4.6–4.7): a rename into a
+tag adopts the owner **in the same write** (`store.RenameList` — the human's
+`crush lists rename Groceries "pi: Groceries"` handoff path takes effect
+immediately), and `crush lists add --owner <tag>` provisions an owned list
+from the start. One idempotent backfill pass at `store.Open` catches
+anything that predates both. The adoption cannot tell intent: any `^tag:`
+prefix is adopted, so a human list named `Note: buy milk` becomes owned by
+tag `Note` — an accepted false-positive class (hardening plan §4.10). The
+inverse is deliberately *not* done: `GetOrCreateAgentList` and
 `my_list` match `created_by` only, never the name, so an untagged
 `pi: ...` list is never silently adopted.
 

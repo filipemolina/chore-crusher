@@ -207,7 +207,7 @@ MCP work is tracked as its own track on the roadmap:
 | ✅ Done | [`docs/plan/agent-presence-heartbeat.md`](docs/plan/agent-presence-heartbeat.md) — write-heartbeat + lists-panel aggregation |
 | ✅ Done | [`MCP_COMFORT_PLAN.md`](MCP_COMFORT_PLAN.md) — busy-fix, children, `my_list`, always-on instructions |
 | ✅ Done | [`docs/plan/list-ownership-enforcement.md`](docs/plan/list-ownership-enforcement.md) — `created_by` enforcement |
-| 🔲 Next | [`docs/plan/mcp-agent-todo-hardening.md`](docs/plan/mcp-agent-todo-hardening.md) — identity/claim defaults, `my_list` owner match, CLI handoff |
+| ✅ Done | [`docs/plan/mcp-agent-todo-hardening.md`](docs/plan/mcp-agent-todo-hardening.md) — identity/claim defaults, `my_list` owner match, CLI handoff |
 
 ## Status
 

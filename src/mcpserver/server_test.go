@@ -50,6 +50,14 @@ func setupMCP(t *testing.T) *mcp.ClientSession {
 	return cs
 }
 
+// setupMCPAs is setupMCP with a fixed server identity: the server reads
+// CRUSH_AGENT at NewServer, so the helper sets it before setupMCP opens one.
+func setupMCPAs(t *testing.T, identity string) *mcp.ClientSession {
+	t.Helper()
+	t.Setenv("CRUSH_AGENT", identity)
+	return setupMCP(t)
+}
+
 func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[string]any) string {
 	t.Helper()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -129,8 +137,7 @@ func TestMCPListLists(t *testing.T) {
 // add_list + copy-id dance before writing its first task. Idempotent: a
 // second call returns the same list without creating a duplicate.
 func TestMCPMyList(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	// First call creates the agent's list.
 	var first map[string]any
@@ -211,8 +218,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 // the configured CRUSH_AGENT, not a hardcoded "pi" — an agent running under
 // another tag is otherwise told to use pi: lists it does not own.
 func TestMCPInstructionsUsesIdentity(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "claude")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "claude")
 
 	instructions := session.InitializeResult().Instructions
 	if instructions == "" {
@@ -233,8 +239,7 @@ func TestMCPInstructionsUsesIdentity(t *testing.T) {
 func TestMCPInstructionsAlwaysOnTodoRule(t *testing.T) {
 	// The doc names the configured identity, so pin it to the agent this test
 	// expects (the default would be "agent").
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	instructions := session.InitializeResult().Instructions
 	if instructions == "" {
@@ -546,8 +551,7 @@ func TestMCPClaimWorkConflict(t *testing.T) {
 }
 
 func TestMCPStatusWritesRefreshClaim(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
@@ -610,8 +614,7 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 // fix the claim landed under "agent" and TouchWork (identity "pi") never
 // matched it.
 func TestMCPClaimDefaultsToIdentity(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
@@ -671,8 +674,7 @@ func TestMCPClaimDefaultsToIdentity(t *testing.T) {
 }
 
 func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
@@ -1016,8 +1018,7 @@ func TestMCPBreakdownPrompt(t *testing.T) {
 // agent — not just one of them. The server here acts as "pi"; the list is
 // created as "claude".
 func TestMCPForeignListWriteRefused(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	// A list owned by claude (created explicitly as claude via the enforced
 	// add_list surface). The server here is "pi", so every structural write
@@ -1026,14 +1027,6 @@ func TestMCPForeignListWriteRefused(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
 		"name": "claude: Backlog", "created_by": "claude",
 	}), &list)
-
-	// add_task on a foreign list is refused.
-	msg := callToolErr(t, session, "add_task", map[string]any{
-		"list_id": list["id"], "title": "intrude",
-	})
-	if !strings.Contains(msg, "owned by claude") {
-		t.Fatalf("add_task foreign-list error = %q, want it to name the owner", msg)
-	}
 
 	// Seed a task on claude's list (the CLI shape) so we can probe the
 	// task-content tools. The server identity cannot be switched after
@@ -1053,13 +1046,18 @@ func TestMCPForeignListWriteRefused(t *testing.T) {
 		t.Fatalf("seed task on claude's list: %v", err)
 	}
 
+	// One table for all seven structural tools: a new gated tool is added as
+	// a row here, not as an eighth hand-written case (hardening §5.I, H14).
 	for _, tc := range []struct {
 		name string
 		tool string
 		args map[string]any
 	}{
+		{"add_task", "add_task", map[string]any{"list_id": list["id"], "title": "intrude"}},
 		{"rename_task", "rename_task", map[string]any{"id": taskID, "title": "hijack"}},
 		{"set_notes", "set_notes", map[string]any{"id": taskID, "notes": "tamper"}},
+		// move_task to the foreign list is refused before any write.
+		{"move_task", "move_task", map[string]any{"id": taskID, "parent": ""}},
 		{"delete_task", "delete_task", map[string]any{"id": taskID, "force": true}},
 		{"rename_list", "rename_list", map[string]any{"id": list["id"], "name": "claude: Hijacked"}},
 		{"delete_list", "delete_list", map[string]any{"id": list["id"], "force": true}},
@@ -1068,14 +1066,6 @@ func TestMCPForeignListWriteRefused(t *testing.T) {
 		if !strings.Contains(msg, "owned by claude") {
 			t.Fatalf("%s foreign-list error = %q, want it to name the owner", tc.name, msg)
 		}
-	}
-
-	// move_task to the foreign list is refused before any write.
-	msg = callToolErr(t, session, "move_task", map[string]any{
-		"id": taskID, "parent": "",
-	})
-	if !strings.Contains(msg, "owned by claude") {
-		t.Fatalf("move_task foreign-list error = %q, want it to name the owner", msg)
 	}
 
 	// The task was never moved/deleted: claude's list still has exactly one
@@ -1092,8 +1082,7 @@ func TestMCPForeignListWriteRefused(t *testing.T) {
 // TestMCPOwnerCanWriteEverything guards that the owner of a list can run every
 // structural tool on it (the mirror of TestMCPForeignListWriteRefused).
 func TestMCPOwnerCanWriteEverything(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "claude")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "claude")
 
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
@@ -1132,8 +1121,7 @@ func TestMCPOwnerCanWriteEverything(t *testing.T) {
 // tools are never gated, so complete_task / set_progress succeed on a list
 // owned by another agent.
 func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
@@ -1181,8 +1169,7 @@ func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
 // enforced surface; this test seeds it directly (the CLI shape) via the same
 // DB the MCP server opened.
 func TestMCPUntaggedListForeignToEveryAgent(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	// Seed an untagged list + a task, mirroring the CLI/TUI (created_by="").
 	db, err := sql.Open("sqlite", config.DBPath())
@@ -1248,8 +1235,7 @@ func TestMCPUntaggedListForeignToEveryAgent(t *testing.T) {
 // add_list with no created_by yields a list_lists entry whose created_by is
 // the server identity.
 func TestMCPAddListDefaultsToIdentity(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	var created map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
@@ -1269,8 +1255,7 @@ func TestMCPAddListDefaultsToIdentity(t *testing.T) {
 // TestMCPListListsIncludesCreatedBy guards §5 assertion 5: list_lists reports
 // the owner of each list.
 func TestMCPListListsIncludesCreatedBy(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	var owned map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
@@ -1321,8 +1306,7 @@ func TestMCPListListsIncludesCreatedBy(t *testing.T) {
 // TestMCPAddListRejectsBadTag guards §4.C: an explicit created_by that fails
 // the tag pattern is rejected.
 func TestMCPAddListRejectsBadTag(t *testing.T) {
-	t.Setenv("CRUSH_AGENT", "pi")
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi")
 
 	msg := callToolErr(t, session, "add_list", map[string]any{
 		"name": "x", "created_by": "p i",
