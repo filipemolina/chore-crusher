@@ -111,13 +111,16 @@ func (s *Store) DeleteList(id string) error {
 // second call for the same identity returns the same list without creating a
 // duplicate.
 //
-// A list named "<identity>: ..." marks ownership for the status/progress
-// enforcement (docs/plan/list-ownership-enforcement.md); the my_list MCP tool
-// is the caller-facing wrapper this store method supports.
+// The lookup is owner-first (WHERE created_by = ?): a list merely *named*
+// "<identity>: ..." but created by the human in the CLI/TUI (created_by
+// empty) is foreign to every agent and must not satisfy this call — silently
+// adopting it would hand the agent a list the server then refuses to write
+// (docs/plan/mcp-agent-todo-hardening.md §4.3). The my_list MCP tool is the
+// caller-facing wrapper this store method supports.
 func (s *Store) GetOrCreateAgentList(identity string) (string, error) {
 	prefix := identity + ": "
 	var id string
-	if err := s.db.QueryRow(`SELECT id FROM "list" WHERE name LIKE (? || '%') ORDER BY created_at LIMIT 1`, prefix).Scan(&id); err != nil {
+	if err := s.db.QueryRow(`SELECT id FROM "list" WHERE created_by = ? ORDER BY created_at LIMIT 1`, identity).Scan(&id); err != nil {
 		if !isNoRows(err) {
 			return "", err
 		}

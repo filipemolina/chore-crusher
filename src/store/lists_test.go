@@ -163,6 +163,61 @@ func TestGetOrCreateAgentList(t *testing.T) {
 	}
 }
 
+// TestGetOrCreateAgentListIsOwnerFirst pins hardening §4.3 (H3): the lookup
+// must be by created_by, not by the "<identity>:" name prefix. A list the
+// human created in the CLI/TUI with a pi: name but an empty owner is foreign
+// to every agent — returning it would make the next add_task fail with
+// "owned by no one".
+func TestGetOrCreateAgentListIsOwnerFirst(t *testing.T) {
+	s := newTestStore(t)
+
+	// TUI/CLI-shaped list: pi: name, empty owner.
+	untagged, err := s.CreateList("pi: Notes", "")
+	if err != nil {
+		t.Fatalf("CreateList(pi: Notes, \"\"): %v", err)
+	}
+
+	// GetOrCreateAgentList must NOT return it; it creates a real owned list.
+	id, err := s.GetOrCreateAgentList("pi")
+	if err != nil {
+		t.Fatalf("GetOrCreateAgentList(pi): %v", err)
+	}
+	if id == untagged {
+		t.Fatalf("GetOrCreateAgentList returned the untagged name-prefixed list %q; it must not be adopted", id)
+	}
+
+	got, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if got.CreatedBy != "pi" || got.Name != "pi: Inbox" {
+		t.Fatalf("GetOrCreateAgentList created list = %+v, want pi: Inbox owned by pi", got)
+	}
+
+	// Owner-first also the other way: on a fresh store whose only owned list is
+	// named differently (e.g. a handoff from `crush lists add --owner pi`), the
+	// lookup returns it instead of creating a second pi: Inbox.
+	s2 := newTestStore(t)
+	handoff, err := s2.CreateList("Sprint", "pi")
+	if err != nil {
+		t.Fatalf("CreateList(Sprint, pi): %v", err)
+	}
+	id2, err := s2.GetOrCreateAgentList("pi")
+	if err != nil {
+		t.Fatalf("GetOrCreateAgentList(pi) on owned-only store: %v", err)
+	}
+	if id2 != handoff {
+		t.Fatalf("GetOrCreateAgentList = %q, want the pi-owned list %q (created_by, not name)", id2, handoff)
+	}
+	lists, err := s2.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(lists) != 1 {
+		t.Fatalf("expected no pi: Inbox duplicate, got %d lists", len(lists))
+	}
+}
+
 func TestDeleteListRequiresExisting(t *testing.T) {
 	s := newTestStore(t)
 	err := s.DeleteList("no-such-id")
