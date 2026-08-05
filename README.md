@@ -188,9 +188,11 @@ reads and status/progress writes are open on every list. The CLI and the TUI
 are human surfaces and stay unenforced — so you can drop tasks onto an
 agent-owned list from the TUI without fighting the gate.
 
-Claim with `agent_id` equal to `CRUSH_AGENT` (or omit it once hardening
-lands — see roadmap): status/progress writes keep a live claim alive only
-when the claim's agent matches the server identity.
+Omit `agent_id` on `claim_work` — it defaults to the server's own identity
+(`CRUSH_AGENT`): status/progress writes keep a live claim alive, but only
+when the claim's agent matches the server identity. Set it explicitly only
+for a different label (demos, multi-claim); the heartbeat will not refresh
+that claim.
 
 Full contract:
 [`docs/DESIGN.md` §The CLI contract](docs/DESIGN.md#the-cli-contract).
