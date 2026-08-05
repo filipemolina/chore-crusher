@@ -694,45 +694,30 @@ func taskProgressJSON(s *store.Store, id string) (progressJSON, error) {
 	return p, nil
 }
 
-// descendantRows walks one list's flat tasks and returns every descendant of
-// rootID (the task itself excluded) as depth-annotated rows, computing
-// derived progress per row. Depth is relative to rootID: direct children at
-// depth 1. This is the shape show_task's "children" field should contain —
-// the previous code ran descendantsOf() through apptypes.Flatten, but Flatten
-// only emits ParentID==nil rows, so a pure-descendant set (no list root)
-// flattened to nothing and "children" was always empty.
+// descendantRows returns every descendant of rootID (the task itself
+// excluded) as depth-annotated rows with derived progress per row, using the
+// shared apptypes.DescendantsOf so `crush show` and show_task cannot drift
+// (docs/plan/mcp-agent-todo-hardening.md §4.4). Depth is relative to rootID:
+// direct children at depth 1. The previous code ran a store-level walk
+// through apptypes.Flatten, but Flatten only emits ParentID==nil rows, so a
+// pure-descendant set (no list root) flattened to nothing and "children"
+// was always empty.
 func descendantRows(s *store.Store, tasks []store.Task, rootID string) ([]taskRowJSON, error) {
-	children := make(map[string][]store.Task)
-	for _, t := range tasks {
-		if t.ParentID != nil {
-			children[*t.ParentID] = append(children[*t.ParentID], t)
+	rows := apptypes.DescendantsOf(apptypes.FromStoreTasks(tasks), rootID)
+	out := make([]taskRowJSON, 0, len(rows))
+	for _, r := range rows {
+		prog, err := taskProgressJSON(s, r.Task.ID)
+		if err != nil {
+			return nil, err
 		}
-	}
-
-	out := make([]taskRowJSON, 0, len(tasks))
-	var walk func(id string, depth int) error
-	walk = func(id string, depth int) error {
-		for _, c := range children[id] {
-			prog, err := taskProgressJSON(s, c.ID)
-			if err != nil {
-				return err
-			}
-			out = append(out, taskRowJSON{
-				ID:       c.ID,
-				ParentID: c.ParentID,
-				Title:    c.Title,
-				Status:   string(c.Status),
-				Progress: prog,
-				Depth:    depth,
-			})
-			if err := walk(c.ID, depth+1); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := walk(rootID, 1); err != nil {
-		return nil, err
+		out = append(out, taskRowJSON{
+			ID:       r.Task.ID,
+			ParentID: r.Task.ParentID,
+			Title:    r.Task.Title,
+			Status:   string(r.Task.Status),
+			Progress: prog,
+			Depth:    r.Depth,
+		})
 	}
 	return out, nil
 }

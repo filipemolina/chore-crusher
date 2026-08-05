@@ -353,29 +353,6 @@ type showJSON struct {
 	Children    []taskRowJSON `json:"children"`
 }
 
-// descendantsOf filters one list's flat tasks down to a task's subtree
-// (descendants only, the task itself excluded) by walking parent links from
-// the root — `crush show` prints children the same way whether the caller
-// resolved a prefix or a task deep in the tree.
-func descendantsOf(tasks []store.Task, rootID string) []store.Task {
-	children := make(map[string][]store.Task)
-	for _, t := range tasks {
-		if t.ParentID != nil {
-			children[*t.ParentID] = append(children[*t.ParentID], t)
-		}
-	}
-	var out []store.Task
-	var walk func(id string)
-	walk = func(id string) {
-		for _, c := range children[id] {
-			out = append(out, c)
-			walk(c.ID)
-		}
-	}
-	walk(rootID)
-	return out
-}
-
 func runShow(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
@@ -396,7 +373,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		childViews, err := viewsOf(s, apptypes.Flatten(apptypes.FromStoreTasks(descendantsOf(all, id))))
+		childViews, err := viewsOf(s, apptypes.DescendantsOf(apptypes.FromStoreTasks(all), id))
 		if err != nil {
 			return err
 		}

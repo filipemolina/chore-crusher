@@ -46,3 +46,31 @@ func flattenInto(t Task, depth int, children map[string][]Task, out *[]Row) {
 		flattenInto(k, depth+1, children, out)
 	}
 }
+
+// DescendantsOf returns every descendant of rootID (the root itself
+// excluded) as depth-annotated rows, with depth relative to rootID: direct
+// children at depth 1. Flatten cannot produce this shape — it only emits
+// ParentID==nil rows, and a pure-descendant set has no roots — so this is
+// the one helper both `crush show` (CLI) and show_task (MCP) use for their
+// children rows, and the two surfaces cannot drift again
+// (docs/plan/mcp-agent-todo-hardening.md §4.4).
+func DescendantsOf(tasks []Task, rootID string) []Row {
+	children := make(map[string][]Task)
+	for _, t := range tasks {
+		if t.ParentID != nil {
+			children[*t.ParentID] = append(children[*t.ParentID], t)
+		}
+	}
+
+	var out []Row
+	var walk func(id string, depth int)
+	walk = func(id string, depth int) {
+		for _, c := range children[id] {
+			kids := children[c.ID]
+			out = append(out, Row{Task: c, Depth: depth, HasChildren: len(kids) > 0})
+			walk(c.ID, depth+1)
+		}
+	}
+	walk(rootID, 1)
+	return out
+}

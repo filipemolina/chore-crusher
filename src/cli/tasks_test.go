@@ -173,6 +173,32 @@ func TestShow(t *testing.T) {
 	}
 }
 
+// TestCLIShowIncludesChildren pins hardening §6 assertion 4 (H4): `crush
+// show --json` must emit non-empty children with depth relative to the shown
+// task (child at 1, grandchild at 2) — the old code ran the descendant set
+// through apptypes.Flatten, which only emits ParentID==nil rows, so children
+// was always empty and the CLI diverged from the MCP's show_task.
+func TestCLIShowIncludesChildren(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	parent := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
+	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "Choose color", "--parent", parent))
+	grand := strings.TrimSpace(mustCLI(t, data, "add", lid, "Hex code", "--parent", child))
+
+	var payload showJSON
+	mustJSONCLI(t, data, &payload, "show", parent, "--json")
+
+	if len(payload.Children) != 2 {
+		t.Fatalf("show children = %d, want 2 (child + grandchild): %+v", len(payload.Children), payload.Children)
+	}
+	if payload.Children[0].ID != child || payload.Children[0].Depth != 1 {
+		t.Errorf("first child = %+v, want %q at depth 1", payload.Children[0], child)
+	}
+	if payload.Children[1].ID != grand || payload.Children[1].Depth != 2 {
+		t.Errorf("second child = %+v, want %q at depth 2", payload.Children[1], grand)
+	}
+}
+
 func TestRmRequiresForce(t *testing.T) {
 	data := t.TempDir()
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))

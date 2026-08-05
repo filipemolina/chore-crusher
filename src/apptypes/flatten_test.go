@@ -47,3 +47,42 @@ func TestFlattenEmpty(t *testing.T) {
 		t.Errorf("Flatten(nil): got %d rows, want 0", len(rows))
 	}
 }
+
+// TestDescendantsOfDepthRelativeToRoot pins the shared children shape used by
+// `crush show` and show_task: descendants only (root excluded), preorder,
+// depth relative to the root with direct children at depth 1, has-children
+// annotated. This is exactly the shape Flatten cannot produce (no roots).
+func TestDescendantsOfDepthRelativeToRoot(t *testing.T) {
+	rootA := Task{ID: "a", Title: "root a"}
+	child := Task{ID: "a1", Title: "child", ParentID: strptr("a")}
+	grand := Task{ID: "a1a", Title: "grand", ParentID: strptr("a1")}
+	leaf := Task{ID: "a2", Title: "leaf", ParentID: strptr("a")}
+	rootB := Task{ID: "b", Title: "root b"}
+
+	rows := DescendantsOf([]Task{rootB, child, rootA, grand, leaf}, "a")
+
+	want := []struct {
+		id          string
+		depth       int
+		hasChildren bool
+	}{
+		{"a1", 1, true},
+		{"a1a", 2, false},
+		{"a2", 1, false},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("DescendantsOf returned %d rows, want %d", len(rows), len(want))
+	}
+	for i, w := range want {
+		got := rows[i]
+		if got.Task.ID != w.id || got.Depth != w.depth || got.HasChildren != w.hasChildren {
+			t.Errorf("row %d: got (id=%s depth=%d hasChildren=%v), want (id=%s depth=%d hasChildren=%v)",
+				i, got.Task.ID, got.Depth, got.HasChildren, w.id, w.depth, w.hasChildren)
+		}
+	}
+
+	// A leaf has no descendants; the root itself is never included.
+	if rows := DescendantsOf([]Task{rootA, child}, "a1"); len(rows) != 0 {
+		t.Errorf("DescendantsOf(leaf): got %d rows, want 0", len(rows))
+	}
+}
