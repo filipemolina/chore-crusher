@@ -126,7 +126,7 @@ BEHAVIOUR & GOTCHAS
 
 	addListTools(server, s, identity)
 	addTaskTools(server, s, identity)
-	addWorkTools(server, s)
+	addWorkTools(server, s, identity)
 	addWorkResource(server, s)
 	addResources(server, s)
 	addPrompts(server, s)
@@ -758,24 +758,30 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 
 // addWorkTools registers the agent-presence tools: claim_work,
 // release_work, list_work (docs/plan/mcp-server-enhancement.md §3.8).
-func addWorkTools(server *mcp.Server, s *store.Store) {
+// identity is the server's CRUSH_AGENT tag: an omitted agent_id defaults to
+// it, so a claim made without one matches the write-heartbeat in
+// TouchWork (docs/plan/mcp-agent-todo-hardening.md §4.2).
+func addWorkTools(server *mcp.Server, s *store.Store, identity string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "claim_work",
 		Description: "Claim a task or list as being worked on by an agent. The TUI " +
 			"shows a live spinner on the row while the claim is active. Re-claiming " +
 			"by the same agent refreshes the timer (heartbeat). A different agent " +
-			"holding the entity returns an error. entity_type is \"task\" or \"list\".",
+			"holding the entity returns an error. entity_type is \"task\" or \"list\". " +
+			"agent_id defaults to the server's own identity (CRUSH_AGENT); omit it " +
+			"unless you need a different label — a claim under another agent_id is " +
+			"not refreshed by your writes.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		EntityType string `json:"entity_type"`        // "task" or "list"
 		EntityID   string `json:"entity_id"`          // task or list id, or unambiguous prefix
-		AgentID    string `json:"agent_id,omitempty"` // short label; default "agent"
+		AgentID    string `json:"agent_id,omitempty"` // short label; default: this server's identity
 		Kind       string `json:"kind,omitempty"`     // "working" or "inspecting"; default "working"
 	}) (*mcp.CallToolResult, any, error) {
 		if in.EntityType != "task" && in.EntityType != "list" {
 			return errorResult(fmt.Errorf("entity_type must be \"task\" or \"list\", got %q", in.EntityType)), nil, nil
 		}
 		if in.AgentID == "" {
-			in.AgentID = "agent"
+			in.AgentID = identity
 		}
 		if in.Kind == "" {
 			in.Kind = "working"
@@ -801,13 +807,13 @@ func addWorkTools(server *mcp.Server, s *store.Store) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		EntityType string `json:"entity_type"`        // "task" or "list"
 		EntityID   string `json:"entity_id"`          // task or list id, or unambiguous prefix
-		AgentID    string `json:"agent_id,omitempty"` // default "agent"
+		AgentID    string `json:"agent_id,omitempty"` // default: this server's identity
 	}) (*mcp.CallToolResult, any, error) {
 		if in.EntityType != "task" && in.EntityType != "list" {
 			return errorResult(fmt.Errorf("entity_type must be \"task\" or \"list\", got %q", in.EntityType)), nil, nil
 		}
 		if in.AgentID == "" {
-			in.AgentID = "agent"
+			in.AgentID = identity
 		}
 		id, err := s.ResolveID(in.EntityType, in.EntityID)
 		if err != nil {

@@ -582,6 +582,72 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 	}
 }
 
+// TestMCPClaimDefaultsToIdentity pins §4.2 / §6 assertion 1: claim_work
+// without agent_id claims under the server identity (CRUSH_AGENT), so the
+// write-heartbeat in complete_task still refreshes the spinner. Before the
+// fix the claim landed under "agent" and TouchWork (identity "pi") never
+// matched it.
+func TestMCPClaimDefaultsToIdentity(t *testing.T) {
+	t.Setenv("CRUSH_AGENT", "pi")
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	// No agent_id: the claim must be stored under the server identity (pi),
+	// not the literal default "agent".
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+	})
+
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	var agentID string
+	if err := db.QueryRow(
+		`SELECT agent_id FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`,
+		task["id"],
+	).Scan(&agentID); err != nil {
+		t.Fatalf("read agent_id: %v", err)
+	}
+	if agentID != "pi" {
+		t.Fatalf("claim without agent_id must default to the server identity, got %q", agentID)
+	}
+
+	// Age the claim inside the TTL window; complete_task (a write-heartbeat)
+	// must push it forward — only possible when the claim's agent matches.
+	aged := time.Now().Add(-30 * time.Second).Unix()
+	if _, err := db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+		aged, task["id"],
+	); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	callTool(t, session, "complete_task", map[string]any{"id": task["id"]})
+
+	var after int64
+	if err := db.QueryRow(
+		`SELECT acquired_at FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`,
+		task["id"],
+	).Scan(&after); err != nil {
+		t.Fatalf("read acquired_at: %v", err)
+	}
+	if after <= aged {
+		t.Fatalf("complete_task must refresh a claim made without agent_id (acquired_at %d, want > %d)", after, aged)
+	}
+}
+
 func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
 	t.Setenv("CRUSH_AGENT", "pi")
 	session := setupMCP(t)
