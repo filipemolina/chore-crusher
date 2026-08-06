@@ -192,6 +192,82 @@ func TestDeleteDeletesHighlightedListNotActive(t *testing.T) {
 	}
 }
 
+// taskParent returns a task's parent id, or "" for a root task.
+func taskParent(t *testing.T, m AppModel, id string) string {
+	t.Helper()
+	task, err := m.store.GetTask(id)
+	if err != nil {
+		t.Fatalf("get task %s: %v", id, err)
+	}
+	if task.ParentID == nil {
+		return ""
+	}
+	return *task.ParentID
+}
+
+// Bug 4: a second indent pressed inside the first indent's refresh window
+// must act on the post-change state, not on the stale rows. The report: 1,
+// 2, 3; ] on 2 (2 becomes a child of 1); then ] on 3 — if the second ]
+// lands before the first refresh applies, the tree computes 3's previous
+// sibling from the pre-reparent rows (task 2) and nests 3 under 2 instead
+// of under 1. Reproduced in the real TUI by sending j]j] with no delay;
+// this test forces the same window by holding the first ]'s command
+// instead of chasing it.
+func TestIndentDuringRefreshWindowTargetsPostChangeState(t *testing.T) {
+	m := newTestModel(t, t.TempDir())
+	listID := m.activeListID
+	if listID == "" {
+		t.Fatal("no initial list to seed into")
+	}
+	one, err := m.store.CreateTask(listID, "1", nil, "")
+	if err != nil {
+		t.Fatalf("create 1: %v", err)
+	}
+	two, err := m.store.CreateTask(listID, "2", nil, "")
+	if err != nil {
+		t.Fatalf("create 2: %v", err)
+	}
+	three, err := m.store.CreateTask(listID, "3", nil, "")
+	if err != nil {
+		t.Fatalf("create 3: %v", err)
+	}
+	m = refresh(t, m, cmds.RefreshLists(m.store)())
+	m = refresh(t, m, cmds.RefreshTasks(m.store, listID)())
+	m = refresh(t, m, cmds.SetFocus(constants.COMPONENT_TASK_TREE)())
+
+	// Select 2 and start its indent, holding the command so the tree's rows
+	// stay stale — the store has not seen the reparent yet.
+	m = refresh(t, m, tea.KeyPressMsg{Text: "j", Code: 'j'})
+	held, cmd := m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	var ok bool
+	if m, ok = held.(AppModel); !ok {
+		t.Fatalf("Update returned %T, want AppModel", held)
+	}
+
+	// Move to 3 and press ] while the rows are still stale.
+	m = refresh(t, m, tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = refresh(t, m, tea.KeyPressMsg{Text: "]", Code: ']'})
+
+	// Let the held reparent land; the refresh replays the deferred ] on 3.
+	m = refresh(t, m, cmd())
+
+	if got := taskParent(t, m, three); got != one {
+		t.Errorf("task 3 parent = %q, want %q (task 1): the second ] used stale rows", got, one)
+	}
+	if got := taskParent(t, m, two); got != one {
+		t.Errorf("task 2 parent = %q, want %q (task 1)", got, one)
+	}
+	// The deferred gesture kept its target task, and the cursor stayed where
+	// the user left it (task 3).
+	panel, ok := m.components.TaskPanel.(interface{ SelectedID() string })
+	if !ok {
+		t.Fatalf("TaskPanel is %T, want SelectedID accessor", m.components.TaskPanel)
+	}
+	if got := panel.SelectedID(); got != three {
+		t.Errorf("selection = %q, want %q (task 3)", got, three)
+	}
+}
+
 // Bug 6 follow-on: bubbles' list does not clamp a stale cursor on SetItems,
 // so after deleting the highlighted list the panel cursor can point past the
 // end of the surviving items, leaving no selection at all. The panel must

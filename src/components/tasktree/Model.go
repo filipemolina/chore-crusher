@@ -42,6 +42,21 @@ type Model struct {
 	// picker jumped to a list that has not loaded); applyRows honours it on
 	// the first refresh that contains the id.
 	pendingSelect string
+	// structureInFlight is true between the moment the tree emits a
+	// structural change (indent/outdent/move/toggle/delete) and the moment
+	// the resulting RefreshTasksMsg applies those rows. In that window
+	// m.rows is stale relative to the store, so the row-derived gestures
+	// defer instead of computing a target from data that no longer matches
+	// what the user sees (bug 4: a second ] right after nesting a task
+	// picked the just-moved task as its previous sibling and nested the
+	// wrong task under it).
+	structureInFlight bool
+	// pendingGesture is the newest row-derived gesture (indent/outdent/
+	// move) pressed while structureInFlight was true; the RefreshTasksMsg
+	// handler replays it against the fresh rows. The task id is captured at
+	// press time so a cursor move before the refresh cannot redirect the
+	// gesture.
+	pendingGesture *deferredGesture
 
 	// Inline creation state. While creating is true the tree takes every
 	// keystroke for itself and renders a special "new task" row at the
@@ -228,6 +243,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.activeList = msg.ListID != ""
 		m.applyRows(msg.Rows)
+		// The store caught up with any structural change in flight: a
+		// gesture deferred while the rows were stale is replayed against
+		// the fresh rows now, so a second ] inside the refresh window
+		// lands on the post-change state instead of the stale one (bug 4).
+		if cmd := m.replayDeferred(); cmd != nil {
+			return m, cmd
+		}
 		// Broadcast the current selection's depth to add-input
 		if row := m.findRow(m.selectedID); row != nil {
 			return m, cmds.SetSelection(row.Task.ID, row.Depth)
@@ -305,25 +327,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Tree.Expand):
 			m.toggleCollapse(true)
 		case key.Matches(msg, keys.Tree.Toggle):
-			return m, m.toggleComplete()
+			return m, m.beginStructure(m.toggleComplete())
 		case key.Matches(msg, keys.Tree.OpenDetails):
 			if m.selectedID != "" {
 				return m, cmds.OpenDetails(m.selectedID)
 			}
 		case key.Matches(msg, keys.Tree.Delete):
 			if m.selectedID != "" {
-				return m, cmds.DeleteTask(m.selectedID)
+				return m, m.beginStructure(cmds.DeleteTask(m.selectedID))
 			}
 		case key.Matches(msg, keys.Tree.Outdent):
 			// [ moves the selected task one level shallower; the same key
 			// picks the new task's level while creating (§4).
-			return m, m.outdentSelected()
+			return m, m.handleStructural(gestureOutdent)
 		case key.Matches(msg, keys.Tree.Indent):
-			return m, m.indentSelected()
+			return m, m.handleStructural(gestureIndent)
 		case key.Matches(msg, keys.Tree.MoveUp):
-			return m, m.moveSelected(-1)
+			return m, m.handleStructural(gestureMoveUp)
 		case key.Matches(msg, keys.Tree.MoveDown):
-			return m, m.moveSelected(1)
+			return m, m.handleStructural(gestureMoveDown)
 		}
 
 		// If selection changed, broadcast it to add-input
@@ -498,6 +520,84 @@ func (m *Model) outdentSelected() tea.Cmd {
 		return nil
 	}
 	return cmds.MoveTask(m.selectedID, *row.Task.ParentID)
+}
+
+// gestureKind identifies one of the row-derived restructuring gestures.
+// Their targets are computed from m.rows, which is why they are the ones
+// that defer while a previous change's refresh is in flight.
+type gestureKind int
+
+const (
+	gestureIndent gestureKind = iota
+	gestureOutdent
+	gestureMoveUp
+	gestureMoveDown
+)
+
+// deferredGesture is a restructuring keypress held back while the tree's
+// rows are stale, carrying the task it was pressed on.
+type deferredGesture struct {
+	kind   gestureKind
+	taskID string
+}
+
+// beginStructure marks a structural change as in flight — rows will be
+// stale until its refresh lands — and returns the command unchanged.
+func (m *Model) beginStructure(cmd tea.Cmd) tea.Cmd {
+	if cmd != nil {
+		m.structureInFlight = true
+	}
+	return cmd
+}
+
+// handleStructural runs one of the four row-derived restructuring gestures
+// (indent, outdent, move up, move down). While a previous change's refresh
+// has not yet landed the computed target is wrong: the task just nested
+// elsewhere is still picked as a sibling (bug 4's repro — ] on task 2, then
+// ] on task 3 inside the refresh window nested 3 under 2 instead of 1). In
+// that window the gesture is deferred and replayed against the fresh rows
+// by replayDeferred, so the key always acts on the state the user is about
+// to see.
+func (m *Model) handleStructural(kind gestureKind) tea.Cmd {
+	if m.structureInFlight {
+		m.pendingGesture = &deferredGesture{kind: kind, taskID: m.selectedID}
+		return nil
+	}
+	return m.beginStructure(m.gestureCmd(kind))
+}
+
+// gestureCmd computes the command for a structural gesture against the
+// tree's current rows.
+func (m *Model) gestureCmd(kind gestureKind) tea.Cmd {
+	switch kind {
+	case gestureIndent:
+		return m.indentSelected()
+	case gestureOutdent:
+		return m.outdentSelected()
+	case gestureMoveUp:
+		return m.moveSelected(-1)
+	case gestureMoveDown:
+		return m.moveSelected(1)
+	}
+	return nil
+}
+
+// replayDeferred applies the newest deferred gesture (if any) against rows
+// that just caught up with the store, keeping the gesture's original target
+// task even if the cursor moved while it waited. Clears the in-flight flag:
+// a replayed gesture that emits a command re-arms it for its own refresh.
+func (m *Model) replayDeferred() tea.Cmd {
+	m.structureInFlight = false
+	if m.pendingGesture == nil {
+		return nil
+	}
+	g := *m.pendingGesture
+	m.pendingGesture = nil
+	saved := m.selectedID
+	m.selectedID = g.taskID
+	cmd := m.beginStructure(m.gestureCmd(g.kind))
+	m.selectedID = saved
+	return cmd
 }
 
 // indentSelected moves the selected task one level deeper: it becomes the
