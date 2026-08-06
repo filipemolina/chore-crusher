@@ -236,11 +236,22 @@ has a sidebar that can be entirely absent from the cycle:
   section headers, not two independently-focusable lists). Inline creation
   lives inside the tree, so there is no separate add-input focus zone.
 
-The rendered body has only two surfaces: **Lists** and **Tasks**. When Lists
-is hidden, Tasks fills the body width; when Lists is visible, a tier-2 gutter
-separates the two equal-height surfaces. Tasks is elevated while the task
-tree has keyboard focus. Moving focus between surfaces must not change the
-Tasks surface's title, padding, gap, or dimensions.
+The body pairs **Tasks** with *at most one* side surface — **Lists** or
+**Details** — never both. There are only ever three body shapes: Tasks alone,
+Tasks + Lists, or Tasks + Details. When no side surface is showing, Tasks
+fills the body width; when one is showing, a tier-2 gutter separates the two
+equal-height surfaces. Tasks is elevated while the task tree has keyboard
+focus. Moving focus between surfaces must not change the Tasks surface's
+title, padding, gap, or dimensions.
+
+**Details is an exclusive side surface, not a third focus tab.** Opening
+Details (`enter` on a selected task, §5's key list) hides Lists; closing
+Details restores Tasks alone. Details is never in the `tab`/`shift+tab` focus
+cycle — it is entered and left by the explicit open/close transitions, and
+only while it is visible does focus rest on it. To reach Lists, close Details
+first, then press `L`. At a terminal width too narrow for any side surface,
+Details takes the full body width and Tasks is not rendered until Details
+closes; a zero-width Details panel is never drawn.
 
 `tab`/`shift+tab` cycle **only through the targets currently visible** —
 the lists panel is skipped entirely from the cycle while hidden, the same way
@@ -287,7 +298,7 @@ to type.
 
 **`space` toggles complete/pending** on the selected task, from wherever the
 tree has focus — it does not open anything and does not move the cursor.
-**`enter`** on a selected tree row opens the details screen — so it can't
+**`enter`** on a selected tree row opens the Details side panel — so it can't
 also mean "toggle complete"; the two are deliberately different keys because
 "open a thing" and "flip a checkbox" are different enough actions that
 collapsing them into one key is what makes an app feel like a demo rather
@@ -296,11 +307,20 @@ than a tool. Note the asymmetry with stack-stitcher, which binds `Select` to
 they must mean two different things, so they are two different bindings from
 the start rather than one alias split apart later.
 
-Inside the details screen (phase 7): **`ctrl+s`** saves notes and progress
-changes; **`tab`** cycles between the notes editor and the progress selector;
+Inside the Details side panel: **`ctrl+s`** saves notes and progress changes,
+closes the panel, returns focus to the task tree, and refreshes its rows;
+**`tab`** cycles between the notes editor and the progress selector;
 **`←`/`→`** (or `h`/`l`) cycle through the three progress modes
-(`simple`/`subtasks`/`percentage`); `esc` closes with a discard-changes prompt
-if anything is unsaved.
+(`simple`/`subtasks`/`percentage`); `esc` closes a clean panel immediately,
+and on a dirty one shows the inline `Discard changes? (y/n)` prompt — `y`
+closes and discards, `n` keeps editing. No path silently discards edits.
+While Details is open it owns every keypress except `ctrl+c`: only its own
+bindings act, so `L`, `/`, `F`, `T`, tree navigation, and panel cycling have
+no effect until Details closes (ordinary printable text still reaches Notes
+while Notes has focus). The poll loop keeps requesting the task's current
+notes and progress while Details is visible, but a response replaces the
+displayed fields only while the editor is clean — a dirty draft keeps its
+edits and does not show an external update until it is saved or discarded.
 
 **`/?`** enters a local fuzzy filter, and its target follows focus: the
 **task tree** filter (phase 8) narrows the current list's rows in place to
@@ -320,20 +340,23 @@ a confirm modal). The tree emits `DeleteTaskMsg`; AppModel opens a confirm modal
 accepting runs `store.DeleteTask` and refreshes the rows. List delete
 (`L` panel, `d`) follows the same confirm-modal pattern.
 
-**Task renaming** in the TUI is not implemented yet — the details screen shows
+**Task renaming** in the TUI is not implemented yet — the Details panel shows
 the title read-only. A rename gesture (if added to the TUI before phase 9) should
 be recorded here in §5 alongside the other task-tree keybindings.
 
 `esc` follows the "ladder of claims" stack-stitcher documents: a modal
-(details screen, theme picker, confirm) closes itself first — it intercepts
+(theme picker, confirm, list-name) closes itself first — it intercepts
 all keypresses at the top of `Update`, so by the time esc reaches AppModel's
-own handler no modal is open. Next, the focused panel claims esc if it
-declared `KeepsEsc`: the tree while typing in or applying a `/` filter, or
-inline-creating (§8); the lists panel while its filter is open or applied.
-After that, a no-op. The ladder is one switch case (`keys.Global.Back`) that
-checks `KeepsEsc` on the focused component. Keep this ladder tested against
-its claims in order — checking claims in the wrong order silently breaks
-whichever claim got skipped.
+own handler no modal is open. Next, while the **Details** side panel is
+visible it owns every keypress (it is not a modal, so it sits just after the
+modal check): its own handler takes `esc` — closing a clean panel, or opening
+the discard prompt on a dirty one — before AppModel's normal Back case runs.
+Then the focused panel claims esc if it declared `KeepsEsc`: the tree while
+typing in or applying a `/` filter, or inline-creating (§8); the lists panel
+while its filter is open or applied. After that, a no-op. The ladder is one
+switch case (`keys.Global.Back`) that checks `KeepsEsc` on the focused
+component. Keep this ladder tested against its claims in order — checking
+claims in the wrong order silently breaks whichever claim got skipped.
 
 ## 6. The main panel: Pending and Complete
 
@@ -704,7 +727,7 @@ main.go              # cobra root: no subcommand -> launch TUI; else dispatch
 src/
 ├── model/           # AppModel: Init/Update/View, the top-level Bubble Tea model
 ├── components/      # one package per leaf model (tasktree, listspanel, addinput,
-│                     # detailsmodal, themepickermodal, searchmodal, listnamemodal,
+│                     # detailspanel, themepickermodal, searchmodal, listnamemodal,
 │                     # confirmmodal, helpoverlay, keybindingbar)
 │   └── chrome/       # shared rendering: PanelFrame, tree-row rendering, the
 │                     # progress pill, KeyHints, Spinner — ported from stack-stitcher
@@ -798,9 +821,9 @@ background through). The tiers, mapped to this app's own surfaces:
 | --- | --- | --- |
 | 1 | terminal default | outside the app — never drawn on |
 | 2 | `BackgroundContent` | the outermost frame, if one exists (gutter between the lists panel and the main panel) |
-| 3 | `BackgroundPanel` | the Lists and Tasks surfaces, when unfocused |
-| 4 | `BackgroundElevated` | Lists when it has focus, or Tasks while its task-tree or add-input control has focus (§5) |
-| — | `ModalBg` | every modal (theme picker, confirm, list-name, details screen if built as a modal — §Phase 7) **and the row the cursor sits on in the task tree** — an active row is its own register, not a tint of the panel it's in, the same reasoning stack-stitcher applies to an active list row |
+| 3 | `BackgroundPanel` | the Lists, Tasks, and Details surfaces, when unfocused |
+| 4 | `BackgroundElevated` | Lists or Details when it has focus, or Tasks while its task-tree or add-input control has focus (§5) |
+| — | `ModalBg` | every modal (theme picker, confirm, list-name) **and the row the cursor sits on in the task tree** — an active row is its own register, not a tint of the panel it's in, the same reasoning stack-stitcher applies to an active list row |
 | — | `BackgroundRecessed` | empty-state cards (§Empty states, below) — equal to `PanelBg`, the un-raised base |
 
 **Every tier must be sealed.** Anything that draws text — a tree row, the
@@ -831,9 +854,14 @@ signal, and the input caret identifies the active control inside Tasks.
 
 ### Two shared frames: `chrome.PanelFrame`
 
-`chrome.PanelFrame` owns the only body frames: **Lists** and **Tasks**. It
-renders those exact labels through `appstyles.NormalTitle()` as an accent chip
-with a two-column left gutter, then one blank chrome row before the body. The
+`chrome.PanelFrame` owns the body frames: **Lists**, **Tasks**, and the
+**Details** side panel (Details replaces Lists on the right, never joining it —
+§5). It renders those exact labels through `appstyles.NormalTitle()` as an
+accent chip with a two-column left gutter, then one blank chrome row before
+the body. Details, like Lists, indicates focus only through the panel
+background tier; it truncates its task title through `chrome.Truncate`, and
+sizes its notes textarea from the supplied panel body dimensions so the
+editor wraps within the frame and never forces it wider or taller. The
 frame has **1 row vertical and 2 columns horizontal** padding
 (`lipgloss.NewStyle().Padding(1, 2)`), matching stack-stitcher's `PanelFrame`.
 No component sets its own panel padding value or panel border.

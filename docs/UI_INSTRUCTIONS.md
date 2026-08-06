@@ -51,7 +51,7 @@ func dim() lipgloss.Style   { return lipgloss.NewStyle().Foreground(appstyles.Ac
 ### Rule 2: Outer surface is built with shared chrome; inner controls do not create one
 
 **The rule:** A rendered body surface's outer boundary uses one of:
-- `chrome.PanelFrame()` for the Lists and Tasks surfaces
+- `chrome.PanelFrame()` for the Lists, Tasks, and Details surfaces
 - `chrome.ModalSurface()` for modals
 - `chrome.EmptyStateCard()` for a recessed empty-state card
 
