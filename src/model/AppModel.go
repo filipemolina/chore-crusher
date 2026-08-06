@@ -28,10 +28,16 @@ type AppModel struct {
 	bodyLayout        cmds.SetBodyLayoutMsg
 	focusedZone       int
 	listsPanelVisible bool
-	activeListID      string
-	lists             []apptypes.ListSummary
-	activeModal       tea.Model
-	lastError         string
+	// detailsPanelVisible and detailsTaskID track the exclusive Details side
+	// surface (docs/DESIGN.md §5). Details replaces Lists on the right and is
+	// never in the tab cycle: it is entered and left by explicit open/close
+	// transitions, and starts hidden with an empty task id.
+	detailsPanelVisible bool
+	detailsTaskID       string
+	activeListID        string
+	lists               []apptypes.ListSummary
+	activeModal         tea.Model
+	lastError           string
 
 	// animFrame is the current spinner frame (0..7), advanced by AnimTickMsg.
 	// animActive tracks whether any agent claim is live — the spinner only
@@ -50,6 +56,7 @@ type AppModel struct {
 		KeybindingBar tea.Model
 		ListsPanel    tea.Model
 		TaskPanel     tea.Model
+		DetailsPanel  tea.Model
 	}
 }
 
@@ -122,5 +129,5 @@ func (m AppModel) taskTreeEmpty() bool {
 // current context.
 func (m AppModel) footerContextCmd() tea.Cmd {
 	ctx := m.helpContext()
-	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal)
+	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, m.detailsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal)
 }

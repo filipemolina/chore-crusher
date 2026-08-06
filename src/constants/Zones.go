@@ -4,9 +4,10 @@ package constants
 // cmds.SetFocusMsg to decide whether it is focused, so these values are part
 // of the focus protocol and must stay stable.
 const (
-	COMPONENT_LISTS_PANEL = 0
-	COMPONENT_TASK_TREE   = 1
-	COMPONENT_ADD_INPUT   = 2
+	COMPONENT_LISTS_PANEL   = 0
+	COMPONENT_TASK_TREE     = 1
+	COMPONENT_ADD_INPUT     = 2
+	COMPONENT_DETAILS_PANEL = 3
 )
 
 // FocusableComponents are the component ids tab / shift+tab cycle

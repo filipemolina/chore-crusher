@@ -463,7 +463,7 @@ func (m *AppModel) ChangeFocus(delta int) tea.Cmd {
 // to all chrome and body components.
 func (m AppModel) broadcastBodyLayout() tea.Cmd {
 	l := m.bodyLayout
-	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.MainWidth, l.TerminalWidth)
+	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.DetailsWidth, l.MainWidth, l.TerminalWidth)
 }
 
 // applyCreateDraft resolves a pending inline creation against the just-refreshed
