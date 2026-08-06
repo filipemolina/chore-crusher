@@ -26,9 +26,10 @@ type treeView interface {
 // Model owns the task tree inside the Tasks surface. Inline creation is
 // handled by the tree, so there is no separate add-input component here.
 type Model struct {
-	focused bool
-	body    cmds.SetBodyLayoutMsg
-	tree    tea.Model
+	focused  bool
+	body     cmds.SetBodyLayoutMsg
+	tree     tea.Model
+	listName string
 }
 
 func New(st *store.Store, activeListID string) tea.Model {
@@ -45,6 +46,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if focus, ok := msg.(cmds.SetFocusMsg); ok {
 		m.focused = int(focus) == constants.COMPONENT_TASK_TREE
+	}
+	// The active list's name travels with its rows; keep it for the header.
+	if refresh, ok := msg.(cmds.RefreshTasksMsg); ok && refresh.Err == nil {
+		m.listName = refresh.ListName
 	}
 
 	var treeCmd tea.Cmd
@@ -64,7 +69,7 @@ func (m Model) View() tea.View {
 	content := m.tree.(treeView).ViewInPanel(width, max(0, height), bg)
 	body := chrome.PanelBodyWithFooter(width, height, bg, content, "")
 
-	return tea.NewView(chrome.PanelFrame("Tasks", m.focused, m.body.MainWidth, m.body.Height, body))
+	return tea.NewView(chrome.PanelFrameWithRightTitle("Tasks", m.listName, m.focused, m.body.MainWidth, m.body.Height, body))
 }
 
 // OwnsKeyboard reports whether the task tree has claimed the keyboard for

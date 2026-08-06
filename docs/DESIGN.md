@@ -870,6 +870,13 @@ frame has **1 row vertical and 2 columns horizontal** padding
 (`lipgloss.NewStyle().Padding(1, 2)`), matching stack-stitcher's `PanelFrame`.
 No component sets its own panel padding value or panel border.
 
+The **Tasks** frame additionally shows the active list's name on its title
+row: bold, in the panel's primary text color, right-aligned so it lands on the
+body's right edge opposite the "Tasks" chip (`chrome.PanelFrameWithRightTitle`).
+The name is truncated (`chrome.Truncate`) to the space the chip leaves, so it
+never widens the frame; when there is no active list the row is just the
+"Tasks" chip, unchanged. Lists and Details pass no right label.
+
 The frame receives the total surface box. It alone derives its inner body
 width and height, so callers never subtract frame padding twice. Tasks
 composes its raw task tree above its raw add-input footer inside that one

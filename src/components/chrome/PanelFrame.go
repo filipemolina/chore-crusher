@@ -15,11 +15,50 @@ const panelTitleChromeHeight = 2
 // receives the total surface box and is the only place that derives its inner
 // geometry (docs/DESIGN.md §12 "Two shared frames").
 func PanelFrame(title string, isFocused bool, width, height int, body string) string {
+	return PanelFrameWithRightTitle(title, "", isFocused, width, height, body)
+}
+
+// PanelFrameWithRightTitle is PanelFrame with an optional second label pinned
+// flush-right on the same title row, bold, in the panel's primary text color.
+// The Tasks surface uses it to show the active list's name beside the "Tasks"
+// chip (docs/DESIGN.md §12). An empty rightTitle renders exactly like
+// PanelFrame — just the left accent chip — so callers with nothing to show pass
+// "". The right label is truncated to the space the chip leaves, so it never
+// pushes the frame wider.
+func PanelFrameWithRightTitle(leftTitle, rightTitle string, isFocused bool, width, height int, body string) string {
 	bg := PanelBg(isFocused)
-	titleRow := appstyles.NormalTitle().MarginLeft(2).Render(title)
-	content := appstyles.FillBackground(bg, lipgloss.JoinVertical(lipgloss.Left, titleRow, "", body))
+	header := titleRow(leftTitle, rightTitle, bg, width)
+	content := appstyles.FillBackground(bg, lipgloss.JoinVertical(lipgloss.Left, header, "", body))
 
 	return FitBox(WrapperStyle.Background(bg), width, height).Render(content)
+}
+
+// titleRow renders the accent chip and, when rightTitle is non-empty and there
+// is room, a flush-right bold label on the same line. The row is laid out
+// across the panel body width so the right label lands on the body's right
+// edge; a width too small to hold both falls back to the chip alone.
+func titleRow(leftTitle, rightTitle string, bg color.Color, width int) string {
+	chip := appstyles.NormalTitle().MarginLeft(2).Render(leftTitle)
+	if rightTitle == "" {
+		return chip
+	}
+
+	contentWidth := PanelBodyWidth(width)
+	chipW := lipgloss.Width(chip)
+	budget := contentWidth - chipW - 1
+	if contentWidth <= 0 || budget <= 0 {
+		return chip
+	}
+
+	right := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(appstyles.Active.TextPrimary).
+		Background(bg).
+		Render(Truncate(rightTitle, budget))
+
+	gap := max(1, contentWidth-chipW-lipgloss.Width(right))
+	spacer := lipgloss.NewStyle().Background(bg).Width(gap).Render("")
+	return lipgloss.JoinHorizontal(lipgloss.Top, chip, spacer, right)
 }
 
 // PanelBodyWithFooter clips content before joining a non-empty footer at the
@@ -74,4 +113,3 @@ func PanelRule(width int) string {
 		Width(width).
 		Render(strings.Repeat("─", max(width, 0)))
 }
-

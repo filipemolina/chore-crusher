@@ -13,6 +13,7 @@ import (
 // The poll loop's RefreshTasks routes this to the task tree.
 type RefreshTasksMsg struct {
 	ListID     string
+	ListName   string
 	Rows       []apptypes.Row
 	Activities []apptypes.AgentActivity
 	Err        error
@@ -31,8 +32,16 @@ func RefreshTasks(s *store.Store, listID string) tea.Cmd {
 		if err != nil {
 			return RefreshTasksMsg{ListID: listID, Err: err}
 		}
+		// Carry the list's display name so the Tasks panel can show it in its
+		// header (docs/DESIGN.md §12). A lookup failure is non-fatal — the rows
+		// are what matter — so the name simply stays empty.
+		listName := ""
+		if l, err := s.GetList(listID); err == nil {
+			listName = l.Name
+		}
 		return RefreshTasksMsg{
 			ListID:     listID,
+			ListName:   listName,
 			Rows:       apptypes.Flatten(apptypes.FromStoreTasks(tasks)),
 			Activities: apptypes.FromStoreActivities(work),
 		}

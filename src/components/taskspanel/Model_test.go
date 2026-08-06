@@ -46,6 +46,60 @@ func TestTasksSurfaceRendersSinglePanel(t *testing.T) {
 	}
 }
 
+func TestTasksHeaderShowsActiveListName(t *testing.T) {
+	panel := layoutModel(t, constants.COMPONENT_TASK_TREE)
+	updated, _ := panel.Update(cmds.RefreshTasksMsg{ListID: "L1", ListName: "Groceries"})
+	view := updated.(Model).View().Content
+	stripped := ansi.Strip(view)
+
+	if !strings.Contains(stripped, "Tasks") {
+		t.Errorf("header lost the Tasks label: %q", stripped)
+	}
+	if !strings.Contains(stripped, "Groceries") {
+		t.Errorf("header missing the active list name: %q", stripped)
+	}
+	// The name is on the title line, to the right of the Tasks chip.
+	titleLine := lineContaining(stripped, "Tasks")
+	if !strings.Contains(titleLine, "Groceries") {
+		t.Errorf("list name not on the title line: %q", titleLine)
+	}
+	if idx, name := strings.Index(titleLine, "Tasks"), strings.Index(titleLine, "Groceries"); name <= idx {
+		t.Errorf("list name should sit right of Tasks: %q", titleLine)
+	}
+	if got, want := lipgloss.Width(view), 40; got != want {
+		t.Errorf("header widened the panel: width = %d, want %d", got, want)
+	}
+}
+
+func TestTasksHeaderPlainWithoutActiveList(t *testing.T) {
+	panel := layoutModel(t, constants.COMPONENT_TASK_TREE)
+	// No RefreshTasksMsg yet: the header is just "Tasks", no trailing name.
+	titleLine := lineContaining(ansi.Strip(panel.View().Content), "Tasks")
+	if !strings.Contains(titleLine, "Tasks") {
+		t.Errorf("title line missing Tasks: %q", titleLine)
+	}
+}
+
+// lineContaining returns the first line of block that holds sub, or "".
+func lineContaining(block, sub string) string {
+	for _, line := range strings.Split(block, "\n") {
+		if strings.Contains(line, sub) {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestTasksHeaderTruncatesLongListName(t *testing.T) {
+	panel := layoutModel(t, constants.COMPONENT_TASK_TREE)
+	long := strings.Repeat("verylongname ", 10)
+	updated, _ := panel.Update(cmds.RefreshTasksMsg{ListID: "L1", ListName: long})
+	view := updated.(Model).View().Content
+	if got, want := lipgloss.Width(view), 40; got != want {
+		t.Errorf("long list name overflowed the panel: width = %d, want %d", got, want)
+	}
+}
+
 func TestTasksSurfaceRendersOnePanelWhetherFocused(t *testing.T) {
 	// The task tree is the only focus zone left in the Tasks surface; a
 	// non-task-tree focus (lists) simply leaves the panel unfocused. In both
