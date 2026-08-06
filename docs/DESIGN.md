@@ -783,9 +783,13 @@ carries over unchanged — same accent, same text/panel/modal bases, same
 status colors under their new field names. This is deliberate: a person who
 runs both apps should see the same "Tokyo Night" render the same way in
 either, because it's the same theme, not a reinterpretation of one.
-`DefaultTheme` becomes `"crush-dark"` (the renamed `stitcher-dark`); adjust
-every `Name` string and registry key from `stitcher-*` to `crush-*`
-accordingly, since the name is user-visible in the theme picker.
+Every `Name` string and registry key is adjusted from `stitcher-*` to
+`crush-*`, since the name is user-visible in the theme picker (`crush-dark`
+is the renamed `stitcher-dark`). **The fresh-install default is
+`"catppuccin-mocha"`** — `DefaultTheme` names it, and a config with no
+`theme:` preference activates it; every other registered theme (including
+`crush-dark`) stays selectable through the `T` picker and as a saved
+`theme:` value.
 
 ## 12. Visual coherence: the UI contract
 

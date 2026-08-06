@@ -64,6 +64,15 @@ func TestDefaultThemeIsRegistered(t *testing.T) {
 	}
 }
 
+// The fresh-install default is catppuccin-mocha (Chore Crusher UI task).
+// Pin the intended name, not merely that the constant happens to be a
+// registered theme, so a stray edit to DefaultTheme is caught.
+func TestDefaultThemeIsCatppuccinMocha(t *testing.T) {
+	if DefaultTheme != "catppuccin-mocha" {
+		t.Errorf("DefaultTheme = %q, want catppuccin-mocha", DefaultTheme)
+	}
+}
+
 // newTheme's whole promise: the tiers derive from Panel by the same deltas
 // in both directions, Lighten for a dark theme and Darken for a light one.
 // This pins the formula itself, independent of any concrete palette.
