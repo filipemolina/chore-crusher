@@ -4,9 +4,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/constants"
@@ -41,6 +43,18 @@ func loaded(t *testing.T, notes string) (*Model, *store.Store, string) {
 	m, _ = updateModel(m, cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL)())
 	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
 	return m, s, taskID
+}
+
+// loadedWithList is like loaded but also returns the list id, for tests that
+// need to flip list-level flags (e.g. comments_disabled) via the store.
+func loadedWithList(t *testing.T, notes string) (*Model, *store.Store, string, string) {
+	t.Helper()
+	m, s, taskID := loaded(t, notes)
+	row, err := s.GetTask(taskID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	return m, s, row.ListID, taskID
 }
 
 func updateModel(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
@@ -184,6 +198,188 @@ func TestNarrowViewFitsAndSeals(t *testing.T) {
 		t.Fatalf("view height %d exceeds supplied %d", h, height)
 	}
 	if appstyles.HasBackgroundBleed(view) {
+		t.Fatal("view has background bleed")
+	}
+}
+
+// typeComment rune-types a character into the comment compose input while it
+// is focused, mirroring typeRune for the notes editor.
+func typeComment(t *testing.T, m *Model, r rune) *Model {
+	t.Helper()
+	m, _ = updateModel(m, tea.KeyPressMsg{Text: string(r), Code: r})
+	return m
+}
+
+// focusComments moves keyboard focus into the comment compose zone by
+// tab-cycling from notes past progress.
+func focusCommentZone(t *testing.T, m *Model) *Model {
+	t.Helper()
+	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"})
+	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"})
+	return m
+}
+
+// TestCommentsAppearAfterRefresh verifies RefreshDetails hydrates the task's
+// comment thread into the panel. Ordering by created_at is the store's
+// responsibility (TestAddCommentAndListComments pins it); here we assert the
+// panel surfaces every comment the store returns, with the author and note
+// intact (docs/plan/task-comments.md §6, Commit 5).
+func TestCommentsAppearAfterRefresh(t *testing.T) {
+	m, s, taskID := loaded(t, "notes")
+	if _, err := s.AddComment(taskID, "alice", "second"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+	if _, err := s.AddComment(taskID, "bob", "first"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+
+	got := m.Comments()
+	if len(got) != 2 {
+		t.Fatalf("want 2 comments, got %d", len(got))
+	}
+	want := map[string]bool{"alice": false, "bob": false}
+	for _, c := range got {
+		if _, ok := want[c.Author]; ok && (c.Author == "alice" && c.Note == "second") || (c.Author == "bob" && c.Note == "first") {
+			want[c.Author] = true
+		}
+	}
+	for author, seen := range want {
+		if !seen {
+			t.Errorf("comment by %q not surfaced after refresh", author)
+		}
+	}
+}
+
+// TestPostCommentAppearsImmediately verifies that posting a comment through
+// the compose input appends it to the live thread without a poll round-trip
+// (docs/plan/task-comments.md §6, Commit 5).
+func TestPostCommentAppearsImmediately(t *testing.T) {
+	m, s, taskID := loaded(t, "")
+	m = focusCommentZone(t, m)
+	for _, r := range "hello world" {
+		m = typeComment(t, m, r)
+	}
+	m, cmd := updateModel(m, tea.KeyPressMsg{Text: "ctrl+enter", Mod: tea.ModCtrl})
+	// Posting a comment produces no top-level command: it mutates the panel
+	// in place (the comment is appended, the input cleared).
+	if cmd != nil {
+		t.Fatalf("postComment produced a command %T, want nil", runCmd(cmd))
+	}
+
+	got := m.Comments()
+	if len(got) != 1 {
+		t.Fatalf("want 1 comment after post, got %d", len(got))
+	}
+	if got[0].Note != "hello world" {
+		t.Errorf("posted comment note = %q, want %q", got[0].Note, "hello world")
+	}
+	if m.CommentInputValue() != "" {
+		t.Errorf("compose input not cleared after post: %q", m.CommentInputValue())
+	}
+
+	// The comment is persisted in the store, too.
+	stored, err := s.ListComments(taskID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Note != "hello world" {
+		t.Errorf("store has %v, want one comment %q", stored, "hello world")
+	}
+}
+
+// TestPostCommentDoesNotTriggerCtrlSSave verifies the compose input and the
+// notes/progress save path are independent: ctrl+s (save) is never bound to
+// posting a comment, even when focus is on the compose input (docs/plan/task-comments.md
+// §6 — "NOT ctrl+s"). When focused on comments, ctrl+s saves notes/progress
+// (closing the panel here, since notes are clean) and leaves the unsent draft
+// in the compose input — it never posts it.
+func TestPostCommentDoesNotTriggerCtrlSSave(t *testing.T) {
+	m, _, _ := loaded(t, "")
+	m = focusCommentZone(t, m)
+	for _, r := range "unsent draft" {
+		m = typeComment(t, m, r)
+	}
+
+	// ctrl+s while focused on comments saves notes/progress (a clean save
+	// closes the panel) and must NOT consume the keystroke as a comment post.
+	m, cmd := updateModel(m, tea.KeyPressMsg{Text: "ctrl+s", Mod: tea.ModCtrl, Code: 's'})
+	if _, ok := runCmd(cmd).(cmds.CloseDetailsSideMsg); !ok {
+		t.Fatalf("ctrl+s while on comments: got %T, want CloseDetailsSideMsg (save-then-close)", runCmd(cmd))
+	}
+	// The comment draft was NOT posted — it never became a comment.
+	if len(m.Comments()) != 0 {
+		t.Errorf("ctrl+s posted a comment unexpectedly: %d comments", len(m.Comments()))
+	}
+}
+
+// TestPostCommentRefusedWhenDisabled verifies a comment on a task in a
+// comments-disabled list surfaces the store error as an in-panel message.
+func TestPostCommentRefusedWhenDisabled(t *testing.T) {
+	m, s, listID, _ := loadedWithList(t, "")
+	m = focusCommentZone(t, m)
+	for _, r := range "blocked" {
+		m = typeComment(t, m, r)
+	}
+	if err := s.SetCommentsDisabled(listID, true); err != nil {
+		t.Fatalf("disable comments: %v", err)
+	}
+	m, _ = updateModel(m, tea.KeyPressMsg{Text: "ctrl+enter", Mod: tea.ModCtrl})
+	if m.errMsg == "" {
+		t.Fatal("expected an error message for posting on a disabled list")
+	}
+	if len(m.Comments()) != 0 {
+		t.Errorf("comment posted on a disabled list: %d comments", len(m.Comments()))
+	}
+}
+
+// TestPostCommentEmptyIsNoOp verifies an empty/whitespace-only comment input
+// does nothing on ctrl+enter (no blank comment row).
+func TestPostCommentEmptyIsNoOp(t *testing.T) {
+	m, _, _ := loaded(t, "")
+	m = focusCommentZone(t, m)
+	// Whitespace-only drafts are a no-op.
+	m, cmd := updateModel(m, tea.KeyPressMsg{Text: "ctrl+enter", Mod: tea.ModCtrl})
+	if cmd != nil {
+		t.Fatalf("empty post produced a command %T, want nil", runCmd(cmd))
+	}
+	if len(m.Comments()) != 0 {
+		t.Errorf("empty post added %d comments, want 0", len(m.Comments()))
+	}
+}
+
+// TestCommentsRenderOldestFirst verifies the rendered view emits comments in
+// created_at ascending order (docs/DESIGN.md §12). AddComment stamps
+// created_at at second resolution, so the two comments are written a second
+// apart to guarantee a deterministic ORDER BY — without the gap they would tie
+// and the sort order would be unspecified, which would make this assertion
+// flaky.
+func TestCommentsRenderOldestFirst(t *testing.T) {
+	m, s, taskID := loaded(t, "")
+	if _, err := s.AddComment(taskID, "b", "beta"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if _, err := s.AddComment(taskID, "a", "alpha"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+
+	const width, height = 40, 24
+	m, _ = updateModel(m, cmds.SetBodyLayout(height, 0, width, 0, width)())
+	view := ansi.Strip(m.View().Content)
+
+	// "beta" (added first, older created_at) must appear before "alpha".
+	ib := strings.Index(view, "beta")
+	ia := strings.Index(view, "alpha")
+	if ib < 0 || ia < 0 {
+		t.Fatalf("expected both comment notes in %q", view)
+	}
+	if ib >= ia {
+		t.Errorf("beta (older) at %d must come before alpha (newer) at %d", ib, ia)
+	}
+	if appstyles.HasBackgroundBleed(m.View().Content) {
 		t.Fatal("view has background bleed")
 	}
 }

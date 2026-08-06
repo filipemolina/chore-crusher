@@ -84,13 +84,14 @@ type ListsPanelKeys struct {
 }
 
 // DetailsKeys act inside the Details side panel: saving, cycling between
-// notes and progress editor zones, cycling progress modes, and entering
-// percentages.
+// notes and progress editor zones, cycling progress modes, entering
+// percentages, and posting a comment.
 type DetailsKeys struct {
 	Save          key.Binding
 	NextField     key.Binding
 	CycleMode     key.Binding
 	CycleModeBack key.Binding
+	CommentSubmit key.Binding
 }
 
 // OverlayKeys are the keys every modal answers to. Cancel is one binding for
@@ -190,6 +191,10 @@ var Details = DetailsKeys{
 	NextField:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
 	CycleMode:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next mode")),
 	CycleModeBack: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev mode")),
+	// ctrl+enter posts the comment in the compose input — distinct from ctrl+s
+	// (which saves notes/progress), so the two write paths never collide
+	// (docs/plan/task-comments.md §6, Commit 5).
+	CommentSubmit: key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post comment")),
 }
 
 var Overlay = OverlayKeys{
@@ -241,7 +246,7 @@ func Active(ctx Context) []key.Binding {
 	if ctx.DetailsPanelVisible {
 		return []key.Binding{
 			Details.Save, Details.NextField, Details.CycleMode,
-			Details.CycleModeBack, Overlay.Cancel,
+			Details.CycleModeBack, Details.CommentSubmit, Overlay.Cancel,
 		}
 	}
 
@@ -371,7 +376,7 @@ func Catalog(ctx Context) []Scope {
 
 	scopes = append(scopes, Scope{
 		Title:   "Details",
-		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack),
+		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.CommentSubmit),
 	})
 
 	return scopes

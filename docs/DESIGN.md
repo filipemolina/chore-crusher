@@ -320,18 +320,29 @@ the start rather than one alias split apart later.
 
 Inside the Details side panel: **`ctrl+s`** saves notes and progress changes,
 closes the panel, returns focus to the task tree, and refreshes its rows;
-**`tab`** cycles between the notes editor and the progress selector;
-**`←`/`→`** (or `h`/`l`) cycle through the three progress modes
-(`simple`/`subtasks`/`percentage`); `esc` closes a clean panel immediately,
-and on a dirty one shows the inline `Discard changes? (y/n)` prompt — `y`
-closes and discards, `n` keeps editing. No path silently discards edits.
-While Details is open it owns every keypress except `ctrl+c`: only its own
-bindings act, so `L`, `/`, `F`, `T`, tree navigation, and panel cycling have
-no effect until Details closes (ordinary printable text still reaches Notes
-while Notes has focus). The poll loop keeps requesting the task's current
-notes and progress while Details is visible, but a response replaces the
-displayed fields only while the editor is clean — a dirty draft keeps its
-edits and does not show an external update until it is saved or discarded.
+**`tab`** cycles between the notes editor, the progress selector, and the
+comment compose input; **`←`/`→`** (or `h`/`l`) cycle through the three
+progress modes (`simple`/`subtasks`/`percentage`); **`ctrl+enter`** posts
+the text in the comment compose input as a comment on the current task
+(attributed to the OS username, the same human-author attribution the CLI
+uses for `crush comment`); `esc` closes a clean panel immediately, and on a
+dirty one shows the inline `Discard changes? (y/n)` prompt — `y` closes and
+discards, `n` keeps editing. No path silently discards edits.
+
+The comment compose input is a single-line `textinput`, distinct from the
+multi-line notes `textarea` — comments are short status/handoff notes, so one
+line is sufficient (`docs/plan/task-comments.md` §6). It is a **transient**
+input: a comment draft is not part of the task's saved fields, so it does not
+count as a "dirty" editor — `ctrl+s` saves notes/progress only (never the
+comment draft), `esc` closes without a discard prompt for an unsent draft, and
+a poll refresh clears the compose input. Posting a comment appends it to the
+visible thread immediately (the comment appears without a panel reload); the
+next refresh reconciles the authoritative ordering. Below the progress zone,
+each comment renders as its own one-line card — `{author} · {timestamp} · {note}`,
+oldest first, in `TextDim` for the prefix and `TextPrimary` for the note —
+and `ctrl+c`'s comment write path goes through `store.AddComment`, which
+enforces the per-list `comments_disabled` flag and surfaces its error as an
+inline message rather than posting.
 
 **`/?`** enters a local fuzzy filter, and its target follows focus: the
 **task tree** filter (phase 8) narrows the current list's rows in place to
