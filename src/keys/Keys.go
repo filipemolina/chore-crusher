@@ -83,15 +83,19 @@ type ListsPanelKeys struct {
 	Delete   key.Binding
 }
 
-// DetailsKeys act inside the Details side panel: saving, cycling between
-// notes and progress editor zones, cycling progress modes, entering
-// percentages, and posting a comment.
+// DetailsKeys act inside the Details modal: saving, cycling between the
+// title/notes/progress/comments zones, cycling progress modes, entering
+// percentages, copying the task id, and the comment thread's own actions
+// (add, submit, copy id).
 type DetailsKeys struct {
 	Save          key.Binding
 	NextField     key.Binding
 	CycleMode     key.Binding
 	CycleModeBack key.Binding
+	CopyTaskID    key.Binding
+	CommentNew    key.Binding
 	CommentSubmit key.Binding
+	CopyCommentID key.Binding
 }
 
 // OverlayKeys are the keys every modal answers to. Cancel is one binding for
@@ -191,10 +195,17 @@ var Details = DetailsKeys{
 	NextField:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
 	CycleMode:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next mode")),
 	CycleModeBack: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev mode")),
-	// ctrl+enter posts the comment in the compose input — distinct from ctrl+s
-	// (which saves notes/progress), so the two write paths never collide
-	// (docs/plan/task-comments.md §6, Commit 5).
-	CommentSubmit: key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "post comment")),
+	// ctrl+y copies the open task's id; it is bound to no input widget, so it
+	// works from every zone including a focused text field.
+	CopyTaskID: key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "copy task id")),
+	// c opens the inline compose card from the comments zone (mirroring the task
+	// tree's inline create), and enter posts it — distinct from ctrl+s (which
+	// saves notes/progress), so the two write paths never collide. A terminal
+	// cannot reliably distinguish ctrl+enter from enter, so enter is the submit
+	// key (docs/plan/task-comments.md §6, Commit 5).
+	CommentNew:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "add comment")),
+	CommentSubmit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "post comment")),
+	CopyCommentID: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy comment id")),
 }
 
 var Overlay = OverlayKeys{
@@ -244,9 +255,13 @@ func Active(ctx Context) []key.Binding {
 	// panel-toggle key acts (docs/DESIGN.md §5). ctrl+c stays the unadvertised
 	// emergency exit.
 	if ctx.DetailsPanelVisible {
+		// Cancel sits ahead of the comment/copy extras: the footer bar sheds
+		// hints from the tail when the terminal is narrow, and the core
+		// save/next/mode/cancel keys must survive that shedding.
 		return []key.Binding{
 			Details.Save, Details.NextField, Details.CycleMode,
-			Details.CycleModeBack, Details.CommentSubmit, Overlay.Cancel,
+			Details.CycleModeBack, Overlay.Cancel, Details.CopyTaskID,
+			Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID,
 		}
 	}
 
@@ -376,7 +391,7 @@ func Catalog(ctx Context) []Scope {
 
 	scopes = append(scopes, Scope{
 		Title:   "Details",
-		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.CommentSubmit),
+		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
 	})
 
 	return scopes

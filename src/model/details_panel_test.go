@@ -42,27 +42,23 @@ func stepKey(t *testing.T, m AppModel, msg tea.Msg) AppModel {
 	return m
 }
 
-// openDetails sizes the terminal, makes Lists visible (to prove Details hides
-// it), then opens Details on the seeded task.
+// openDetails sizes the terminal, then opens the Details modal on the seeded
+// task. Details is a modal layered over the body now — it does not disturb the
+// Lists/Tasks split beneath it.
 func openDetails(t *testing.T, width, height int) (AppModel, string) {
 	t.Helper()
 	m := seedOneList(t)
 	m = refresh(t, m, tea.WindowSizeMsg{Width: width, Height: height})
-	m.listsPanelVisible = true
-	m.bodyLayout = m.calculateBodyLayout()
 	taskID := seededTaskID(t, m)
 	m = refresh(t, m, cmds.OpenDetails(taskID)())
 	return m, taskID
 }
 
-func TestOpenDetailsHidesListsShowsAndFocuses(t *testing.T) {
+func TestOpenDetailsShowsAndFocuses(t *testing.T) {
 	m, taskID := openDetails(t, 120, 40)
 
 	if !m.detailsPanelVisible {
-		t.Fatal("Details panel is not visible after open")
-	}
-	if m.listsPanelVisible {
-		t.Fatal("Lists panel stayed visible — Details must hide it")
+		t.Fatal("Details modal is not visible after open")
 	}
 	if m.detailsTaskID != taskID {
 		t.Fatalf("detailsTaskID = %q, want %q", m.detailsTaskID, taskID)
@@ -75,18 +71,37 @@ func TestOpenDetailsHidesListsShowsAndFocuses(t *testing.T) {
 	if !ok {
 		t.Fatal("DetailsPanel has no NotesValue accessor")
 	}
-	_ = panel // presence of the accessor plus a visible panel is the contract
+	_ = panel // presence of the accessor plus a visible modal is the contract
 }
 
-func TestOpenDetailsFromListsNeverThreePanels(t *testing.T) {
-	m, _ := openDetails(t, 120, 40)
-	if m.listsPanelVisible && m.detailsPanelVisible {
-		t.Fatal("both Lists and Details are visible — three-panel body")
+// TestDetailsModalDoesNotDisturbBody proves Details is a modal, not a body
+// surface: opening it over a visible Lists panel leaves the Lists/Tasks split
+// exactly as it was and never allocates a Details body column.
+func TestDetailsModalDoesNotDisturbBody(t *testing.T) {
+	m := seedOneList(t)
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	// Turn Lists on explicitly (the 100-wide test model starts it hidden).
+	m.listsPanelVisible = true
+	m.bodyLayout = m.calculateBodyLayout()
+	if !m.listsPanelRendered() {
+		t.Fatal("precondition: Lists should be visible at 120 wide")
+	}
+	before := m.bodyLayout
+
+	taskID := seededTaskID(t, m)
+	m = refresh(t, m, cmds.OpenDetails(taskID)())
+
+	if m.bodyLayout != before {
+		t.Fatalf("body layout changed when Details opened: before %+v after %+v", before, m.bodyLayout)
+	}
+	if !m.listsPanelRendered() {
+		t.Fatal("Lists disappeared when the Details modal opened")
 	}
 }
 
-func TestCleanEscReturnsToFullWidthTasks(t *testing.T) {
-	m, _ := openDetails(t, 120, 40)
+func TestCleanEscReturnsToTasks(t *testing.T) {
+	// Below AUTO_SHOW_LISTS_MIN_WIDTH Lists starts hidden, so Tasks fills the row.
+	m, _ := openDetails(t, 80, 40)
 
 	m = stepKey(t, m, tea.KeyPressMsg{Text: "esc"})
 
@@ -99,11 +114,8 @@ func TestCleanEscReturnsToFullWidthTasks(t *testing.T) {
 	if m.detailsTaskID != "" {
 		t.Fatalf("detailsTaskID = %q, want cleared", m.detailsTaskID)
 	}
-	if m.bodyLayout.MainWidth != 120 {
-		t.Fatalf("MainWidth = %d, want full terminal width 120", m.bodyLayout.MainWidth)
-	}
-	if m.bodyLayout.DetailsWidth != 0 {
-		t.Fatalf("DetailsWidth = %d, want 0 after close", m.bodyLayout.DetailsWidth)
+	if m.bodyLayout.MainWidth != 80 {
+		t.Fatalf("MainWidth = %d, want full terminal width 80", m.bodyLayout.MainWidth)
 	}
 }
 
@@ -136,6 +148,8 @@ func TestDirtyDiscardDoesNotCloseUntilYes(t *testing.T) {
 func TestDetailsSaveRefreshesAndCloses(t *testing.T) {
 	m, taskID := openDetails(t, 120, 40)
 
+	// Type into Notes (move there from the Title entry field).
+	m = stepKey(t, m, tea.KeyPressMsg{Text: "tab"})
 	m = stepKey(t, m, tea.KeyPressMsg{Text: "Z", Code: 'Z'})
 	m = stepKey(t, m, tea.KeyPressMsg{Text: "ctrl+s", Mod: tea.ModCtrl, Code: 's'})
 
@@ -151,28 +165,17 @@ func TestDetailsSaveRefreshesAndCloses(t *testing.T) {
 	}
 }
 
-func TestDetailsLayoutWidths(t *testing.T) {
-	// Normal width: Tasks + gutter + Details == terminal width, Lists 0.
-	m, _ := openDetails(t, 120, 40)
-	l := m.bodyLayout
-	if l.ListsWidth != 0 {
-		t.Errorf("ListsWidth = %d, want 0 while Details is open", l.ListsWidth)
+func TestDetailsModalSizeIsMostOfScreen(t *testing.T) {
+	// The modal outer box is about 90% of each axis, and Details never takes a
+	// body column (it is layered over the body).
+	m := seedOneList(t)
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	if w, h := m.detailsModalSize(); w != 108 || h != 36 {
+		t.Errorf("detailsModalSize(120x40) = %dx%d, want 108x36", w, h)
 	}
-	if got := l.MainWidth + constants.BODY_GUTTER_WIDTH + l.DetailsWidth; got != 120 {
-		t.Errorf("Main+gutter+Details = %d, want 120", got)
-	}
-	if l.MainWidth <= 0 || l.DetailsWidth <= 0 {
-		t.Errorf("expected both surfaces to fit: Main=%d Details=%d", l.MainWidth, l.DetailsWidth)
-	}
-
-	// Too narrow for a side surface: Details alone spans the body, Tasks drops.
-	mn, _ := openDetails(t, 30, 20)
-	ln := mn.bodyLayout
-	if ln.DetailsWidth != 30 {
-		t.Errorf("narrow: DetailsWidth = %d, want 30", ln.DetailsWidth)
-	}
-	if ln.MainWidth != 0 {
-		t.Errorf("narrow: MainWidth = %d, want 0", ln.MainWidth)
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	if w, h := m.detailsModalSize(); w != 72 || h != 21 {
+		t.Errorf("detailsModalSize(80x24) = %dx%d, want 72x21", w, h)
 	}
 }
 

@@ -36,8 +36,14 @@ func (m AppModel) View() tea.View {
 		MaxHeight(m.terminalHeight).
 		Render(layout)
 
+	// The Task details modal and any other modal are both centered overlays.
+	// Details is layered first so a confirm/error modal (were one ever opened
+	// over it) would sit on top; in practice they are mutually exclusive.
+	if m.detailsPanelVisible {
+		rendered = m.overlayModal(rendered, m.components.DetailsPanel.View().Content)
+	}
 	if m.activeModal != nil {
-		rendered = m.renderWithModal(rendered)
+		rendered = m.overlayModal(rendered, m.activeModal.View().Content)
 	}
 
 	// AltScreen is set unconditionally so the app never drops back to the
@@ -52,29 +58,18 @@ func (m AppModel) View() tea.View {
 // renderBody renders the Tasks surface and, while visible, the Lists surface
 // separated by a sealed tier-2 gutter. Before the first WindowSizeMsg the body
 // height is 0 and the components have not yet been sized; their natural render
-// still leaves the header and footer as the frame boundary.
+// still leaves the header and footer as the frame boundary. The Details modal
+// is not a body surface — it is composited over this in View.
 func (m AppModel) renderBody() string {
 	layout := m.bodyLayout
 	main := m.components.TaskPanel.View().Content
 
-	// Details, when the terminal is too narrow for a side surface, is the only
-	// body surface: Tasks is not rendered until it closes (docs/DESIGN.md §5).
-	if m.detailsPanelVisible && layout.MainWidth == 0 {
-		return m.components.DetailsPanel.View().Content
-	}
-
-	// Exactly one side surface may accompany Tasks. Pick it, or render Tasks
-	// alone when neither is in the layout (Lists yields at a narrow width by
-	// getting ListsWidth == 0, which lands here too).
-	var side string
-	switch {
-	case m.detailsPanelVisible && layout.DetailsWidth > 0:
-		side = m.components.DetailsPanel.View().Content
-	case m.listsPanelRendered():
-		side = m.components.ListsPanel.View().Content
-	default:
+	// Lists is the only side surface; render Tasks alone when it is not in the
+	// layout (it yields at a narrow width by getting ListsWidth == 0).
+	if !m.listsPanelRendered() {
 		return main
 	}
+	side := m.components.ListsPanel.View().Content
 
 	// Before the first WindowSizeMsg the broadcast height is 0; fall back to
 	// the tallest rendered piece so the gutter still spans the body.
@@ -96,12 +91,11 @@ func (m AppModel) renderBody() string {
 	)
 }
 
-// renderWithModal composites the active modal as a centered layer on top of
-// the rest of the screen (stack-stitcher's pattern: clamp y at 0 so a modal
-// taller than the terminal loses its bottom edge rather than scrolling).
-func (m AppModel) renderWithModal(base string) string {
-	modalContent := m.activeModal.View().Content
-
+// overlayModal composites modalContent as a centered layer on top of the rest
+// of the screen (stack-stitcher's pattern: clamp y at 0 so a modal taller than
+// the terminal loses its bottom edge rather than scrolling). Both the Task
+// details modal and the activeModal overlays go through here.
+func (m AppModel) overlayModal(base, modalContent string) string {
 	x := max(0, (m.terminalWidth-lipgloss.Width(modalContent))/2)
 	y := max(0, (m.terminalHeight-lipgloss.Height(modalContent))/2)
 

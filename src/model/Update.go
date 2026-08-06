@@ -214,6 +214,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, cmds.SetFocus(constants.COMPONENT_TASK_TREE))
 		}
 		finalCmds = append(finalCmds, m.broadcastBodyLayout(), m.footerContextCmd())
+		// Keep the open Details modal sized to the resized terminal (it is
+		// layered over the body, so it is sized from the terminal directly
+		// rather than from the body split).
+		if m.detailsPanelVisible {
+			mw, mh := m.detailsModalSize()
+			finalCmds = append(finalCmds, cmds.SetDetailsLayout(mw, mh))
+		}
 
 	// The poll tick re-issues itself here, which is what makes the poll
 	// recurring for the life of the app (docs/DESIGN.md §7).
@@ -318,18 +325,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		finalCmds = append(finalCmds, cmds.SelectTask(msg.TaskID))
 
 	case cmds.OpenDetailsMsg:
-		// Enter on a selected task opens the exclusive Details side surface:
-		// it replaces Lists on the right, takes focus (Details is not a tab
-		// stop — it is entered here explicitly), and requests its task's
-		// current notes/progress (docs/DESIGN.md §5).
+		// Enter on a selected task opens the Task details modal: a centered
+		// surface layered over the page (not a body surface — it no longer
+		// competes with Lists for the row, docs/DESIGN.md §5). It takes focus so
+		// its keys own the keyboard while it is up, is sized to most of the
+		// screen, and requests its task's current notes/progress and comments.
 		if msg.TaskID != "" {
 			m.detailsTaskID = msg.TaskID
 			m.detailsPanelVisible = true
-			m.listsPanelVisible = false
 			m.focusedZone = constants.COMPONENT_DETAILS_PANEL
-			m.bodyLayout = m.calculateBodyLayout()
+			mw, mh := m.detailsModalSize()
 			finalCmds = append(finalCmds,
-				m.broadcastBodyLayout(),
+				cmds.SetDetailsLayout(mw, mh),
 				cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL),
 				m.footerContextCmd(),
 				cmds.RefreshDetails(m.store, msg.TaskID),
@@ -337,16 +344,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case cmds.CloseDetailsSideMsg:
-		// The Details panel asked to close (clean Esc, discarded edit, or a
-		// completed save). Only AppModel changes visibility and focus: hide
-		// Details, return focus to the task tree, then run the save's refresh
+		// The Details modal asked to close (clean Esc, discarded edit, or a
+		// completed save). Only AppModel changes visibility and focus: hide the
+		// modal, return focus to the task tree, then run the save's refresh
 		// follow-up if there is one.
 		m.detailsPanelVisible = false
 		m.detailsTaskID = ""
 		m.focusedZone = constants.COMPONENT_TASK_TREE
-		m.bodyLayout = m.calculateBodyLayout()
 		finalCmds = append(finalCmds,
-			m.broadcastBodyLayout(),
 			cmds.SetFocus(constants.COMPONENT_TASK_TREE),
 			m.footerContextCmd(),
 		)
@@ -458,9 +463,10 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 	height := max(0, m.terminalHeight-constants.HEADER_HEIGHT-constants.FOOTER_HEIGHT)
 	available := max(0, m.terminalWidth)
 
-	// At most one side surface is ever in the layout — Lists and Details are
-	// mutually exclusive (docs/DESIGN.md §5). With neither, Tasks fills the row.
-	if !m.listsPanelVisible && !m.detailsPanelVisible {
+	// Details is a modal now, layered over the body — it no longer takes a
+	// column here (docs/DESIGN.md §5). The only body side surface is Lists; with
+	// it hidden, Tasks fills the row.
+	if !m.listsPanelVisible {
 		return cmds.SetBodyLayoutMsg{
 			Height:        height,
 			MainWidth:     available,
@@ -472,17 +478,8 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 	var sideWidth, mainWidth int
 	switch {
 	case guttered < constants.MIN_PANEL_WIDTH:
-		// Too narrow to seat a side surface next to Tasks. Details is the
-		// exclusive editing focus, so it takes the whole body and Tasks is not
-		// rendered until it closes; Lists instead yields the row to Tasks.
-		if m.detailsPanelVisible {
-			return cmds.SetBodyLayoutMsg{
-				Height:        height,
-				DetailsWidth:  available,
-				MainWidth:     0,
-				TerminalWidth: available,
-			}
-		}
+		// Too narrow to seat Lists next to Tasks: it yields the row to Tasks and
+		// returns on a later resize.
 		sideWidth, mainWidth = 0, available
 	case guttered < 2*constants.MIN_PANEL_WIDTH:
 		sideWidth = guttered / 2
@@ -494,19 +491,21 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 		mainWidth = guttered - sideWidth
 	}
 
-	layout := cmds.SetBodyLayoutMsg{
+	return cmds.SetBodyLayoutMsg{
 		Height:        height,
+		ListsWidth:    sideWidth,
 		MainWidth:     mainWidth,
 		TerminalWidth: available,
 	}
-	// The side allocation goes to whichever surface is visible; the other
-	// stays 0 so its component drops out of the render (mutual exclusivity).
-	if m.detailsPanelVisible {
-		layout.DetailsWidth = sideWidth
-	} else {
-		layout.ListsWidth = sideWidth
-	}
-	return layout
+}
+
+// detailsModalSize is the Task details modal's outer box: about 90% of the
+// terminal on each axis ("most of the screen", with a thin margin so the dimmed
+// body still shows around the edge). AppModel computes it on open and on resize
+// and hands it to the component via SetDetailsLayout — the modal is sized from
+// the terminal directly because it is layered over the body, not seated in it.
+func (m AppModel) detailsModalSize() (int, int) {
+	return m.terminalWidth * 9 / 10, m.terminalHeight * 9 / 10
 }
 
 // focusableZones is the computed focus cycle (docs/DESIGN.md §5, step 4 of
@@ -553,7 +552,7 @@ func (m *AppModel) ChangeFocus(delta int) tea.Cmd {
 // to all chrome and body components.
 func (m AppModel) broadcastBodyLayout() tea.Cmd {
 	l := m.bodyLayout
-	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.DetailsWidth, l.MainWidth, l.TerminalWidth)
+	return cmds.SetBodyLayout(l.Height, l.ListsWidth, l.MainWidth, l.TerminalWidth)
 }
 
 // applyCreateDraft resolves a pending inline creation against the just-refreshed

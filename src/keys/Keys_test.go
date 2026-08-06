@@ -152,7 +152,8 @@ func TestActiveReturnsDetailsBindingsWhenDetailsVisible(t *testing.T) {
 
 	want := []key.Binding{
 		Details.Save, Details.NextField, Details.CycleMode,
-		Details.CycleModeBack, Details.CommentSubmit, Overlay.Cancel,
+		Details.CycleModeBack, Details.CopyTaskID, Details.CommentNew,
+		Details.CommentSubmit, Details.CopyCommentID, Overlay.Cancel,
 	}
 	if len(bindings) != len(want) {
 		t.Fatalf("expected %d Details bindings, got %d: %v", len(want), len(bindings), bindings)

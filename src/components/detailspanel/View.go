@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
@@ -14,41 +15,111 @@ import (
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
 )
 
-// View renders the Details panel inside the shared chrome.PanelFrame. Focus is
-// shown only by the frame's background tier (docs/DESIGN.md §12); the textarea
-// colors are applied here, at render time, from the current theme and focus so
-// no background from a previous theme is retained.
+// View renders the Task details modal: the shared chrome.ModalSurface (accent
+// border, sealed background) wrapping a fixed-width content column. The modal is
+// as wide as its outer box (about 90% of the terminal) and as tall as its
+// content, capped at that box — so it takes most of the screen without leaving a
+// blank gap when a task has little to show (docs/DESIGN.md §5).
 func (m *Model) View() tea.View {
-	bg := chrome.PanelBg(m.focused)
-	m.applyTextareaStyles(bg)
+	if m.width <= 0 || m.height <= 0 {
+		// Before the first SetDetailsLayoutMsg there is no box to render into.
+		return tea.NewView("")
+	}
 
-	bodyWidth := chrome.PanelBodyWidth(m.body.DetailsWidth)
-	label := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
-	title := lipgloss.NewStyle().
-		Foreground(appstyles.Active.TextPrimary).
-		Render(chrome.Truncate(m.title, bodyWidth))
+	bg := appstyles.Active.ModalBg
+	m.applyTextareaStyles(bg)
+	m.applyInputStyles(bg)
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
-		label.Render("Title"),
-		title,
+		m.renderHeader(),
+		m.fieldLabel("Title", focusTitle),
+		m.titleInput.View(),
 		"",
-		label.Render("Notes"),
+		m.fieldLabel("Notes", focusNotes),
 		m.notes.View(),
 		"",
-		label.Render("Progress"),
+		m.fieldLabel("Progress", focusProgress),
 		m.renderProgressZone(),
-		m.renderErrorLine(),
+		m.renderStatusLine(),
 		"",
 		m.renderComments(),
+		"",
 		m.renderFooter(),
 	)
 
-	return tea.NewView(chrome.PanelFrame("Details", m.focused, m.body.DetailsWidth, m.body.Height, body))
+	innerW := m.innerWidth()
+	// Fix the column to the inner width so every row seals to the same right
+	// edge; MaxWidth clips a line too long for a narrow modal (e.g. the footer
+	// hints or the flush-right task id) rather than letting it push the surface
+	// wider, and MaxHeight clips (never pads) the height so a tall thread loses
+	// its overflow rather than growing the modal past the screen.
+	body = lipgloss.NewStyle().
+		Width(innerW).
+		MaxWidth(innerW).
+		MaxHeight(m.innerHeight()).
+		Render(body)
+
+	return tea.NewView(chrome.ModalSurface(bg, body))
 }
 
-// applyTextareaStyles seals the textarea onto the panel background for the
-// current focus tier. Rebuilt every render so a theme switch while the panel
-// is closed cannot leave a stale background behind.
+// fieldLabel renders a section label, bolded onto the primary ink while its
+// field holds keyboard focus so the focused zone is always obvious. The compose
+// card owns focus while composing, so no zone label is bolded then.
+func (m *Model) fieldLabel(text string, focus int) string {
+	if m.focus == focus && !m.composing {
+		return lipgloss.NewStyle().
+			Bold(true).
+			Foreground(appstyles.Active.TextPrimary).
+			Render(text)
+	}
+	return lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render(text)
+}
+
+// renderHeader renders the modal's heading row: the "Task details" accent
+// chip on the left, and the task id pinned flush-right on the same line so it
+// reads at a glance. The ctrl+y copy shortcut, advertised in the footer, is
+// the same key from every zone.
+func (m *Model) renderHeader() string {
+	left := chrome.ModalTitle("Task details")
+	right := m.renderTaskID()
+	return modalTitleRow(m.innerWidth(), left, right)
+}
+
+// renderTaskID renders the task id flush-right in the header, dimmed like the
+// rest of the header chrome. The ctrl+y copy shortcut (in the footer) lets the
+// user grab the id to the clipboard from any zone.
+func (m *Model) renderTaskID() string {
+	return lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Render("ID " + m.taskID)
+}
+
+// modalTitleRow lays left on the line's left edge and right on its right edge
+// within a width-w box, mirroring chrome.titleRow for the modal header. When
+// right is too wide to fit alongside left it is truncated so the heading never
+// pushes the surface wider than its box (docs/DESIGN.md §5).
+func modalTitleRow(width int, left, right string) string {
+	if right == "" {
+		return left
+	}
+	leftW := lipgloss.Width(left)
+	budget := width - leftW
+	if budget <= 0 {
+		return left
+	}
+	trunc := right
+	if w := lipgloss.Width(right); w > budget {
+		trunc = chrome.Truncate(right, budget)
+	}
+	gap := width - leftW - lipgloss.Width(trunc)
+	if gap < 1 {
+		gap = 1
+	}
+	spacer := lipgloss.NewStyle().Width(gap).Render("")
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, spacer, trunc)
+}
+
+// applyTextareaStyles seals the textarea onto the modal background. Rebuilt every
+// render so a theme switch while the modal is closed cannot leave a stale
+// background behind.
 func (m *Model) applyTextareaStyles(bg color.Color) {
 	styles := textarea.DefaultDarkStyles()
 	base := lipgloss.NewStyle().Background(bg)
@@ -60,6 +131,25 @@ func (m *Model) applyTextareaStyles(bg color.Color) {
 	styles.Focused.CursorLine = lipgloss.NewStyle().Background(bg)
 	styles.Blurred.CursorLine = lipgloss.NewStyle().Background(bg)
 	m.notes.SetStyles(styles)
+}
+
+// applyInputStyles seals the title and compose textinputs onto the modal
+// background so their text rows do not bleed the terminal default behind them,
+// matching the notes textarea. Rebuilt every render for the same theme-switch
+// reason as applyTextareaStyles.
+func (m *Model) applyInputStyles(bg color.Color) {
+	seal := func(in *textinput.Model) {
+		st := in.Styles()
+		text := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
+		placeholder := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
+		st.Focused.Text = text
+		st.Blurred.Text = text
+		st.Focused.Placeholder = placeholder
+		st.Blurred.Placeholder = placeholder
+		in.SetStyles(st)
+	}
+	seal(&m.titleInput)
+	seal(&m.commentInput)
 }
 
 func (m *Model) renderProgressZone() string {
@@ -105,85 +195,230 @@ func (m *Model) renderProgressZone() string {
 	return modeDisplay + valueDisplay
 }
 
-func (m *Model) renderErrorLine() string {
-	if m.errMsg == "" {
-		return ""
+// renderStatusLine is the single reserved row below the progress zone: an error
+// (StatusOverdue) when one is pending, else the transient copy-confirmation
+// flash (Accent), else blank. Reserving the row keeps the layout height stable
+// whether or not there is anything to say.
+func (m *Model) renderStatusLine() string {
+	if m.errMsg != "" {
+		return lipgloss.NewStyle().Foreground(appstyles.Active.StatusOverdue).Render(m.errMsg)
 	}
-	return lipgloss.NewStyle().Foreground(appstyles.Active.StatusOverdue).Render(m.errMsg)
+	if m.flash != "" {
+		return lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Render(m.flash)
+	}
+	return ""
 }
 
-// renderComments renders the comment thread and the compose control below the
-// progress zone. Each comment is a one-line card (author, note, timestamp) —
-// comments are short status/handoff notes per the spec, so a single line
-// per card is sufficient (docs/plan/task-comments.md §6, Commit 5). The
-// thread is oldest-first, mirroring store.ListComments' ORDER BY created_at
-// ASC. An empty thread renders only the compose input, so the section is
-// always available to write the first comment.
+// renderComments renders the "Comments" label and the thread as selectable
+// cards, windowed to the height the layout leaves after the notes textarea so
+// the highlighted card (and the compose card, while composing) is always on
+// screen. An empty thread renders a muted placeholder so the section still names
+// itself.
 func (m *Model) renderComments() string {
-	var parts []string
+	label := m.fieldLabel("Comments", focusComments)
+	innerW := m.innerWidth()
 
-	if len(m.comments) > 0 {
-		label := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
-		parts = append(parts, label.Render("Comments"))
-		for _, c := range m.comments {
-			parts = append(parts, m.renderCommentCard(c))
+	// Rows the cards may use: whatever the notes textarea did not take.
+	avail := max(0, m.flexRows()-m.notesRows())
+
+	// The compose card, when open, is rendered first and always kept on screen;
+	// the real comment cards window into the rows it leaves.
+	var composeCard string
+	composeRows := 0
+	if m.composing {
+		composeCard = m.renderComposeCard(innerW)
+		composeRows = lipgloss.Height(composeCard)
+	}
+
+	rows := []string{label}
+
+	if len(m.comments) == 0 {
+		if composeCard != "" {
+			// Gap between the label and the compose card.
+			rows = append(rows, "", composeCard)
+		} else {
+			rows = append(rows, "", lipgloss.NewStyle().
+				Foreground(appstyles.Active.TextDim).
+				Render("No comments yet."))
 		}
-		parts = append(parts, "") // blank between the last card and the compose
+		return lipgloss.JoinVertical(lipgloss.Left, rows...)
 	}
 
-	parts = append(parts, m.renderCommentCompose())
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	// Render every card so the window can measure real (wrapped) heights, then
+	// pick a contiguous window that contains the anchor and fits the budget.
+	// Each card's measured height includes one commentCardGap so the windowing
+	// budget reserves the gap that separates adjacent cards; the gap between the
+	// label and the first card, and between the last card and the compose card,
+	// is a single-sided margin counted separately below.
+	cards := make([]string, len(m.comments))
+	heights := make([]int, len(m.comments))
+	for i, c := range m.comments {
+		cards[i] = m.renderCommentCard(c, i == m.selectedComment && !m.composing, innerW)
+		// Add the inter-card gap so the windowing budget already reserves it.
+		heights[i] = lipgloss.Height(cards[i]) + commentCardGap
+	}
+
+	// While composing, anchor on the newest comment so the freshest context sits
+	// next to the compose card; otherwise anchor on the selection.
+	anchor := m.selectedComment
+	if m.composing {
+		anchor = len(m.comments) - 1
+	}
+	// Budget accounts for the single-sided label margin and the compose margin
+	// (each one commentCardGap) in addition to the compose card itself.
+	composeBudget := avail - composeRows
+	if composeRows > 0 {
+		composeBudget -= commentCardGap
+	}
+	start, end := commentWindow(heights, anchor, max(0, composeBudget))
+	// Flatten the window: a blank line before the first card (label margin),
+	// cards separated by one blank line (commentCardGap), with the gap only
+	// between adjacent cards, never trailing, then a blank line before the
+	// compose card (compose margin) when present.
+	rows = append(rows, "")
+	for i := start; i < end; i++ {
+		rows = append(rows, cards[i])
+		if i < end-1 {
+			rows = append(rows, "")
+		}
+	}
+	if composeCard != "" {
+		rows = append(rows, "", composeCard)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
-// renderCommentCard renders one comment as a single-line card: the author and
-// timestamp in TextDim, then the note in TextPrimary — all within one line so
-// the thread stays compact. The note is truncated to the panel body width by
-// chrome.Truncate, and the prefix is kept short so a long note still leads
-// with readable content (docs/DESIGN.md §12 truncation contract).
-func (m *Model) renderCommentCard(c apptypes.Comment) string {
-	bodyWidth := chrome.PanelBodyWidth(m.body.DetailsWidth)
-	muted := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim)
-	primary := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
+// commentWindow returns the [start,end) slice of cards to show: a contiguous
+// run that always contains anchor and whose measured heights fit budget rows,
+// grown downward first (toward newer comments) then upward. The anchor card is
+// always included even when it alone exceeds the budget — MaxHeight then clips
+// its overflow rather than dropping it.
+func commentWindow(heights []int, anchor, budget int) (int, int) {
+	n := len(heights)
+	if n == 0 {
+		return 0, 0
+	}
+	if anchor < 0 {
+		anchor = 0
+	}
+	if anchor > n-1 {
+		anchor = n - 1
+	}
+	start, end := anchor, anchor+1
+	used := heights[anchor]
+	for {
+		grew := false
+		if end < n && used+heights[end] <= budget {
+			used += heights[end]
+			end++
+			grew = true
+		}
+		if start > 0 && used+heights[start-1] <= budget {
+			used += heights[start-1]
+			start--
+			grew = true
+		}
+		if !grew {
+			break
+		}
+	}
+	return start, end
+}
 
+// renderCommentCard renders one comment as a card in the shared row-card chrome
+// — a ▌ bar column, the card background, and Padding(0,1,0,0) — mirroring the
+// task row card (docs/DESIGN.md §12). The highlighted card is lifted onto the
+// elevated tier with an accent bar; the rest sit flush on the modal background
+// with a dim bar. Line one is the author and timestamp (dim), then a blank
+// spacer, then the note (primary) wrapped to the card's inner width.
+func (m *Model) renderCommentCard(c apptypes.Comment, selected bool, innerW int) string {
+	bg := appstyles.Active.ModalBg
+	barFg := appstyles.Active.TextDim
+	if selected {
+		bg = appstyles.Active.BackgroundElevated
+		barFg = appstyles.Active.Accent
+	}
+
+	contentWidth := max(1, innerW-cardInset)
 	ts := time.Unix(c.CreatedAt, 0).Format("2006-01-02 15:04")
-	prefix := fmt.Sprintf("%s · %s · ", c.Author, ts)
-	note := chrome.Truncate(c.Note, max(0, bodyWidth-lipgloss.Width(prefix)))
-	return muted.Render(prefix) + primary.Render(note)
+	header := lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextDim).
+		Render(chrome.Truncate(fmt.Sprintf("%s · %s", c.Author, ts), contentWidth))
+	note := lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextPrimary).
+		Width(contentWidth).
+		Render(c.Note)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", note)
+
+	return m.cardChrome(bg, barFg, content, innerW)
 }
 
-// renderCommentCompose renders the single-line compose input with its label.
-// The input is a textinput (not the notes textarea) since comments are short
-// one-liners; it is focused only while focus == focusComments.
-func (m *Model) renderCommentCompose() string {
-	label := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
-	bodyWidth := chrome.PanelBodyWidth(m.body.DetailsWidth)
-	// textinput doesn't set its own width from the style, so budget the
-	// prefix glyph against the panel body width.
-	m.commentInput.SetWidth(max(0, bodyWidth-len([]rune(commentPrompt))))
-	input := m.commentInput.View()
-	return label.Render(commentPrompt) + " " + input
+// renderComposeCard renders the inline new-comment card: the author (the OS
+// user) and a single-line text input, styled like the selected comment card so
+// it reads as an active draft — the same "fake card while adding" shape the task
+// tree uses for inline creation.
+func (m *Model) renderComposeCard(innerW int) string {
+	bg := appstyles.Active.BackgroundElevated
+	barFg := appstyles.Active.Accent
+
+	contentWidth := max(1, innerW-cardInset)
+	m.commentInput.SetWidth(contentWidth)
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(appstyles.Active.Accent).
+		Render(chrome.Truncate(osUser(), contentWidth))
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", m.commentInput.View())
+
+	return m.cardChrome(bg, barFg, content, innerW)
 }
 
-// commentPrompt is the single-column label that prefixes the comment compose
-// input in the Details panel footer area.
-const commentPrompt = "Comment:"
+// cardChrome wraps card content in the shared row-card chrome: a background,
+// one column of right padding, and the ▌ bar column down the left, then seals
+// the whole block onto bg (docs/DESIGN.md §12).
+func (m *Model) cardChrome(bg, barFg color.Color, content string, innerW int) string {
+	wrapper := lipgloss.NewStyle().
+		Width(max(0, innerW-1)).
+		Padding(0, 1, 0, 0).
+		Background(bg).
+		Render(content)
+	return appstyles.FillBackground(bg,
+		lipgloss.JoinHorizontal(lipgloss.Left, chrome.BarColumn(barFg, bg, wrapper), wrapper))
+}
 
-// renderFooter advertises exactly the keys that work inside the panel. It
-// swaps to the discard prompt while a dirty Esc is pending.
+// renderFooter advertises exactly the keys that work in the current zone, each
+// key bolded ahead of its muted description. It swaps to the discard prompt
+// while a dirty Esc is pending, and to the compose hints while the compose card
+// is open.
 func (m *Model) renderFooter() string {
-	muted := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
 	if m.confirmingDiscard {
-		return muted.Render("Discard changes? (y/n)")
+		return lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render("Discard changes? (y/n)")
 	}
 
-	var hint string
-	switch m.focus {
-	case focusNotes:
-		hint = "tab to progress  ctrl+s save  esc cancel"
-	case focusComments:
-		hint = "tab to notes  ctrl+enter post  esc cancel"
-	default:
-		hint = "tab to notes  ←/→ cycle mode  ctrl+s save  esc cancel"
+	var hints [][2]string
+	switch {
+	case m.composing:
+		hints = [][2]string{{"enter", "post"}, {"esc", "cancel"}, {"ctrl+y", "copy task ID"}}
+	case m.focus == focusProgress:
+		hints = [][2]string{{"tab", "next"}, {"←/→", "mode"}, {"ctrl+s", "save"}, {"ctrl+y", "copy task ID"}, {"esc", "close"}}
+	case m.focus == focusComments:
+		hints = [][2]string{{"tab", "next"}, {"↑/↓", "select"}, {"c", "comment"}, {"y", "copy id"}, {"ctrl+y", "copy task ID"}, {"esc", "close"}}
+	default: // focusTitle, focusNotes
+		hints = [][2]string{{"tab", "next"}, {"ctrl+s", "save"}, {"ctrl+y", "copy task ID"}, {"esc", "close"}}
 	}
-	return muted.Render(hint)
+	return m.renderHints(hints)
+}
+
+// renderHints joins key/description pairs with each key bolded onto the primary
+// ink and each description muted, separated by two spaces.
+func (m *Model) renderHints(hints [][2]string) string {
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(appstyles.Active.TextPrimary)
+	descStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
+	out := ""
+	for i, h := range hints {
+		if i > 0 {
+			out += descStyle.Render("  ")
+		}
+		out += keyStyle.Render(h[0]) + " " + descStyle.Render(h[1])
+	}
+	return out
 }

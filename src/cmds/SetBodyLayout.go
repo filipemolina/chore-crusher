@@ -16,27 +16,24 @@ import tea "charm.land/bubbletea/v2"
 //
 // ListsWidth is the lists panel's width, or 0 while the panel is hidden (the
 // panel is out of the layout and out of the focus cycle until L is pressed).
-// DetailsWidth is the Details side panel's width, or 0 while it is hidden;
-// Lists and Details are mutually exclusive, so at most one of the two is
-// non-zero. MainWidth is the Tasks surface's width. Taskspanel owns its
-// internal tree and one-row input-footer split. ListsWidth, DetailsWidth, and
-// MainWidth are all total outer-surface widths. TerminalWidth is the full
-// terminal width, needed by chrome that spans the frame.
+// MainWidth is the Tasks surface's width. Taskspanel owns its internal tree and
+// one-row input-footer split. ListsWidth and MainWidth are both total
+// outer-surface widths. TerminalWidth is the full terminal width, needed by
+// chrome that spans the frame. Details is not here — it is a modal layered over
+// the body, sized from the terminal via SetDetailsLayoutMsg, not a body column.
 type SetBodyLayoutMsg struct {
 	Height        int
 	ListsWidth    int
-	DetailsWidth  int
 	MainWidth     int
 	TerminalWidth int
 }
 
 // SetBodyLayout broadcasts the layout to every component.
-func SetBodyLayout(height, listsWidth, detailsWidth, mainWidth, terminalWidth int) tea.Cmd {
+func SetBodyLayout(height, listsWidth, mainWidth, terminalWidth int) tea.Cmd {
 	return func() tea.Msg {
 		return SetBodyLayoutMsg{
 			Height:        height,
 			ListsWidth:    listsWidth,
-			DetailsWidth:  detailsWidth,
 			MainWidth:     mainWidth,
 			TerminalWidth: terminalWidth,
 		}

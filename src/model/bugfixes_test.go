@@ -419,6 +419,8 @@ func TestPasteReachesDetailsNotes(t *testing.T) {
 	if !m.detailsPanelVisible {
 		t.Fatal("details panel did not open")
 	}
+	// Move focus from the Title entry field into Notes so the paste lands there.
+	m = stepKey(t, m, tea.KeyPressMsg{Text: "tab"})
 	// Drive the paste through AppModel.Update directly: the panel forwards
 	// non-key messages to the focused textarea, whose blink command is a timed
 	// loop the synchronous refresh helper cannot run.
