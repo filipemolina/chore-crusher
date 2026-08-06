@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -152,8 +154,15 @@ func taskCommands() []*cobra.Command {
 	mvCmd.Flags().String("parent", "",
 		"new parent task id (prefix accepted); an empty value moves the task to the list root")
 
+	commentCmd := &cobra.Command{
+		Use:   "comment <task-id> <note>",
+		Short: "add a comment to a task; prints its id",
+		Args:  cobra.ExactArgs(2),
+		RunE:  runComment,
+	}
+
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
-		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd}
+		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd}
 }
 
 func validStatusFilter(s string) bool {
@@ -343,6 +352,16 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	})
 }
 
+// commentJSON is one comment on a task, mirrored between the CLI's
+// `crush show --json` and the MCP's show_task/comments payload (docs/DESIGN.md
+// §9: MCP is a superset of CLI --json, additive fields only).
+type commentJSON struct {
+	ID        string `json:"id"`
+	Author    string `json:"author"`
+	Note      string `json:"note"`
+	CreatedAt int64  `json:"created_at"`
+}
+
 // showJSON is `crush show`'s payload: the task's own fields plus its
 // descendants as the same flat, depth-annotated rows `tasks` emits, so a
 // caller that can read one can read the other.
@@ -358,6 +377,7 @@ type showJSON struct {
 	UpdatedAt   int64         `json:"updated_at"`
 	CompletedAt *int64        `json:"completed_at"`
 	Children    []taskRowJSON `json:"children"`
+	Comments    []commentJSON `json:"comments"`
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
@@ -402,6 +422,20 @@ func runShow(cmd *cobra.Command, args []string) error {
 			})
 		}
 
+		comments, err := s.ListComments(id)
+		if err != nil {
+			return err
+		}
+		commentJSONs := make([]commentJSON, 0, len(comments))
+		for _, c := range comments {
+			commentJSONs = append(commentJSONs, commentJSON{
+				ID:        c.ID,
+				Author:    c.Author,
+				Note:      c.Note,
+				CreatedAt: c.CreatedAt,
+			})
+		}
+
 		printResult(jsonMode, func() {
 			fmt.Fprintf(os.Stdout, "Title: %s\n", t.Title)
 			fmt.Fprintf(os.Stdout, "ID: %s\n", id)
@@ -418,6 +452,12 @@ func runShow(cmd *cobra.Command, args []string) error {
 					renderRow(v)
 				}
 			}
+			if len(comments) > 0 {
+				fmt.Fprintf(os.Stdout, "Comments (%d):\n", len(comments))
+				for _, c := range comments {
+					fmt.Fprintf(os.Stdout, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
+				}
+			}
 		}, showJSON{
 			ID:          t.ID,
 			ListID:      t.ListID,
@@ -430,6 +470,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 			UpdatedAt:   t.UpdatedAt,
 			CompletedAt: t.CompletedAt,
 			Children:    children,
+			Comments:    commentJSONs,
 		})
 		return nil
 	})
@@ -450,6 +491,42 @@ func progressHuman(p progressJSON) string {
 	default:
 		return p.Kind
 	}
+}
+
+// formatTime renders a Unix-second timestamp for human output.
+func formatTime(unix int64) string {
+	return time.Unix(unix, 0).Format("2006-01-02 15:04:05")
+}
+
+// osUser returns the current OS username for human-authored writes
+// (comments, task creation). Falls back to $USER/$LOGNAME when
+// os/user.Current fails — some minimal containers lack /etc/passwd
+// (docs/plan/task-comments.md §1).
+func osUser() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	return os.Getenv("LOGNAME")
+}
+
+func runComment(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("task", args[0])
+		if err != nil {
+			return err
+		}
+		cid, err := s.AddComment(id, osUser(), args[1])
+		if err != nil {
+			return err
+		}
+		printResult(jsonMode, func() { fmt.Println(cid) }, idJSON{cid})
+		return nil
+	})
 }
 
 func runRename(cmd *cobra.Command, args []string) error {

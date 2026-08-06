@@ -87,3 +87,23 @@ func (s *Store) ListComments(taskID string) ([]Comment, error) {
 	}
 	return out, rows.Err()
 }
+
+// SetCommentsDisabled toggles the list-level comments_disabled flag. The
+// plan (docs/plan/task-comments.md §1) leaves the "how a human turns it on"
+// question as a follow-up — this store method exists so the flag can be set
+// for testing and so a future CLI/TUI toggle has the one writer it needs,
+// rather than every caller reaching into raw SQL.
+func (s *Store) SetCommentsDisabled(listID string, disabled bool) error {
+	flag := 0
+	if disabled {
+		flag = 1
+	}
+	res, err := s.db.Exec(
+		`UPDATE List SET comments_disabled = ? WHERE id = ?`,
+		flag, listID,
+	)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res, "list", listID)
+}

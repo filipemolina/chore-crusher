@@ -3,6 +3,9 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/filipemolina/chore-crusher/src/config"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 func TestTaskTreeAndCascade(t *testing.T) {
@@ -281,5 +284,123 @@ func TestTasksJSONCarriesListOwner(t *testing.T) {
 	mustJSONCLI(t, data, &details, "show", tid, "--json")
 	if details.ListOwner != "pi" {
 		t.Errorf("show --json list_owner = %q, want pi", details.ListOwner)
+	}
+}
+
+// TestCommentRoundTrip pins the CLI comment surface (docs/plan/task-comments.md
+// §5): `crush tasks comment` writes a comment attributed to the OS username,
+// and `crush show --json` includes it in the comments array, oldest first.
+func TestCommentRoundTrip(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	cid1 := strings.TrimSpace(mustCLI(t, data, "comment", tid, "first"))
+	cid2 := strings.TrimSpace(mustCLI(t, data, "comment", tid, "second"))
+	if cid1 == "" || cid2 == "" || cid1 == cid2 {
+		t.Fatalf("expected two distinct comment ids, got %q and %q", cid1, cid2)
+	}
+
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if len(details.Comments) != 2 {
+		t.Fatalf("show --json comments = %d, want 2", len(details.Comments))
+	}
+	// Oldest first (ORDER BY created_at ASC).
+	if details.Comments[0].Note != "first" || details.Comments[0].Author == "" {
+		t.Errorf("first comment = %+v", details.Comments[0])
+	}
+	if details.Comments[0].ID != cid1 {
+		t.Errorf("first comment id = %q, want %q", details.Comments[0].ID, cid1)
+	}
+	if details.Comments[1].Note != "second" || details.Comments[1].ID != cid2 {
+		t.Errorf("second comment = %+v", details.Comments[1])
+	}
+
+	// Human mode shows the comments section.
+	out := mustCLI(t, data, "show", tid)
+	if !strings.Contains(out, "Comments (2):") || !strings.Contains(out, "first") {
+		t.Errorf("show human output missing comments: %q", out)
+	}
+}
+
+// TestCommentAuthorIsOSUsername pins that the CLI attribution is the OS user,
+// not an empty string or a hardcoded placeholder.
+func TestCommentAuthorIsOSUsername(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	mustCLI(t, data, "comment", tid, "note")
+
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if len(details.Comments) != 1 {
+		t.Fatalf("want 1 comment, got %d", len(details.Comments))
+	}
+	author := details.Comments[0].Author
+	if author == "" {
+		t.Error("comment author must not be empty")
+	}
+	if author != osUser() {
+		t.Errorf("comment author = %q, want osUser() = %q", author, osUser())
+	}
+}
+
+// TestCommentRefusedOnDisabledList pins (docs/plan/task-comments.md §1): a
+// task whose list has comments_disabled refuses new comments with a domain
+// error (exit 1).
+func TestCommentRefusedOnDisabledList(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	// No CLI toggle exists yet (deferred per the plan); disable via the
+	// store method so the CLI enforcement path is exercised end to end.
+	t.Setenv("XDG_DATA_HOME", data)
+	s, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := s.SetCommentsDisabled(lid, true); err != nil {
+		s.Close()
+		t.Fatalf("SetCommentsDisabled: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("s.Close: %v", err)
+	}
+
+	code, _, errOut := runCLI(t, data, "comment", tid, "note")
+	if code != 1 || !strings.Contains(errOut, "disabled") {
+		t.Errorf("comment on disabled list: exit %d stderr %q, want exit 1 mentioning disabled", code, errOut)
+	}
+}
+
+// TestCommentRefusedOnMissingTask pins the existence check at the CLI level:
+// commenting on a nonexistent task id resolves to none and surfaces the
+// store's not-found error as a domain failure (exit 1).
+func TestCommentRefusedOnMissingTask(t *testing.T) {
+	data := t.TempDir()
+	code, _, errOut := runCLI(t, data, "comment", "01ARZ", "note")
+	if code != 1 || !strings.Contains(errOut, "not found") {
+		t.Errorf("comment on nonexistent task: exit %d stderr %q, want exit 1 mentioning not found", code, errOut)
+	}
+}
+
+// TestShowIncludesCommentsArray pins that `crush show --json` emits the
+// comments field (even when empty, as an empty array) so callers always
+// get the key — additive per docs/DESIGN.md §9.
+func TestShowIncludesCommentsArray(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if details.Comments == nil {
+		t.Error("show --json should always include comments (even when empty)")
+	}
+	if len(details.Comments) != 0 {
+		t.Errorf("new task should have 0 comments, got %d", len(details.Comments))
 	}
 }
