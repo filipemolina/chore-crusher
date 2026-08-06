@@ -23,54 +23,58 @@ func intPtr(v int) *int { return &v }
 
 // TestComputeTaskRowColsDropOrder pins the column budget's drop order
 // (task-row redesign, docs/plan/task-row-redesign-and-inline-creation.md
-// step 1): the progress and status columns are each atomic (full width or
-// zero) and progress is shed before status as the table narrows — never the
-// reverse, and never as a fragment. The title and checkbox are never dropped:
-// the title is always at least one column, and the checkbox keeps its fixed
-// width. The details marker widens the status column by two cells when
-// present, and sheds with it.
+// step 1): the progress column and the status+icon right block are each atomic
+// (full width or zero) and progress is shed before the right block as the table
+// narrows — never the reverse, and never as a fragment. The title and checkbox
+// are never dropped: the title is always at least one column, and the checkbox
+// keeps its fixed width. The status column is a fixed statusColWidth and the
+// icon column a fixed detailsColWidth, reserved together regardless of notes.
 func TestComputeTaskRowColsDropOrder(t *testing.T) {
 	const checkbox = 1
-	status := "in progress" // 11 runes -> status column = 12 (label + gap)
+	status := "in progress" // any label -> fixed status column, statusColWidth+1
 	progress := "42%"       // 3 runes -> progress column = 4 (label + gap)
 
-	statusFull := len(status) + 1
-	statusFullDetails := statusFull + 2 // "🗎 " before the label
+	statusFull := statusColWidth + 1
+	detailsFull := detailsColWidth + 1
 	progressFull := len(progress) + 1
 
 	for width := 1; width <= 120; width++ {
-		for _, details := range []bool{false, true} {
-			cols := computeTaskRowCols(width, checkbox, status, progress, details, "")
+		cols := computeTaskRowCols(width, checkbox, status, progress, "")
 
-			// checkbox is fixed identity, never shed
-			if cols.checkbox != checkbox {
-				t.Fatalf("width %d: checkbox = %d, want %d", width, cols.checkbox, checkbox)
-			}
-			// title is never dropped below one column
-			if cols.title < 1 {
-				t.Fatalf("width %d: title = %d, want >= 1", width, cols.title)
-			}
-			// atomic columns: a non-zero column has its full width, never a fragment
-			want := statusFull
-			if details {
-				want = statusFullDetails
-			}
-			if cols.status != 0 && cols.status != want {
-				t.Fatalf("width %d details=%v: status = %d, want 0 or %d", width, details, cols.status, want)
-			}
-			if cols.progress != 0 && cols.progress != progressFull {
-				t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
-			}
-			// drop order: progress before status -> a shed status implies a shed progress
-			if cols.status == 0 && cols.progress != 0 {
-				t.Fatalf("width %d: status shed but progress kept (wrong drop order)", width)
-			}
-			// no overflow: title+status+progress fit the table budget (checkbox lives
-			// in the prefix, not the table budget)
-			if cols.title+cols.status+cols.progress > width {
-				t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
-					cols.title+cols.status+cols.progress, width)
-			}
+		// checkbox is fixed identity, never shed
+		if cols.checkbox != checkbox {
+			t.Fatalf("width %d: checkbox = %d, want %d", width, cols.checkbox, checkbox)
+		}
+		// title is never dropped below one column
+		if cols.title < 1 {
+			t.Fatalf("width %d: title = %d, want >= 1", width, cols.title)
+		}
+		// atomic columns: a non-zero column has its full width, never a fragment
+		if cols.status != 0 && cols.status != statusFull {
+			t.Fatalf("width %d: status = %d, want 0 or %d", width, cols.status, statusFull)
+		}
+		// the icon column is reserved whenever the status is, at its fixed width,
+		// with or without notes — that is what keeps rows aligned
+		if cols.details != 0 && cols.details != detailsFull {
+			t.Fatalf("width %d: details = %d, want 0 or %d", width, cols.details, detailsFull)
+		}
+		// the status and icon columns are one right block: they are present or
+		// absent together, never one without the other
+		if (cols.status == 0) != (cols.details == 0) {
+			t.Fatalf("width %d: status=%d and details=%d must shed together", width, cols.status, cols.details)
+		}
+		if cols.progress != 0 && cols.progress != progressFull {
+			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
+		}
+		// drop order: progress before the right block -> a shed status implies a shed progress
+		if cols.status == 0 && cols.progress != 0 {
+			t.Fatalf("width %d: right block shed but progress kept (wrong drop order)", width)
+		}
+		// no overflow: title+status+details+progress fit the table budget (checkbox
+		// lives in the prefix, not the table budget)
+		if cols.title+cols.status+cols.details+cols.progress > width {
+			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
+				cols.title+cols.status+cols.details+cols.progress, width)
 		}
 	}
 }
@@ -185,23 +189,63 @@ func TestSubtaskCardIsIndented(t *testing.T) {
 	}
 }
 
-// TestDetailsIconSitsLeftOfStatus pins the notes marker: a task with notes
-// renders 🗎 immediately left of its status label in the right block, and a
-// task without notes renders none (docs/DESIGN.md §12 glyph table).
-func TestDetailsIconSitsLeftOfStatus(t *testing.T) {
+// TestDetailsIconInTrailingColumn pins the notes marker to the fixed trailing
+// icon column (decision 2, docs/plan/ui-improvements.md; docs/DESIGN.md §12): a
+// noted task ends in "PENDING 🗎" — the glyph is the row's last visible cell,
+// right of the status column — while an un-noted task ends in "PENDING"
+// followed by the reserved blank icon cell and never renders the glyph.
+func TestDetailsIconInTrailingColumn(t *testing.T) {
 	m := &Model{}
 	withNotes := apptypes.Row{Task: apptypes.Task{ID: "1", Title: "has notes", Notes: "lots", Status: apptypes.StatusPending}}
 	m.rows = []apptypes.Row{withNotes}
 
 	rendered := ansi.Strip(m.renderRow(withNotes, 60, testBg))
-	if !strings.Contains(rendered, "🗎 PENDING") {
-		t.Errorf("row with notes must render '🗎 PENDING', got: %q", rendered)
+	if !strings.Contains(rendered, "PENDING 🗎") {
+		t.Errorf("noted row must render 'PENDING 🗎' (glyph in the trailing column), got: %q", rendered)
+	}
+	if !strings.HasSuffix(strings.TrimRight(rendered, " "), "🗎") {
+		t.Errorf("noted row's document glyph must be the row's last visible cell, got: %q", rendered)
 	}
 
 	withoutNotes := apptypes.Row{Task: apptypes.Task{ID: "2", Title: "no notes", Status: apptypes.StatusPending}}
 	rendered = ansi.Strip(m.renderRow(withoutNotes, 60, testBg))
 	if strings.Contains(rendered, "🗎") {
-		t.Errorf("row without notes must not render the details marker, got: %q", rendered)
+		t.Errorf("un-noted row must not render the document glyph, got: %q", rendered)
+	}
+	if !strings.HasSuffix(strings.TrimRight(rendered, " "), "PENDING") {
+		t.Errorf("un-noted row must end in the status label with the icon column left blank, got: %q", rendered)
+	}
+}
+
+// TestStatusColumnIsFixedWidth pins the fixed status column: a short PENDING
+// title, an eleven-character PENDING title, and an IN PROGRESS title rendered at
+// the same width all place the document glyph at the same display column — so
+// the status label and the trailing icon column line up across rows regardless
+// of the label's length (decision 2, docs/plan/ui-improvements.md).
+func TestStatusColumnIsFixedWidth(t *testing.T) {
+	const width = 60
+	m := &Model{}
+	rows := []apptypes.Row{
+		{Task: apptypes.Task{ID: "1", Title: "a", Notes: "n", Status: apptypes.StatusPending}},
+		{Task: apptypes.Task{ID: "2", Title: "eleven char", Notes: "n", Status: apptypes.StatusPending}},
+		{Task: apptypes.Task{ID: "3", Title: "b", Notes: "n", Status: apptypes.StatusInProgress}},
+	}
+	m.rows = rows
+
+	glyphCol := -1
+	for _, r := range rows {
+		stripped := ansi.Strip(m.renderRow(r, width, testBg))
+		gi := strings.Index(stripped, "🗎")
+		if gi < 0 {
+			t.Fatalf("row %q: expected a document glyph in %q", r.Task.Title, stripped)
+		}
+		col := lipgloss.Width(stripped[:gi]) // display column, not byte index
+		if glyphCol == -1 {
+			glyphCol = col
+		} else if col != glyphCol {
+			t.Errorf("document glyph column = %d for %q (status %v), want %d (fixed trailing column)",
+				col, r.Task.Title, r.Task.Status, glyphCol)
+		}
 	}
 }
 
@@ -294,16 +338,17 @@ func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 // agent-spinner unit, and the agent-spinner sheds before status.
 func TestSpinnerUnitShedsBeforeProgress(t *testing.T) {
 	const checkbox = 1
-	status := "IN PROGRESS" // 11 runes -> status column = 12 (label + gap)
+	status := "IN PROGRESS" // any label -> fixed status column, statusColWidth+1
 	progress := "42%"       // 3 runes -> progress column = 4 (label + gap)
 	agent := chrome.Spinner(1) + " claude"
 
-	statusFull := len(status) + 1
+	statusFull := statusColWidth + 1
+	detailsFull := detailsColWidth + 1
 	progressFull := len(progress) + 1
 	agentFull := len(agent) + 1
 
 	for width := 1; width <= 120; width++ {
-		cols := computeTaskRowCols(width, checkbox, status, progress, false, agent)
+		cols := computeTaskRowCols(width, checkbox, status, progress, agent)
 
 		if cols.progress != 0 && cols.progress != progressFull {
 			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
@@ -314,18 +359,22 @@ func TestSpinnerUnitShedsBeforeProgress(t *testing.T) {
 		if cols.status != 0 && cols.status != statusFull {
 			t.Fatalf("width %d: status = %d, want 0 or %d", width, cols.status, statusFull)
 		}
-		// Drop order: progress first, then agent-spinner, then status. A unit
-		// shed while an earlier one is kept is the wrong order — progress must
-		// not survive the agent-spinner, nor the agent-spinner the status.
+		if cols.details != 0 && cols.details != detailsFull {
+			t.Fatalf("width %d: details = %d, want 0 or %d", width, cols.details, detailsFull)
+		}
+		// Drop order: progress first, then agent-spinner, then the status+icon
+		// block. A unit shed while an earlier one is kept is the wrong order —
+		// progress must not survive the agent-spinner, nor the agent-spinner the
+		// right block.
 		if cols.progress != 0 && cols.agentSpinner == 0 {
 			t.Fatalf("width %d: progress kept but agent-spinner shed (wrong drop order)", width)
 		}
 		if cols.agentSpinner != 0 && cols.status == 0 {
 			t.Fatalf("width %d: agent-spinner kept but status shed (wrong drop order)", width)
 		}
-		if cols.title+cols.progress+cols.agentSpinner+cols.status > width {
+		if cols.title+cols.progress+cols.agentSpinner+cols.status+cols.details > width {
 			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
-				cols.title+cols.progress+cols.agentSpinner+cols.status, width)
+				cols.title+cols.progress+cols.agentSpinner+cols.status+cols.details, width)
 		}
 	}
 }

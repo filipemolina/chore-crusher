@@ -355,48 +355,69 @@ type taskRowCols struct {
 	status       int
 	progress     int
 	agentSpinner int
+	details      int
 }
+
+// statusColWidth is the fixed width of the status column: the longest status
+// label, "IN PROGRESS" (11 runes). Every status label is right-aligned inside
+// this width so PENDING / IN PROGRESS / COMPLETE all end at the same column and
+// the trailing icon column begins at the same offset on every row (decision 2,
+// docs/plan/ui-improvements.md; docs/DESIGN.md §12).
+const statusColWidth = 11
+
+// detailsColWidth is the fixed width of the trailing icon column — one display
+// cell for the document glyph, reserved on every row (blank when the task has
+// no notes) so all rows' right edges line up.
+const detailsColWidth = 1
 
 // computeTaskRowCols distributes tableWidth among the task row's columns.
 // checkbox is never dropped; title is never dropped; progress, agentSpinner,
-// and status are dropped whole (in that order) when the table is too narrow.
-// When the task carries the details marker, its column grows by the marker's
-// two cells so the status still ends flush at the card's right padding.
-// Drop order matches docs/plan/mcp-server-enhancement.md §3.7.
-func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress string, details bool, agentSpinner string) taskRowCols {
+// and the status+icon block are dropped whole (in that order) when the table
+// is too narrow. The status column is a fixed statusColWidth allocation and the
+// trailing icon column a fixed detailsColWidth allocation — reserved together
+// regardless of whether the row has notes — so the status label and the glyph
+// (or its blank cell) align across rows. Drop order matches
+// docs/plan/mcp-server-enhancement.md §3.7; the fixed trailing block is
+// decision 2 of docs/plan/ui-improvements.md.
+func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSpinner string) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 
 	statusW := 0
-	progressW := 0
-	agentW := 0
+	detailsW := 0
 	if status != "" {
-		statusW = len(status) + 1 // +1 for trailing gap
-		if details {
-			statusW += 2 // the details marker and its leading gap
-		}
+		statusW = statusColWidth + 1   // +1 leading gap before the status column
+		detailsW = detailsColWidth + 1 // +1 gap between the status and icon columns
 	}
+	progressW := 0
 	if progress != "" {
 		progressW = len(progress) + 1 // +1 for trailing gap
 	}
+	agentW := 0
 	if agentSpinner != "" {
 		agentW = len(agentSpinner) + 1 // +1 for trailing gap
 	}
 
-	// Drop order: progress first, then agent-spinner, then status
-	if progressW > 0 && tableWidth-statusW-agentW-progressW < 1 {
+	// The status label and its trailing icon column are one atomic right block:
+	// they are reserved together and shed together, so a narrow row never shows
+	// a partial icon or a status fragment.
+	rightBlock := statusW + detailsW
+
+	// Drop order: progress first, then agent-spinner, then the whole right block.
+	if progressW > 0 && tableWidth-rightBlock-agentW-progressW < 1 {
 		progressW = 0
 	}
-	if agentW > 0 && tableWidth-statusW-agentW < 1 {
+	if agentW > 0 && tableWidth-rightBlock-agentW < 1 {
 		agentW = 0
 	}
-	if statusW > 0 && tableWidth-statusW < 1 {
-		statusW = 0
+	if rightBlock > 0 && tableWidth-rightBlock < 1 {
+		statusW, detailsW, rightBlock = 0, 0, 0
 	}
 
 	cols.status = statusW
+	cols.details = detailsW
 	cols.progress = progressW
 	cols.agentSpinner = agentW
-	cols.title = max(1, tableWidth-statusW-agentW-progressW)
+	cols.title = max(1, tableWidth-rightBlock-agentW-progressW)
 
 	return cols
 }
@@ -479,11 +500,11 @@ func progressLabel(row apptypes.Row, rows []apptypes.Row) string {
 const cardInset = 2
 
 // detailsIcon marks a task whose notes are non-empty — the details screen
-// (enter) has something to show. It sits immediately left of the status
-// label in the right-aligned block, in TextDim (docs/DESIGN.md §12's glyph
-// table). U+1F5CE DOCUMENT (🗎) measures one cell in go-runewidth, like the
-// rest of the vocabulary, though emoji-capable fonts may render it wider
-// (docs/DESIGN.md §12 records the caveat).
+// (enter) has something to show. It is right-aligned in the fixed trailing icon
+// column, immediately right of the status column, in TextMuted (docs/DESIGN.md
+// §12's glyph table). U+1F5CE DOCUMENT (🗎) measures one cell in go-runewidth,
+// like the rest of the vocabulary, though emoji-capable fonts may render it
+// wider (docs/DESIGN.md §12 records the caveat).
 const detailsIcon = "🗎"
 
 // buildRowContent renders a task row's columns — checkbox, title (plus the
@@ -502,7 +523,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 		tableWidth = 1
 	}
 
-	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, detailsGlyph != "", agentSpinner)
+	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, agentSpinner)
 
 	checkboxCell := lipgloss.NewStyle().Width(cols.checkbox).Render(checkbox)
 
@@ -522,7 +543,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 	}
 	titleCell := lipgloss.NewStyle().Width(cols.title).Render(titleText)
 
-	var progressCell, agentSpinnerCell, statusCell string
+	var progressCell, agentSpinnerCell, statusCell, detailsCell string
 	if cols.progress > 0 && progress != "" {
 		progressCell = lipgloss.NewStyle().
 			Foreground(appstyles.Active.TextDim).
@@ -536,17 +557,25 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 			Render(chrome.Truncate(agentSpinner, max(1, cols.agentSpinner-1)))
 	}
 	if cols.status > 0 && status != "" {
-		label := status
-		if detailsGlyph != "" {
-			label = detailsGlyph + " " + status
-		}
+		// Fixed-width status column: the label is right-aligned so PENDING /
+		// IN PROGRESS / COMPLETE all end at the same column, and the trailing
+		// icon column begins at the same offset on every row.
 		statusCell = lipgloss.NewStyle().
 			Foreground(statusColor).
 			Width(cols.status).
-			Render(chrome.Truncate(label, max(1, cols.status-1)))
+			Align(lipgloss.Right).
+			Render(chrome.Truncate(status, statusColWidth))
+		// Fixed trailing icon column: the document glyph (or, for a row with no
+		// notes, a blank cell of the same width) right-aligned as the row's last
+		// cell — so noted and un-noted rows keep the same right edge.
+		detailsCell = lipgloss.NewStyle().
+			Foreground(appstyles.Active.TextMuted).
+			Width(cols.details).
+			Align(lipgloss.Right).
+			Render(detailsGlyph)
 	}
 
-	parts := []string{checkboxCell, " ", titleCell, progressCell, agentSpinnerCell, statusCell}
+	parts := []string{checkboxCell, " ", titleCell, progressCell, agentSpinnerCell, statusCell, detailsCell}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 

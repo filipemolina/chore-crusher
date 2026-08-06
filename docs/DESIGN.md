@@ -956,7 +956,7 @@ one is needed, it's added here first.
 | Node has children, expanded | `▾` | One column wide, appended to the *end* of the title (see Row layout below). |
 | Node has children, collapsed | `▸` | Same column, same position — the marker never occupies a leading column, so a parent's title starts at its own depth. |
 | Node is a leaf | *(no glyph)* | Nothing appended; the title simply has no trailing marker. |
-| Task has detail text | `🗎` | U+1F5CE DOCUMENT, rendered immediately left of the status label in the right-aligned block; omitted when `Notes` is empty. The status cell widens by two columns when present. Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
+| Task has detail text | `🗎` | U+1F5CE DOCUMENT, right-aligned in the fixed trailing icon column, immediately right of the status column, in `TextMuted`; the column (one cell) is reserved on every row and rendered blank when `Notes` is empty, so noted and un-noted rows keep the same right edge. Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
 | Row card: active bar | `▌` | Left edge marker on lists and task rows. Accent when the row is selected (or the inline input is active), otherwise the row's own status color — see Row layout below. |
 | Add-input level: sibling (default) | `-` | §4. |
 | Add-input level: child | `+` | §4. |
@@ -966,16 +966,18 @@ one is needed, it's added here first.
 
 **Task rows are full-width cards** (docs/plan/task-row-cards-and-status.md):
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the
-left and the right-aligned `{progress}{space}{status}` block at the line's
-end — the bar and checkbox sit flush, and every level of depth indents the
-*whole card* by two columns, so a subtask's bar steps right and no
+left and the right-aligned `{progress}{space}{status}{space}{🗎}` block at
+the line's end — the bar and checkbox sit flush, and every level of depth
+indents the *whole card* by two columns, so a subtask's bar steps right and no
 continuous vertical bar line forms. A parent's title carries the
 expand/collapse marker (`▾`/`▸`, one column, no space) at its end — before
 the right block when the title is long enough to reach it, dropped
 entirely when the title is shed for narrowness — and the whole right block
-sheds as a unit before the title does. A task with notes renders `🗎`
-immediately left of the status label; the status cell widens by two columns
-when it does. The card spans
+sheds as a unit before the title does. The status label sits in a
+**fixed-width column** (the longest label, `IN PROGRESS`, 11 columns) with the
+label right-aligned inside it, so `PENDING` / `IN PROGRESS` / `COMPLETE` all
+end at the same column across rows; the document glyph (or, with no notes, its
+reserved blank cell) is the row's last cell, right of that column. The card spans
 the panel body width with `Padding(0, 1, 0, 0)` — no vertical padding,
 content-height, so a one-line title makes a one-line card — and the
 selected row's `ModalBg` covers the full card, not just the text run.

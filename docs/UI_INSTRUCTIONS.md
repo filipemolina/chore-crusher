@@ -193,7 +193,7 @@ func PanelFrame(isFocused bool, width, height int, body string) string {
 | Task: pending | `◻` | |
 | Task: in progress | `◻` | Same as pending — no dedicated glyph. For all three progress kinds alike — the `(NN%)` suffix, not the checkbox, distinguishes them. |
 | Task: complete | `◼` | Title renders in `TextMuted`, not `TextPrimary` — completion is when a title becomes secondary. |
-| Task has detail text | `🗎` | U+1F5CE DOCUMENT, immediately left of the status label; widens the status cell by two columns when present. One cell in go-runewidth; emoji fonts may render wider — see DESIGN.md §12. |
+| Task has detail text | `🗎` | U+1F5CE DOCUMENT, right-aligned in the fixed trailing icon column, immediately right of the (fixed-width) status column; the column is reserved on every row and blank when there are no notes. One cell in go-runewidth; emoji fonts may render wider — see DESIGN.md §12. |
 | Node has children, expanded | `▾` | Appended to the *end* of the title — never a leading column, so a parent's title starts at its own depth. |
 | Node has children, collapsed | `▸` | Same position, end of title. |
 | Node is a leaf | *(no glyph)* | Nothing appended; titles of leaves simply carry no marker. |
