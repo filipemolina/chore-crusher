@@ -88,6 +88,34 @@ func (s *Store) ListComments(taskID string) ([]Comment, error) {
 	return out, rows.Err()
 }
 
+// TaskIDsWithComments returns the set of task ids in listID that have at
+// least one comment — a single batch query so the TUI can mark the comments
+// glyph on every row of a list without N+1 round-trips (Commit 4,
+// docs/plan/task-comments.md). A task with zero comments is simply absent from
+// the map.
+func (s *Store) TaskIDsWithComments(listID string) (map[string]bool, error) {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT tc.task_id
+		 FROM TaskComment tc JOIN Task t ON t.id = tc.task_id
+		 WHERE t.list_id = ?`,
+		listID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 // SetCommentsDisabled toggles the list-level comments_disabled flag. The
 // plan (docs/plan/task-comments.md §1) leaves the "how a human turns it on"
 // question as a follow-up — this store method exists so the flag can be set

@@ -153,3 +153,53 @@ func TestAddCommentRefusedWhenDisabled(t *testing.T) {
 		t.Fatalf("want 0 comments, got %d", len(got))
 	}
 }
+
+// TestTaskIDsWithComments pins the batch predicate used by RefreshTasks to
+// set HasComments on every row of a list (docs/plan/task-comments.md §6,
+// Commit 4): only tasks that actually have a comment appear in the map,
+// comments on tasks in other lists are excluded, and a list with no comments
+// at all yields an empty (non-nil) map.
+func TestTaskIDsWithComments(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	taskWith := mustTask(t, s, lid, "with comments", nil)
+	taskWithout := mustTask(t, s, lid, "no comments", nil)
+
+	otherList := mustList(t, s, "other list")
+	otherTask := mustTask(t, s, otherList, "other comment", nil)
+
+	if _, err := s.AddComment(taskWith, "a", "c1"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+	if _, err := s.AddComment(otherTask, "a", "c2"); err != nil {
+		t.Fatalf("add comment: %v", err)
+	}
+
+	got, err := s.TaskIDsWithComments(lid)
+	if err != nil {
+		t.Fatalf("TaskIDsWithComments: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("list query = %v, want exactly 1 entry (%q has a comment)", got, taskWith)
+	}
+	if !got[taskWith] {
+		t.Errorf("expected %q in result, got %v", taskWith, got)
+	}
+	if got[taskWithout] {
+		t.Errorf("task with no comments (%q) leaked into result", taskWithout)
+	}
+	if got[otherTask] {
+		t.Error("other list task leaked into result")
+	}
+
+	// A list with no comments at all yields an empty map, not an error.
+	cleanList := mustList(t, s, "clean")
+	mustTask(t, s, cleanList, "no comments here", nil)
+	got, err = s.TaskIDsWithComments(cleanList)
+	if err != nil {
+		t.Fatalf("clean list TaskIDsWithComments: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("clean list: want 0 entries, got %d", len(got))
+	}
+}

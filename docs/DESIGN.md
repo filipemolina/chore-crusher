@@ -974,7 +974,8 @@ one is needed, it's added here first.
 | Node has children, expanded | `▾` | One column wide, appended to the *end* of the title (see Row layout below). |
 | Node has children, collapsed | `▸` | Same column, same position — the marker never occupies a leading column, so a parent's title starts at its own depth. |
 | Node is a leaf | *(no glyph)* | Nothing appended; the title simply has no trailing marker. |
-| Task has detail text | `🗎` | U+1F5CE DOCUMENT, right-aligned in the fixed trailing icon column, immediately right of the status column, in `TextMuted`; the column (one cell) is reserved on every row and rendered blank when `Notes` is empty, so noted and un-noted rows keep the same right edge. Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
+| Task has detail text | `🗎` | U+1F5CE DOCUMENT, left half of the fixed two-cell trailing icon column, immediately right of the status column, in `TextMuted`; the column is reserved on every row and the notes cell is rendered blank when `Notes` is empty, so noted and un-noted rows keep the same right edge. The column is two cells because it pairs with the comments glyph (below). Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
+| Task has comments | `🗨` | U+1F5E8 LEFT SPEECH BUBBLE, right half of the fixed two-cell trailing icon column, in `TextMuted`; the cell is blank when the task has no comments. `💬` (U+1F4AC) was the natural choice but measures two cells in go-runewidth (v0.0.23), which would have widened the column past its partner glyph — `🗨` is the one-cell form (2026-08-06). Absent a comment the cell is blank. `HasComments` is set per-row by `RefreshTasks` from `store.TaskIDsWithComments` (Commit 4 of `docs/plan/task-comments.md`). |
 | Row card: active bar | `▌` | Left edge marker on lists and task rows. Accent when the row is selected (or the inline input is active), otherwise the row's own status color — see Row layout below. |
 | Add-input level: sibling (default) | `-` | §4. |
 | Add-input level: child | `+` | §4. |
@@ -984,7 +985,7 @@ one is needed, it's added here first.
 
 **Task rows are full-width cards** (docs/plan/task-row-cards-and-status.md):
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the
-left and the right-aligned `{progress}{space}{status}{space}{🗎}` block at
+left and the right-aligned `{progress}{space}{status}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
 the line's end — the bar and checkbox sit flush, and every level of depth
 indents the *whole card* by two columns, so a subtask's bar steps right and no
 continuous vertical bar line forms. A parent's title carries the

@@ -359,10 +359,19 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 	rowBg := chrome.ListRowBg(isSelected, m.focused)
 
 	checkboxColored := lipgloss.NewStyle().Foreground(checkboxFg).Render(checkbox)
-	detailsGlyph := ""
+	notesGlyph := ""
 	if row.Task.Notes != "" {
-		detailsGlyph = detailsIcon
+		notesGlyph = detailsIcon
 	}
+	commentsGlyph := ""
+	if row.HasComments {
+		commentsGlyph = commentsIcon
+	}
+	// Compose both glyphs into the fixed two-cell trailing column: an absent
+	// glyph becomes a single space, so the combined string is always exactly
+	// two cells (notes left, comments right) regardless of which indicators
+	// the row carries.
+	detailsGlyph := padRightGlyph(notesGlyph) + padRightGlyph(commentsGlyph)
 	// Build the agent spinner text: "⠙ agentA" when claimed, "" otherwise.
 	agentSpinner := ""
 	if a, ok := m.work[row.Task.ID]; ok {
@@ -440,10 +449,13 @@ type taskRowCols struct {
 // docs/plan/ui-improvements.md; docs/DESIGN.md §12).
 const statusColWidth = 11
 
-// detailsColWidth is the fixed width of the trailing icon column — one display
-// cell for the document glyph, reserved on every row (blank when the task has
-// no notes) so all rows' right edges line up.
-const detailsColWidth = 1
+// detailsColWidth is the fixed width of the trailing icon column — two display
+// cells: the document glyph (notes) on the left and the comments glyph on the
+// right, both right-aligned within the column. Each glyph is one cell; an
+// absent glyph is a single space, so the combined string is always exactly two
+// cells and every row's right edge stays aligned (docs/DESIGN.md §12;
+// docs/plan/task-comments.md §6, Commit 4).
+const detailsColWidth = 2
 
 // computeTaskRowCols distributes tableWidth among the task row's columns.
 // checkbox is never dropped; title is never dropped; progress, agentSpinner,
@@ -581,6 +593,28 @@ const cardInset = 2
 // like the rest of the vocabulary, though emoji-capable fonts may render it
 // wider (docs/DESIGN.md §12 records the caveat).
 const detailsIcon = "🗎"
+
+// commentsIcon marks a task that has at least one comment. It pairs with
+// detailsIcon in the fixed two-cell trailing icon column: notes on the left,
+// comments on the right (docs/plan/task-comments.md §6, Commit 4). U+1F4AC
+// (💬) measures two cells in go-runewidth, so — unlike the one-cell 🗎 — it
+// cannot share a one-cell slot in the column. U+1F5E8 LEFT SPEECH BUBBLE
+// (🗨) is the one-cell form (verified via go-runewidth v0.0.23, 2026-08-06)
+// and is used instead, accepting the same emoji-font widening caveat the
+// document glyph already carries.
+const commentsIcon = "🗨"
+
+// padRightGlyph returns glyph padded to exactly one display cell, so two
+// one-cell glyphs compose into a fixed two-cell string: an absent glyph
+// becomes a single space, a glyph already one cell is returned unchanged.
+// Both detailsIcon and commentsIcon are go-runewidth one-cell by construction
+// (see their constant docs), so this is the only normalization needed.
+func padRightGlyph(glyph string) string {
+	if glyph == "" {
+		return " "
+	}
+	return glyph
+}
 
 // buildRowContent renders a task row's columns — checkbox, title (plus the
 // optional trailing expand/collapse marker), and the right-aligned

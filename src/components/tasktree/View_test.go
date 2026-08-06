@@ -189,62 +189,123 @@ func TestSubtaskCardIsIndented(t *testing.T) {
 	}
 }
 
-// TestDetailsIconInTrailingColumn pins the notes marker to the fixed trailing
-// icon column (decision 2, docs/plan/ui-improvements.md; docs/DESIGN.md §12): a
-// noted task ends in "PENDING 🗎" — the glyph is the row's last visible cell,
-// right of the status column — while an un-noted task ends in "PENDING"
-// followed by the reserved blank icon cell and never renders the glyph.
+// TestDetailsIconInTrailingColumn pins the notes and comments markers to the
+// fixed two-cell trailing icon column (decision 2, docs/plan/ui-improvements.md;
+// docs/DESIGN.md §12): the column holds the notes glyph on the left and the
+// comments glyph on the right, each one cell, an absent glyph rendered as a
+// single space. A noted-only task ends in "PENDING 🗎 " (notes glyph, then a
+// blank for the absent comments glyph); a commented-only task ends in
+// "PENDING  🗨" (a blank for absent notes, then the comments glyph); a task
+// with both ends in "PENDING 🗎🗨"; and a clean task ends in "PENDING" with
+// two reserved blank cells after it. The glyph is the row's last visible cell.
 func TestDetailsIconInTrailingColumn(t *testing.T) {
-	m := &Model{}
-	withNotes := apptypes.Row{Task: apptypes.Task{ID: "1", Title: "has notes", Notes: "lots", Status: apptypes.StatusPending}}
-	m.rows = []apptypes.Row{withNotes}
+	testCases := []struct {
+		label         string
+		row           apptypes.Row
+		wantSuffix    string // right-trimmed last visible cell — the comments glyph or the status
+		wantSubstring string // a fixed slice to assert the two-glyph column renders in order
+		notWant       string // a glyph that must NOT appear given this row's flags
+	}{
+		{
+			label:         "notes only",
+			row:           apptypes.Row{Task: apptypes.Task{ID: "1", Title: "has notes", Notes: "lots", Status: apptypes.StatusPending}},
+			wantSubstring: "PENDING 🗎 ", // notes glyph, then blank for absent comments
+			wantSuffix:    detailsIcon,  // notes glyph is the last non-blank cell
+			notWant:       commentsIcon,
+		},
+		{
+			label:         "comments only",
+			row:           apptypes.Row{Task: apptypes.Task{ID: "2", Title: "has comments", Status: apptypes.StatusPending}, HasComments: true},
+			wantSubstring: "PENDING  " + commentsIcon, // blank for absent notes, then comments glyph
+			wantSuffix:    commentsIcon,
+			notWant:       detailsIcon,
+		},
+		{
+			label:         "notes and comments",
+			row:           apptypes.Row{Task: apptypes.Task{ID: "3", Title: "both", Notes: "n", Status: apptypes.StatusPending}, HasComments: true},
+			wantSubstring: "PENDING 🗎" + commentsIcon,
+			wantSuffix:    commentsIcon,
+		},
+		{
+			label:         "neither",
+			row:           apptypes.Row{Task: apptypes.Task{ID: "4", Title: "plain", Status: apptypes.StatusPending}},
+			wantSubstring: "PENDING   ", // two reserved blank cells
+			wantSuffix:    "PENDING",
+			notWant:       detailsIcon, // neither glyph may appear
+		},
+	}
 
-	rendered := ansi.Strip(m.renderRow(withNotes, 60, testBg))
-	if !strings.Contains(rendered, "PENDING 🗎") {
-		t.Errorf("noted row must render 'PENDING 🗎' (glyph in the trailing column), got: %q", rendered)
-	}
-	if !strings.HasSuffix(strings.TrimRight(rendered, " "), "🗎") {
-		t.Errorf("noted row's document glyph must be the row's last visible cell, got: %q", rendered)
-	}
+	for _, tc := range testCases {
+		m := &Model{}
+		m.rows = []apptypes.Row{tc.row}
+		m.selectedID = tc.row.Task.ID
 
-	withoutNotes := apptypes.Row{Task: apptypes.Task{ID: "2", Title: "no notes", Status: apptypes.StatusPending}}
-	rendered = ansi.Strip(m.renderRow(withoutNotes, 60, testBg))
-	if strings.Contains(rendered, "🗎") {
-		t.Errorf("un-noted row must not render the document glyph, got: %q", rendered)
-	}
-	if !strings.HasSuffix(strings.TrimRight(rendered, " "), "PENDING") {
-		t.Errorf("un-noted row must end in the status label with the icon column left blank, got: %q", rendered)
+		rendered := ansi.Strip(m.renderRow(tc.row, 60, testBg))
+		if !strings.Contains(rendered, tc.wantSubstring) {
+			t.Errorf("[%s] row must render %q in the trailing column, got: %q", tc.label, tc.wantSubstring, rendered)
+		}
+		if !strings.HasSuffix(strings.TrimRight(rendered, " "), tc.wantSuffix) {
+			t.Errorf("[%s] row must end in %q (last visible cell), got: %q", tc.label, tc.wantSuffix, rendered)
+		}
+		if tc.notWant != "" && strings.Contains(rendered, tc.notWant) {
+			t.Errorf("[%s] row must not render %q, got: %q", tc.label, tc.notWant, rendered)
+		}
 	}
 }
 
-// TestStatusColumnIsFixedWidth pins the fixed status column: a short PENDING
-// title, an eleven-character PENDING title, and an IN PROGRESS title rendered at
-// the same width all place the document glyph at the same display column — so
-// the status label and the trailing icon column line up across rows regardless
-// of the label's length (decision 2, docs/plan/ui-improvements.md).
+// TestStatusColumnIsFixedWidth pins the fixed status column: rows of varying
+// status label length all place the trailing icon column at the same display
+// column — so the status label and the two-cell notes+comments glyph column
+// line up across rows regardless of the label's length (decision 2,
+// docs/plan/ui-improvements.md; docs/DESIGN.md §12). Every row here carries
+// notes, so the notes glyph is always present at a fixed column; commented
+// rows must additionally place the comments glyph immediately after it, so
+// the two share the fixed 2-cell trailing column.
 func TestStatusColumnIsFixedWidth(t *testing.T) {
 	const width = 60
 	m := &Model{}
 	rows := []apptypes.Row{
 		{Task: apptypes.Task{ID: "1", Title: "a", Notes: "n", Status: apptypes.StatusPending}},
-		{Task: apptypes.Task{ID: "2", Title: "eleven char", Notes: "n", Status: apptypes.StatusPending}},
-		{Task: apptypes.Task{ID: "3", Title: "b", Notes: "n", Status: apptypes.StatusInProgress}},
+		{Task: apptypes.Task{ID: "2", Title: "eleven char", Notes: "n", Status: apptypes.StatusPending}, HasComments: true},
+		{Task: apptypes.Task{ID: "3", Title: "b", Notes: "n", Status: apptypes.StatusInProgress}, HasComments: true},
+		{Task: apptypes.Task{ID: "4", Title: "c", Notes: "n", Status: apptypes.StatusComplete}},
 	}
 	m.rows = rows
 
-	glyphCol := -1
+	// The notes glyph (present on every row) must land at the same display
+	// column regardless of the status label's length — that is the fixed
+	// trailing column invariant from ui-improvements Commit 4.
+	notesCol := -1
 	for _, r := range rows {
 		stripped := ansi.Strip(m.renderRow(r, width, testBg))
-		gi := strings.Index(stripped, "🗎")
+		gi := strings.Index(stripped, detailsIcon)
 		if gi < 0 {
-			t.Fatalf("row %q: expected a document glyph in %q", r.Task.Title, stripped)
+			t.Fatalf("row %q: expected a notes glyph in %q", r.Task.Title, stripped)
 		}
-		col := lipgloss.Width(stripped[:gi]) // display column, not byte index
-		if glyphCol == -1 {
-			glyphCol = col
-		} else if col != glyphCol {
-			t.Errorf("document glyph column = %d for %q (status %v), want %d (fixed trailing column)",
-				col, r.Task.Title, r.Task.Status, glyphCol)
+		col := lipgloss.Width(stripped[:gi])
+		if notesCol == -1 {
+			notesCol = col
+		} else if col != notesCol {
+			t.Errorf("notes glyph column = %d for %q (status %v), want %d (fixed trailing column)",
+				col, r.Task.Title, r.Task.Status, notesCol)
+		}
+	}
+
+	// On the commented rows the comments glyph must sit immediately after the
+	// notes glyph — both one-cell runes, adjacent at the byte level (each is a
+	// 4-byte UTF-8 sequence), so together they occupy the fixed 2-cell column
+	// with no gap between them.
+	for _, r := range rows {
+		if !r.HasComments {
+			continue
+		}
+		stripped := ansi.Strip(m.renderRow(r, width, testBg))
+		gi := strings.Index(stripped, detailsIcon)
+		ci := strings.Index(stripped, commentsIcon)
+		// Both glyphs are single 4-byte UTF-8 runes, so adjacency is gi+4 bytes.
+		if ci != gi+len(detailsIcon) {
+			t.Errorf("row %q: comments glyph at byte %d is not immediately after notes glyph at %d; rendered: %q",
+				r.Task.Title, ci, gi, stripped)
 		}
 	}
 }

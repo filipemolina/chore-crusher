@@ -39,10 +39,21 @@ func RefreshTasks(s *store.Store, listID string) tea.Cmd {
 		if l, err := s.GetList(listID); err == nil {
 			listName = l.Name
 		}
+		rows := apptypes.Flatten(apptypes.FromStoreTasks(tasks))
+		// One batch query for which tasks in this list have comments, so the
+		// tasktree can draw the comments glyph on every row without an N+1
+		// per-row lookup (docs/plan/task-comments.md §6, Commit 4).
+		commented, err := s.TaskIDsWithComments(listID)
+		if err != nil {
+			return RefreshTasksMsg{ListID: listID, Err: err}
+		}
+		for i := range rows {
+			rows[i].HasComments = commented[rows[i].Task.ID]
+		}
 		return RefreshTasksMsg{
 			ListID:     listID,
 			ListName:   listName,
-			Rows:       apptypes.Flatten(apptypes.FromStoreTasks(tasks)),
+			Rows:       rows,
 			Activities: apptypes.FromStoreActivities(work),
 		}
 	}

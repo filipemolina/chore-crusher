@@ -1,12 +1,15 @@
 package apptypes
 
 // Row is one row of a flattened task tree: the task itself, its depth
-// (0 = a root task), and whether it has children — so a tree renderer knows
-// whether to draw an expand glyph without a second pass.
+// (0 = a root task), whether it has children — so a tree renderer knows
+// whether to draw an expand glyph without a second pass — and whether the
+// task has any comments, so the tasktree row can draw the comments glyph
+// without another lookup per row (docs/plan/task-comments.md §6, Commit 4).
 type Row struct {
 	Task        Task
 	Depth       int
 	HasChildren bool
+	HasComments bool
 }
 
 // Flatten walks the flat rows store.ListTasks returns (converted via
