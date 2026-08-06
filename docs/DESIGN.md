@@ -893,6 +893,36 @@ been tuned across 14 imported palettes (see stack-stitcher's `docs/DESIGN.md`
 §"Color lives on a Theme" for the reasoning behind `Lighten`/`Darken` and why
 `Modal` needs to clear `BackgroundElevated` by a minimum margin).
 
+**Elevation ladder (the `raise` coefficients in `newTheme`).** The focused/
+unfocused panel step is the focus signal (see §12 "Focus is shown by lifting a
+tier"), but the step's *contrast ratio* is inherently small for every theme:
+`BackgroundContent = raise(Panel, 0.04)`, `BackgroundPanel = raise(Panel,
+0.08)`, `BackgroundElevated = raise(Panel, 0.12)`, `BackgroundRecessed =
+Panel` (un-raised base). Both elevated and panel derive from the same base by
+`Lighten` (dark) / `Darken` (light), so for a near-black base (dark themes)
+the additive step near black is tiny, and for a near-white base (crush-day,
+the lone light theme) a larger coefficient *darkens* elevated toward the
+*lighter* panel, shrinking the ratio. Measured: the elevated-vs-panel step is
+~1.10-1.17 for every theme and is capped at ~1.2 for crush-day under the
+additive ladder — a geometric ladder was prototyped and hit the same cap, so
+the base palette, not the step function, is the binding variable. The nominal
+1.35 target for this step is therefore unreachable without moving the base
+colors and/or relaxing the `TextPrimary on elevated ≥ 4.5` ceiling, both out
+of scope for the focus bug. The genuinely perceptible, theme-independent focus
+signal is the **selected-row** contrast (`ModalBg` for the focused panel's
+active row vs `BackgroundElevated` for an unfocused panel's remembered row),
+which `chrome.ListRowBg` produces and which measures ~9.5:1 on crush-day —
+that is the fix that makes focus obvious, not the panel-surface step.
+
+**Text colors that sit on the elevated tier.** Three imported palettes ship a
+body `Text` too dim for a brightened elevated tier — `one-dark` (`#ABB2BF`),
+`solarized-dark` (`#93A1A1`), and `everforest-dark` (`#D3C6AA`) — and were the
+only themes failing `TextPrimary on elevated ≥ 4.5` once the ladder was
+widened. Their `Text` is lightened to `#C6CDD7`, `#BCC4CF`, and `#E4D9C0`
+respectively (chosen as the dimmest grey that clears 4.5 on elevated *and* on
+panel). This changes those three themes' body-text luminance slightly; every
+other theme's `Text` is untouched.
+
 **What changes:** the four status-color fields are domain colors, so they're
 renamed to match this app's domain instead of Docker's:
 
@@ -951,8 +981,8 @@ background through). The tiers, mapped to this app's own surfaces:
 | --- | --- | --- |
 | 1 | terminal default | outside the app — never drawn on |
 | 2 | `BackgroundContent` | the outermost frame, if one exists (gutter between the lists panel and the main panel) |
-| 3 | `BackgroundPanel` | the Lists and Tasks surfaces, when unfocused |
-| 4 | `BackgroundElevated` | Lists when it has focus, or Tasks while its task-tree or add-input control has focus (§5), and the highlighted comment card in the Details modal |
+| 3 | `BackgroundPanel` | the Lists and Tasks surfaces, when unfocused (`raise(Panel, 0.08)`) |
+| 4 | `BackgroundElevated` | Lists when it has focus, or Tasks while its task-tree or add-input control has focus (§5), and the highlighted comment card in the Details modal (`raise(Panel, 0.12)`) |
 | — | `ModalBg` | every modal (theme picker, confirm, list-name, **and the Details modal**) **and the row the cursor sits on in the task tree** — an active row is its own register, not a tint of the panel it's in, the same reasoning stack-stitcher applies to an active list row |
 | — | `BackgroundRecessed` | empty-state cards (§Empty states, below) — equal to `PanelBg`, the un-raised base |
 
