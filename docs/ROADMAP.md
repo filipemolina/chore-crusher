@@ -136,16 +136,14 @@ everything above it):
 
 The 2026-08-05 triage above planned only one of the "MCP Servers" parent's
 subtasks (agent-scratch-list-cleanup). The remaining pending subtasks now have
-plans. Two of them (`list_changes`, `update_tasks`) add MCP tools and **need
-tool-ceiling sign-off** before implementation (surface is already 22 vs. the
-S4 ~20 ceiling).
+plans. Three of them (`list_changes`, `update_tasks`, `batch-reads`) add MCP tools; `update_tasks` and the batch reads already shipped past the S4 ~20 ceiling (signed off during MCP_COMFORT_PLAN); `list_changes` adds the 24th tool and was signed off separately (see `docs/plan/mcp-list-changes-since.md`).
 
 | Plan | Chore Crusher subtask | Covers | Status |
 | --- | --- | --- | --- |
 | [`docs/plan/agent-working-loop-instructions.md`](plan/agent-working-loop-instructions.md) | "Instruct the agent to update himself" + "Improve the instructions to the agent" | Always-on `Instructions` + skill working-loop: update status as you go, set percentage scaled to task size, read notes+comments before/after, re-check the list between tasks. No new tools. | 🔲 Planned |
-| [`docs/plan/mcp-list-changes-since.md`](plan/mcp-list-changes-since.md) | "Create an endpoint that returns the changes on the list" | New `list_changes(list_id, since)` tool (or `…/changes` resource) via `Task.updated_at`; bump `updated_at` on comment so new comments count as changes. **Adds a tool — needs sign-off.** | 🔲 Planned (ceiling sign-off) |
+| [`docs/plan/mcp-list-changes-since.md`](plan/mcp-list-changes-since.md) | "Create an endpoint that returns the changes on the list" | New `list_changes(list_id, since)` tool via `Task.updated_at`; bump `updated_at` on comment so new comments count as changes. | ✅ Shipped |
 | [`docs/plan/mcp-presence-on-all-writes.md`](plan/mcp-presence-on-all-writes.md) | "MCP triggers Agent animation" | Extend the existing `autoClaim` (status/progress only today) to `add_comment`/`add_task`/`rename_task`/`set_notes`/`move_task`. Server-managed presence; no new tools. | 🔲 Planned |
-| [`docs/plan/mcp-batch-writes.md`](plan/mcp-batch-writes.md) | "Add batch endpoints" (write half) | New `update_tasks(ids, op)` for batch status/progress with partial results. Batch **reads** already shipped by `mcp-agent-fewer-roundtrips`. **Adds a tool — needs sign-off.** | ✅ Complete |
+| [`docs/plan/mcp-batch-writes.md`](plan/mcp-batch-writes.md) | "Add batch endpoints" (write half) | New `update_tasks(ids, op)` for batch status/progress with partial results. Batch **reads** already shipped by `mcp-agent-fewer-roundtrips`. | ✅ Complete |
 
 "Setup the MCP Server" and "A loading animation on a task being worked on" (the
 two complete subtasks) are already shipped.

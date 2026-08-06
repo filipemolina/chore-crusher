@@ -301,6 +301,29 @@ func TestMCPInstructionsAlwaysOnTodoRule(t *testing.T) {
 	}
 }
 
+func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	instructions := session.InitializeResult().Instructions
+	if instructions == "" {
+		t.Fatal("Instructions is empty")
+	}
+	lower := strings.ToLower(instructions)
+	for _, want := range []string{
+		"working loop",
+		"get your tasks from chore crusher",
+		"update their status",
+		"set_progress",
+		"percentage",
+		"crush:///inbox",
+		"before the next task",
+	} {
+		if !strings.Contains(lower, want) {
+			t.Fatalf("Instructions missing WORKING LOOP element %q;\nfull text:\n%s", want, instructions)
+		}
+	}
+}
+
 func TestMCPAddAndCompleteTask(t *testing.T) {
 	session := setupMCP(t)
 	var list map[string]string
@@ -1755,6 +1778,89 @@ func TestListTasksOmitsEmptyProgress(t *testing.T) {
 	raw := callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]})
 	if strings.Contains(raw, `"progress"`) {
 		t.Errorf("no-progress task should not include a progress key; got: %s", raw)
+	}
+}
+
+func TestListChangesReturnsOnlyChanged(t *testing.T) {
+	session := setupMCP(t)
+	var list, a, b map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task",
+		map[string]any{"list_id": list["id"], "title": "a"}), &a)
+	mustUnmarshal(t, callTool(t, session, "add_task",
+		map[string]any{"list_id": list["id"], "title": "b"}), &b)
+
+	cutoff := time.Now().Unix()
+	time.Sleep(1100 * time.Millisecond)
+	callTool(t, session, "rename_task", map[string]any{"id": a["id"], "title": "a2"})
+
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_changes", map[string]any{
+		"list_id": list["id"], "since": cutoff,
+	}), &rows)
+	if len(rows) != 1 || rows[0]["id"] != a["id"] {
+		t.Fatalf("want only task a in changes, got %#v (b=%s)", rows, b["id"])
+	}
+}
+
+func TestListChangesIncludesNotes(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "a", "notes": "hello",
+	})
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_changes", map[string]any{
+		"list_id": list["id"], "since": 0, "include": []string{"notes"},
+	}), &rows)
+	if len(rows) != 1 || rows[0]["notes"] != "hello" {
+		t.Fatalf("include=notes should inline the body, got %#v", rows)
+	}
+}
+
+func TestListChangesSeesNewComment(t *testing.T) {
+	session := setupMCP(t)
+	var list, a map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task",
+		map[string]any{"list_id": list["id"], "title": "a"}), &a)
+
+	cutoff := time.Now().Unix()
+	time.Sleep(1100 * time.Millisecond)
+	callTool(t, session, "add_comment", map[string]any{"task_id": a["id"], "note": "ping"})
+
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_changes", map[string]any{
+		"list_id": list["id"], "since": cutoff,
+	}), &rows)
+	if len(rows) != 1 || rows[0]["id"] != a["id"] {
+		t.Fatalf("a new comment should surface in list_changes; got %#v", rows)
+	}
+}
+
+func TestListChangesUnknownIncludeRejected(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	msg := callToolErr(t, session, "list_changes", map[string]any{
+		"list_id": list["id"], "since": 0, "include": []string{"bogus"},
+	})
+	if !strings.Contains(msg, "unknown include") {
+		t.Errorf("expected 'unknown include' error, got %q", msg)
+	}
+}
+
+func TestListChangesBeforeAnyTimestamp(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "a"})
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_changes",
+		map[string]any{"list_id": list["id"], "since": 0}), &rows)
+	if len(rows) != 1 {
+		t.Fatalf("since=0 should return all tasks, got %d", len(rows))
 	}
 }
 

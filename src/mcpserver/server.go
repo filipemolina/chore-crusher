@@ -118,6 +118,7 @@ Tools are exposed to MCP hosts as chore_crusher_<name> (shown verbatim below). E
 QUICK REFERENCE (tool: parameters)
 - chore_crusher_list_lists()                      every list with pending/complete counts
 - chore_crusher_list_tasks(list_id, status, include)       one list's tasks as a depth-annotated tree; status = all|pending|in_progress|complete (default all); include is an optional set of extra per-row fields to inline; supported values: 'notes' (inline the notes body, truncated at 2000 chars with notes_truncated=true). Prefer include=['notes'] to N show_task calls.
+- chore_crusher_list_changes(list_id, since, include)   tasks changed after 'since' (unix seconds) — created, status/progress, renamed, re-noted, re-parented, newly commented; checks between tasks instead of re-reading the list. Same row shape as list_tasks; include=['notes'] inlines bodies. Deletions are not reported.
 - chore_crusher_show_task(task_id)                one task's details plus its children
 - chore_crusher_show_tasks(ids)                   up to 50 tasks' details in one call; returns an array in the same order as ids; entries that cannot be resolved are returned as {id,error}
 - chore_crusher_add_comment(task_id, note)        append a comment (author = your identity); refused if the list has comments disabled
@@ -147,6 +148,8 @@ BEHAVIOUR & GOTCHAS
 - chore_crusher_claim_work's agent_id defaults to your identity: omit it, or set it equal to your tag, or your writes will not refresh the spinner.
 - Reclaim after an idle pause of ~2 minutes; chore_crusher_release_work when you finish.
 - chore_crusher_add_comment attributes the comment to your identity (CRUSH_AGENT) — author is not accepted as a parameter. Anyone may comment on any task regardless of ownership, unless the list has comments_disabled; show_task returns comments oldest-first.
+- Keep the board live: flip a task to in_progress with set_progress when you start it and advance the percentage as you go — do not wait until it is done. A stale board is worse than none.
+- Scale the percentage to the task: percentage for multi-step work (percent ~ fraction done), subtasks when it has children, simple only for atomic tasks.
 
 NEW: FEWER ROUND-TRIPS (agent-optimised paths)
 - Every task row from chore_crusher_list_tasks and chore_crusher_show_task.children now includes has_notes and notes_len. If has_notes is false there is nothing to fetch — skip show_task.
@@ -154,7 +157,18 @@ NEW: FEWER ROUND-TRIPS (agent-optimised paths)
 - chore_crusher_show_tasks(ids) batches up to 50 task detail fetches in one call when include=notes isn't an option (e.g. cross-list workflow).
 - chore_crusher_my_list now returns foreign_lists too, merging my_list + list_lists into one call.
 - Status/progress writes auto-claim the task under your identity, so claim_work is only needed when you want a claim BEFORE you start writing (e.g. to reserve it while you think).
-- For a one-call opener that also inlines every foreign list's top pending tasks and notes, read the resource crush:///inbox or use the prompt crush_inbox.`})
+- For a one-call opener that also inlines every foreign list's top pending tasks and notes, read the resource crush:///inbox or use the prompt crush_inbox.
+
+WORKING LOOP (get your tasks from Chore Crusher and update their status as you work — automatically, without being asked)
+- Get your tasks from Chore Crusher at the start of every session and refresh them as you go; this store IS your todo list, so read from it rather than working from memory.
+- As you work each task, keep its status current in Chore Crusher: set it in_progress when you start, advance its progress while you work, and complete_task when it is truly done. Do this on your own — the human should never have to tell you to update Chore Crusher.
+- Open a session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.
+- Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).
+- Starting a task = set_progress on it: that flips it to in_progress and auto-claims it (the spinner shows), so you do not need a separate claim_work unless reserving it before you write.
+- Set a percentage scaled to the task: mode='percentage' with percent ~= fraction of steps done for multi-step work; mode='subtasks' when it has children; mode='simple' only for atomic tasks. A flat "in progress" with no percentage is not enough.
+- Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave add_comment notes at decision points on tasks you do not own.
+- After finishing: re-read the task's comments, then complete_task.
+- Before the next task: check what changed since you last looked (list_changes(list_id, since)) — priorities or comments may have moved.`})
 
 	addListTools(server, s, identity)
 	addTaskTools(server, s, identity)
@@ -375,6 +389,69 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			inlineNotes(rows, tasks)
 		}
 		return jsonResult(rows)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "list_changes",
+		Description: "List the tasks in one list whose activity changed strictly " +
+			"after a unix timestamp — created, status/progress, renamed, re-noted, " +
+			"re-parented, or newly commented. Use it between tasks to see whether the " +
+			"list moved since you last looked, instead of re-reading the whole list. " +
+			"Rows use the same shape as list_tasks (has_notes/notes_len; add " +
+			"include=['notes'] to inline bodies). Deletions are not reported. " +
+			"Tip: pass the time you made your PREVIOUS call as `since`. " +
+			"Example: list_changes(list_id='01ABC...', since=1786000000).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		ListID  string   `json:"list_id" jsonschema:"list id or unambiguous prefix"`
+		Since   int64    `json:"since" jsonschema:"unix seconds; return tasks changed strictly after this"`
+		Include []string `json:"include,omitempty" jsonschema:"extra per-row fields to inline; supports 'notes'"`
+	}) (*mcp.CallToolResult, any, error) {
+		includeNotes := false
+		for _, k := range in.Include {
+			switch k {
+			case "notes":
+				includeNotes = true
+			default:
+				return errorResult(fmt.Errorf("unknown include %q: supported values: notes", k)), nil, nil
+			}
+		}
+		listID, err := s.ResolveID("list", in.ListID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		list, err := s.GetList(listID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		// Full-list rows first, so depth/parent are correct (sectionRows calls
+		// apptypes.Flatten which needs the whole list to resolve parent chains).
+		all, err := s.ListTasks(listID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		rows, err := sectionRows(s, all, "all", list.CreatedBy)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		// Then keep only the ones that changed since `since`.
+		changed, err := s.TasksChangedSince(listID, in.Since)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		changedSet := make(map[string]bool, len(changed))
+		for _, t := range changed {
+			changedSet[t.ID] = true
+		}
+		out := make([]taskRowJSON, 0, len(changed))
+		for _, r := range rows {
+			if changedSet[r.ID] {
+				out = append(out, r)
+			}
+		}
+		if includeNotes {
+			inlineNotes(out, all)
+		}
+		return jsonResult(out)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

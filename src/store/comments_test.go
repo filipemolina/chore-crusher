@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestAddCommentAndListComments verifies the round-trip: comments are
@@ -201,5 +202,42 @@ func TestTaskIDsWithComments(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("clean list: want 0 entries, got %d", len(got))
+	}
+}
+
+// TestAddCommentBumpsTaskUpdatedAt pins the contract documented in
+// docs/plan/mcp-list-changes-since.md §1: a new comment is activity on the
+// task, so AddComment must advance the task's updated_at. This is what makes
+// list_changes(since) surface new comments.
+func TestAddCommentBumpsTaskUpdatedAt(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	taskID := mustTask(t, s, lid, "task", nil)
+
+	before, err := s.GetTask(taskID)
+	if err != nil {
+		t.Fatalf("GetTask before: %v", err)
+	}
+
+	// Sleep past updated_at's 1-second resolution so the bump is observable
+	// without rewinding (which would bypass the real code path).
+	cutoff := time.Now().Unix()
+	time.Sleep(1100 * time.Millisecond)
+
+	cid, err := s.AddComment(taskID, "pi", "hi")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	after, err := s.GetTask(taskID)
+	if err != nil {
+		t.Fatalf("GetTask after comment: %v", err)
+	}
+	if after.UpdatedAt <= before.UpdatedAt {
+		t.Errorf("AddComment should bump updated_at: before=%d after=%d (comment=%s)",
+			before.UpdatedAt, after.UpdatedAt, cid)
+	}
+	if after.UpdatedAt <= cutoff {
+		t.Errorf("updated_at (%d) should be after cutoff (%d)", after.UpdatedAt, cutoff)
 	}
 }

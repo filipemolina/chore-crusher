@@ -521,6 +521,33 @@ func (s *Store) ListTasks(listID string) ([]Task, error) {
 	return ordered, nil
 }
 
+// TasksChangedSince returns the tasks in listID whose updated_at is strictly
+// greater than since (unix seconds), ordered by updated_at ascending. "Changed"
+// covers creation, status/progress, rename, notes, re-parent, and a new comment
+// (docs/plan/mcp-list-changes-since.md §1, which makes AddComment bump
+// updated_at). Deletions are not represented — a task removed after `since` is
+// simply absent from the result.
+func (s *Store) TasksChangedSince(listID string, since int64) ([]Task, error) {
+	rows, err := s.db.Query(
+		`SELECT `+taskColumns+` FROM Task WHERE list_id = ? AND updated_at > ? ORDER BY updated_at ASC`,
+		listID, since,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // taskColumns is shared by every query that reads a full Task row.
 const taskColumns = `id, list_id, parent_id, title, notes, status, progress_kind, progress_pct,
 	position, created_at, updated_at, completed_at`

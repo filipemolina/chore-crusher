@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateTaskValidations(t *testing.T) {
@@ -488,5 +489,61 @@ func TestCreateTaskAfterWithNoAfterIDAppends(t *testing.T) {
 	if tasks[0].ID != a || tasks[1].ID != b || tasks[2].ID != c {
 		t.Fatalf("ListTasks order = %s, %s, %s; want a, b, c",
 			tasks[0].ID, tasks[1].ID, tasks[2].ID)
+	}
+}
+
+// TestTasksChangedSince pins the contract from
+// docs/plan/mcp-list-changes-since.md §1: a task created before `since` is
+// absent from the result; one mutated after `since` (here via SetNotes) is
+// present. Deletions are not representable — see the plan docstring.
+func TestTasksChangedSince(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "L")
+	a := mustTask(t, s, lid, "a", nil)
+	_ = mustTask(t, s, lid, "b", nil)
+
+	// Everything was created "now"; nothing has changed since a future time.
+	got, err := s.TasksChangedSince(lid, time.Now().Unix()+10)
+	if err != nil {
+		t.Fatalf("TasksChangedSince future: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected no changes since the future, got %d", len(got))
+	}
+
+	// Cutoff now; sleep past updated_at's 1-second resolution, then change
+	// exactly task a.
+	cutoff := time.Now().Unix()
+	time.Sleep(1100 * time.Millisecond)
+	if err := s.SetNotes(a, "changed"); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
+	got, err = s.TasksChangedSince(lid, cutoff)
+	if err != nil {
+		t.Fatalf("TasksChangedSince cutoff: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != a {
+		t.Fatalf("expected only task a changed since cutoff, got %d rows: %+v", len(got), got)
+	}
+}
+
+// TestTasksChangedSinceIncludesNewComment verifies that AddComment (Commit 1)
+// bumping updated_at is observable through the store method:
+// a task that only received a new comment since `since` appears in the result.
+func TestTasksChangedSinceIncludesNewComment(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "L")
+	a := mustTask(t, s, lid, "a", nil)
+	cutoff := time.Now().Unix()
+	time.Sleep(1100 * time.Millisecond)
+	if _, err := s.AddComment(a, "pi", "note"); err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	got, err := s.TasksChangedSince(lid, cutoff)
+	if err != nil {
+		t.Fatalf("TasksChangedSince: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != a {
+		t.Fatalf("a new comment should make the task 'changed'; got %d rows: %+v", len(got), got)
 	}
 }

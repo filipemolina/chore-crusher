@@ -152,11 +152,13 @@ can discover without reading source. Two jobs, one board:
 
 ### Surface
 
-- **23 tools** — every CLI operation (`list_tasks`, `complete_task`,
-  `set_progress`, `move_task`, …) returning the same `--json` shapes, plus
-  `my_list`, `show_tasks` (batch details for up to 50 tasks), and the presence
-  trio: `claim_work` marks a task or list as being worked on, `release_work`
-  drops the claim, `list_work` lists what is claimed.
+- **24 tools** — every CLI operation (`list_tasks`, `complete_task`,
+  `set_progress`, `move_task`, `…`) returning the same `--json` shapes, plus
+  `my_list`, `show_tasks` (batch details for up to 50 tasks),
+  `list_changes` (incrementally check whether a list moved since your last
+  call, scoped per list via `updated_at`), the `update_tasks` batch writer,
+  and the presence trio: `claim_work` marks a task or list as being worked
+  on, `release_work` drops the claim, `list_work` lists what is claimed.
 - **7 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
   `crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
   `crush:///tasks/{id}`, `crush:///search/{query}`, `crush:///inbox` (one-shot
