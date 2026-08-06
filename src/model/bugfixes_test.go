@@ -394,9 +394,10 @@ func TestDeleteErrorSurfacesInLastError(t *testing.T) {
 	}
 }
 
-// Bug 3: a paste message while the details modal is open must reach the
-// notes textarea. AppModel previously forwarded only key presses to modals,
-// so the paste was dropped before the textarea ever saw it.
+// Bug 3: a paste message while the Details panel is open must reach the
+// notes textarea. A paste is a non-key message, so it flows through the
+// ordinary component fan-out (the Details key-ownership branch captures only
+// keypresses) and lands on the focused panel's textarea.
 func TestPasteReachesDetailsNotes(t *testing.T) {
 	m := seedOneList(t)
 	lists, _ := m.store.ListLists()
@@ -407,20 +408,20 @@ func TestPasteReachesDetailsNotes(t *testing.T) {
 	taskID := tasks[0].ID
 
 	m = refresh(t, m, cmds.OpenDetails(taskID)())
-	if m.activeModal == nil {
-		t.Fatal("details modal did not open")
+	if !m.detailsPanelVisible {
+		t.Fatal("details panel did not open")
 	}
-	// Drive the paste through AppModel.Update directly: the modal forwards
-	// every message to the focused textarea, whose blink command is a timed
+	// Drive the paste through AppModel.Update directly: the panel forwards
+	// non-key messages to the focused textarea, whose blink command is a timed
 	// loop the synchronous refresh helper cannot run.
 	out, _ := m.Update(tea.PasteMsg{Content: "hello world"})
 	m = out.(AppModel)
 
-	modal, ok := m.activeModal.(interface{ NotesValue() string })
+	panel, ok := m.components.DetailsPanel.(interface{ NotesValue() string })
 	if !ok {
-		t.Fatalf("active modal is %T, want NotesValue accessor", m.activeModal)
+		t.Fatalf("details panel is %T, want NotesValue accessor", m.components.DetailsPanel)
 	}
-	if got := modal.NotesValue(); !strings.Contains(got, "hello world") {
+	if got := panel.NotesValue(); !strings.Contains(got, "hello world") {
 		t.Errorf("notes = %q, want pasted content", got)
 	}
 }

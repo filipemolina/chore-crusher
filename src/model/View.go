@@ -57,7 +57,22 @@ func (m AppModel) renderBody() string {
 	layout := m.bodyLayout
 	main := m.components.TaskPanel.View().Content
 
-	if !m.listsPanelVisible {
+	// Details, when the terminal is too narrow for a side surface, is the only
+	// body surface: Tasks is not rendered until it closes (docs/DESIGN.md §5).
+	if m.detailsPanelVisible && layout.MainWidth == 0 {
+		return m.components.DetailsPanel.View().Content
+	}
+
+	// Exactly one side surface may accompany Tasks. Pick it, or render Tasks
+	// alone when neither is in the layout (Lists yields at a narrow width by
+	// getting ListsWidth == 0, which lands here too).
+	var side string
+	switch {
+	case m.detailsPanelVisible && layout.DetailsWidth > 0:
+		side = m.components.DetailsPanel.View().Content
+	case m.listsPanelVisible && layout.ListsWidth > 0:
+		side = m.components.ListsPanel.View().Content
+	default:
 		return main
 	}
 
@@ -77,7 +92,7 @@ func (m AppModel) renderBody() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		main,
 		gutter,
-		m.components.ListsPanel.View().Content,
+		side,
 	)
 }
 

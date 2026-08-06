@@ -9,7 +9,6 @@ import (
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/components/confirmmodal"
-	"github.com/filipemolina/chore-crusher/src/components/detailsmodal"
 	"github.com/filipemolina/chore-crusher/src/components/helpoverlay"
 	"github.com/filipemolina/chore-crusher/src/components/listnamemodal"
 	"github.com/filipemolina/chore-crusher/src/components/searchpicker"
@@ -49,6 +48,21 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var modalCmd tea.Cmd
 			m.activeModal, modalCmd = m.activeModal.Update(msg)
 			return m, modalCmd
+		}
+	}
+
+	// While the Details side panel is visible it owns every keypress except
+	// ctrl+c (returned above): its own bindings (ctrl+s, tab, ←/→, esc, and
+	// the discard prompt) act, and no global key or tree navigation does. It
+	// is a body surface rather than a modal, so it sits just after the modal
+	// check and before AppModel's own esc/tab/global switch. Only keypresses
+	// are captured here; refresh, poll, and layout messages still fall through
+	// to the normal handlers and the component fan-out (docs/DESIGN.md §5).
+	if m.detailsPanelVisible {
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			var detailsCmd tea.Cmd
+			m.components.DetailsPanel, detailsCmd = m.components.DetailsPanel.Update(msg)
+			return m, detailsCmd
 		}
 	}
 
@@ -192,6 +206,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeListID != "" {
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
+		// Keep the open Details panel current with external CLI writes; a
+		// response only replaces a clean editor (docs/DESIGN.md §5).
+		if m.detailsPanelVisible && m.detailsTaskID != "" {
+			finalCmds = append(finalCmds, cmds.RefreshDetails(m.store, m.detailsTaskID))
+		}
 
 	case cmds.AnimTickMsg:
 		m.animFrame = (m.animFrame + 1) % 8
@@ -282,7 +301,41 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		finalCmds = append(finalCmds, cmds.SelectTask(msg.TaskID))
 
 	case cmds.OpenDetailsMsg:
-		m.activeModal = detailsmodal.New(msg.TaskID, m.activeListID, m.store)
+		// Enter on a selected task opens the exclusive Details side surface:
+		// it replaces Lists on the right, takes focus (Details is not a tab
+		// stop — it is entered here explicitly), and requests its task's
+		// current notes/progress (docs/DESIGN.md §5).
+		if msg.TaskID != "" {
+			m.detailsTaskID = msg.TaskID
+			m.detailsPanelVisible = true
+			m.listsPanelVisible = false
+			m.focusedZone = constants.COMPONENT_DETAILS_PANEL
+			m.bodyLayout = m.calculateBodyLayout()
+			finalCmds = append(finalCmds,
+				m.broadcastBodyLayout(),
+				cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL),
+				m.footerContextCmd(),
+				cmds.RefreshDetails(m.store, msg.TaskID),
+			)
+		}
+
+	case cmds.CloseDetailsSideMsg:
+		// The Details panel asked to close (clean Esc, discarded edit, or a
+		// completed save). Only AppModel changes visibility and focus: hide
+		// Details, return focus to the task tree, then run the save's refresh
+		// follow-up if there is one.
+		m.detailsPanelVisible = false
+		m.detailsTaskID = ""
+		m.focusedZone = constants.COMPONENT_TASK_TREE
+		m.bodyLayout = m.calculateBodyLayout()
+		finalCmds = append(finalCmds,
+			m.broadcastBodyLayout(),
+			cmds.SetFocus(constants.COMPONENT_TASK_TREE),
+			m.footerContextCmd(),
+		)
+		if msg.Follow != nil {
+			finalCmds = append(finalCmds, msg.Follow)
+		}
 
 	case cmds.CloseModalMsg:
 		m.activeModal = nil
@@ -360,12 +413,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Forward the message to every component. TaskPanel forwards to the tree
 	// and input controls after deriving their shared Tasks-surface state.
-	var menuCmd, barCmd, listsCmd, tasksCmd tea.Cmd
+	var menuCmd, barCmd, listsCmd, tasksCmd, detailsCmd tea.Cmd
 	m.components.MainMenu, menuCmd = m.components.MainMenu.Update(msg)
 	m.components.KeybindingBar, barCmd = m.components.KeybindingBar.Update(msg)
 	m.components.ListsPanel, listsCmd = m.components.ListsPanel.Update(msg)
 	m.components.TaskPanel, tasksCmd = m.components.TaskPanel.Update(msg)
-	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, tasksCmd)
+	m.components.DetailsPanel, detailsCmd = m.components.DetailsPanel.Update(msg)
+	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, tasksCmd, detailsCmd)
 
 	return m, tea.Batch(finalCmds...)
 }
@@ -387,36 +441,55 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 	height := max(0, m.terminalHeight-constants.HEADER_HEIGHT-constants.FOOTER_HEIGHT)
 	available := max(0, m.terminalWidth)
 
-	if !m.listsPanelVisible {
+	// At most one side surface is ever in the layout — Lists and Details are
+	// mutually exclusive (docs/DESIGN.md §5). With neither, Tasks fills the row.
+	if !m.listsPanelVisible && !m.detailsPanelVisible {
 		return cmds.SetBodyLayoutMsg{
 			Height:        height,
-			ListsWidth:    0,
 			MainWidth:     available,
 			TerminalWidth: available,
 		}
 	}
 
 	guttered := available - constants.BODY_GUTTER_WIDTH
-	var listsWidth, mainWidth int
+	var sideWidth, mainWidth int
 	switch {
 	case guttered < constants.MIN_PANEL_WIDTH:
-		listsWidth, mainWidth = 0, available
+		// Too narrow to seat a side surface next to Tasks. Details is the
+		// exclusive editing focus, so it takes the whole body and Tasks is not
+		// rendered until it closes; Lists instead yields the row to Tasks.
+		if m.detailsPanelVisible {
+			return cmds.SetBodyLayoutMsg{
+				Height:        height,
+				DetailsWidth:  available,
+				MainWidth:     0,
+				TerminalWidth: available,
+			}
+		}
+		sideWidth, mainWidth = 0, available
 	case guttered < 2*constants.MIN_PANEL_WIDTH:
-		listsWidth = guttered / 2
-		mainWidth = guttered - listsWidth
+		sideWidth = guttered / 2
+		mainWidth = guttered - sideWidth
 	default:
-		listsWidth = int(float32(guttered) * constants.LEFT_PANEL_WIDTH)
-		listsWidth = max(listsWidth, constants.MIN_PANEL_WIDTH)
-		listsWidth = min(listsWidth, guttered-constants.MIN_PANEL_WIDTH)
-		mainWidth = guttered - listsWidth
+		sideWidth = int(float32(guttered) * constants.LEFT_PANEL_WIDTH)
+		sideWidth = max(sideWidth, constants.MIN_PANEL_WIDTH)
+		sideWidth = min(sideWidth, guttered-constants.MIN_PANEL_WIDTH)
+		mainWidth = guttered - sideWidth
 	}
 
-	return cmds.SetBodyLayoutMsg{
+	layout := cmds.SetBodyLayoutMsg{
 		Height:        height,
-		ListsWidth:    listsWidth,
 		MainWidth:     mainWidth,
 		TerminalWidth: available,
 	}
+	// The side allocation goes to whichever surface is visible; the other
+	// stays 0 so its component drops out of the render (mutual exclusivity).
+	if m.detailsPanelVisible {
+		layout.DetailsWidth = sideWidth
+	} else {
+		layout.ListsWidth = sideWidth
+	}
+	return layout
 }
 
 // focusableZones is the computed focus cycle (docs/DESIGN.md §5, step 4 of

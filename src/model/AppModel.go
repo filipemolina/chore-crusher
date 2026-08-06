@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/chore-crusher/src/components/detailspanel"
 	"github.com/filipemolina/chore-crusher/src/components/keybindingbar"
 	"github.com/filipemolina/chore-crusher/src/components/listspanel"
 	"github.com/filipemolina/chore-crusher/src/components/mainmenu"
@@ -91,6 +92,7 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 	m.components.KeybindingBar = keybindingbar.New()
 	m.components.ListsPanel = listspanel.New()
 	m.components.TaskPanel = taskspanel.New(s, activeListID)
+	m.components.DetailsPanel = detailspanel.New(s)
 	return m
 }
 

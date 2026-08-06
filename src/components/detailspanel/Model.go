@@ -92,12 +92,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRefresh(msg)
 
 	case tea.KeyPressMsg:
+		// Only act on keys while focused. AppModel routes keys here exclusively
+		// while the panel is visible, and a hidden panel must not let a stray
+		// tree keystroke mutate its draft — that would later read as a dirty
+		// same-task editor and swallow the reopen refresh.
+		if !m.focused {
+			return m, nil
+		}
 		return m.handleKey(msg)
 	}
 
-	// Non-key messages (blink, etc.) keep the textarea live while Notes has
-	// focus, mirroring the modal editor.
-	if m.focus == focusNotes {
+	// Non-key messages (blink, paste, etc.) keep the textarea live while Notes
+	// has focus, mirroring the modal editor. Gated on focus so a hidden panel
+	// never absorbs a paste into its draft (same reasoning as the key gate).
+	if m.focused && m.focus == focusNotes {
 		var cmd tea.Cmd
 		m.notes, cmd = m.notes.Update(msg)
 		return m, cmd
