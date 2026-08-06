@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -178,7 +179,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Delete):
 			if target := m.highlightedListID(); target != "" {
-				m.activeModal = confirmmodal.New("Delete list", "Are you sure? This will delete every task in the list.", func() tea.Msg {
+				// Name the list and its task count so d (bound to both panels,
+				// with no undo anywhere) cannot wipe a list the user mistook for
+				// a task. Fall back to the generic string on any store error.
+				body := "Are you sure? This will delete every task in the list."
+				if l, err := m.store.GetList(target); err == nil {
+					total := 0
+					if summaries, err := m.store.ListLists(); err == nil {
+						for _, s := range summaries {
+							if s.List.ID == target {
+								total = s.PendingCount + s.CompleteCount
+								break
+							}
+						}
+					}
+					body = fmt.Sprintf("Delete %q and its %d tasks? This cannot be undone.", l.Name, total)
+				}
+				m.activeModal = confirmmodal.New("Delete list", body, func() tea.Msg {
 					if err := m.store.DeleteList(target); err != nil {
 						// Report through the same channel a failed refresh uses
 						// (the RefreshListsMsg handler records it in lastError)
@@ -389,7 +406,27 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// §9: destructive ops need confirmation in the TUI).
 		if msg.TaskID != "" {
 			taskID := msg.TaskID
-			m.activeModal = confirmmodal.New("Delete task", "Are you sure?", func() tea.Msg {
+			// Name the task and count its descendants from the rows the
+			// tasks panel already holds (depth-first preorder), so the dialog
+			// says what is about to be destroyed. Fall back to the generic
+			// string on any store error.
+			body := "Are you sure?"
+			if title, err := m.store.GetTask(taskID); err == nil {
+				count := 0
+				if tasks, ok := m.components.TaskPanel.(interface{ Rows() []apptypes.Row }); ok {
+					count = descendantCount(tasks.Rows(), taskID)
+				}
+				if count == 0 {
+					body = fmt.Sprintf("Delete %q? This cannot be undone.", title.Title)
+				} else {
+					sub := "subtasks"
+					if count == 1 {
+						sub = "subtask"
+					}
+					body = fmt.Sprintf("Delete %q and its %d %s? This cannot be undone.", title.Title, count, sub)
+				}
+			}
+			m.activeModal = confirmmodal.New("Delete task", body, func() tea.Msg {
 				if err := m.store.DeleteTask(taskID); err != nil {
 					return nil
 				}
@@ -622,4 +659,31 @@ func findRowByID(rows []apptypes.Row, id string) *apptypes.Row {
 		}
 	}
 	return nil
+}
+
+// descendantCount returns the number of descendants of the row whose id is
+// target, given rows in depth-first preorder. It finds the target's index,
+// notes its depth, then walks forward counting every row until it reaches
+// one whose depth is <= the target's — that run is the subtree.
+func descendantCount(rows []apptypes.Row, target string) int {
+	idx := -1
+	depth := -1
+	for i := range rows {
+		if rows[i].Task.ID == target {
+			idx = i
+			depth = rows[i].Depth
+			break
+		}
+	}
+	if idx < 0 {
+		return 0
+	}
+	count := 0
+	for i := idx + 1; i < len(rows); i++ {
+		if rows[i].Depth <= depth {
+			break
+		}
+		count++
+	}
+	return count
 }

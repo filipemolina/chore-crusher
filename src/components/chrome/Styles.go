@@ -108,15 +108,18 @@ func ModalListHeight(items, termHeight int) int {
 	return min(items, max(3, termHeight-modalListChrome))
 }
 
-// ListRowBg is the background a list row renders on. The active row is lifted
-// to the surface tier; every other row sits flush on its panel's tier. Rows
-// need an explicit background (rather than inheriting the panel's) because each
-// row is rendered and sealed on its own - see appstyles.FillBackground.
+// ListRowBg is the background a list row renders on. The active row of
+// a FOCUSED panel is lifted to the surface tier; every other row sits flush
+// on its panel's tier. An active row in an UNFOCUSED panel reads as
+// "remembered" (BackgroundElevated) rather than "live" (ModalBg), so only
+// one panel ever shows a live selected row at a time. Rows need an explicit
+// background (rather than inheriting the panel's) because each row is
+// rendered and sealed on its own - see appstyles.FillBackground.
 func ListRowBg(isActive bool, isParentFocused bool) color.Color {
-	if isActive {
+	if isActive && isParentFocused {
 		return appstyles.Active.ModalBg
 	}
-	return PanelBg(isParentFocused)
+	return appstyles.Active.BackgroundElevated
 }
 
 // BarColumn renders the nav's ▌ indicator once per line of content, so the
