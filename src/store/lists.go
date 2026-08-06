@@ -42,9 +42,9 @@ func (s *Store) CreateList(name, createdBy string) (string, error) {
 func (s *Store) GetList(id string) (List, error) {
 	var l List
 	if err := s.db.QueryRow(
-		`SELECT id, name, created_at, position, created_by FROM List WHERE id = ?`,
+		`SELECT id, name, created_at, position, created_by, comments_disabled FROM List WHERE id = ?`,
 		id,
-	).Scan(&l.ID, &l.Name, &l.CreatedAt, &l.Position, &l.CreatedBy); err != nil {
+	).Scan(&l.ID, &l.Name, &l.CreatedAt, &l.Position, &l.CreatedBy, &l.CommentsDisabled); err != nil {
 		if isNoRows(err) {
 			return List{}, fmt.Errorf("list %q not found", id)
 		}
@@ -57,7 +57,7 @@ func (s *Store) GetList(id string) (List, error) {
 // complete task counts. One GROUP BY query — never an N+1 per list.
 func (s *Store) ListLists() ([]ListSummary, error) {
 	rows, err := s.db.Query(`
-		SELECT l.id, l.name, l.created_at, l.position, l.created_by,
+		SELECT l.id, l.name, l.created_at, l.position, l.created_by, l.comments_disabled,
 		       COUNT(t.id),
 		       COALESCE(SUM(CASE WHEN t.status = 'complete' THEN 1 ELSE 0 END), 0)
 		FROM List l
@@ -73,7 +73,7 @@ func (s *Store) ListLists() ([]ListSummary, error) {
 	for rows.Next() {
 		var ls ListSummary
 		var total, done int
-		if err := rows.Scan(&ls.ID, &ls.Name, &ls.CreatedAt, &ls.Position, &ls.CreatedBy, &total, &done); err != nil {
+		if err := rows.Scan(&ls.ID, &ls.Name, &ls.CreatedAt, &ls.Position, &ls.CreatedBy, &ls.CommentsDisabled, &total, &done); err != nil {
 			return nil, err
 		}
 		ls.CompleteCount = done

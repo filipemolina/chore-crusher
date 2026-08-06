@@ -60,11 +60,12 @@ type Task struct {
 
 // List mirrors one row of the List table.
 type List struct {
-	ID        string
-	Name      string
-	CreatedAt int64
-	Position  int
-	CreatedBy string
+	ID               string
+	Name             string
+	CreatedAt        int64
+	Position         int
+	CreatedBy        string
+	CommentsDisabled bool
 }
 
 // ListSummary is a List plus its task counts, as returned by ListLists.

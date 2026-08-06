@@ -135,6 +135,38 @@ type AgentActivity struct {
 	AcquiredAt int64
 }
 
+// Comment is a task's append-only v1 comment thread (docs/plan/task-comments.md
+// §1): a note authored by a user (OS username) or agent (CRUSH_AGENT
+// identity), with no edit or delete in v1. It mirrors store.Comment — the
+// conversion boundary keeps the TUI layer from depending on store's row shape.
+type Comment struct {
+	ID        string
+	TaskID    string
+	Author    string
+	Note      string
+	CreatedAt int64
+}
+
+// FromStoreComment converts one store.Comment into the component-facing shape.
+func FromStoreComment(c store.Comment) Comment {
+	return Comment{
+		ID:        c.ID,
+		TaskID:    c.TaskID,
+		Author:    c.Author,
+		Note:      c.Note,
+		CreatedAt: c.CreatedAt,
+	}
+}
+
+// FromStoreComments converts a slice of store comments in one pass.
+func FromStoreComments(cs []store.Comment) []Comment {
+	out := make([]Comment, len(cs))
+	for i, c := range cs {
+		out[i] = FromStoreComment(c)
+	}
+	return out
+}
+
 // FromStoreActivity converts one store.AgentActivity into the
 // component-facing shape.
 func FromStoreActivity(a store.AgentActivity) AgentActivity {
