@@ -381,3 +381,54 @@ func TestEmptyListCreateRowUnderPending(t *testing.T) {
 		t.Errorf("empty list must not render the Complete header, got: %q", rendered)
 	}
 }
+
+// TestCreateRowRendersAfterAnchorSubtree pins the create-row ghost position
+// (bug 5): when the selected task has visible children, the inline create row
+// must render AFTER the anchor's last visible descendant — matching the
+// committed task's position — not between the anchor and its first child
+// ("the new task card appears inside the task with children"). Selecting the
+// parent B (with children B1, B2) and pressing n must place the card after
+// B2, not between B and B1.
+func TestCreateRowRendersAfterAnchorSubtree(t *testing.T) {
+	m := &Model{collapsed: make(map[string]bool)}
+	bID := strPtr("B")
+	m.rows = []apptypes.Row{
+		{Task: apptypes.Task{ID: "A", Title: "A", Status: apptypes.StatusPending}, Depth: 0},
+		{Task: apptypes.Task{ID: "B", Title: "B", Status: apptypes.StatusPending}, HasChildren: true, Depth: 0},
+		{Task: apptypes.Task{ID: "B1", Title: "B1", Status: apptypes.StatusPending, ParentID: bID}, Depth: 1},
+		{Task: apptypes.Task{ID: "B2", Title: "B2", Status: apptypes.StatusPending, ParentID: bID}, Depth: 1},
+	}
+	m.selectedID = "B"
+	m.activeList = true
+	m.StartCreating("B")
+
+	rendered := ansi.Strip(m.ViewInPanel(80, 24, appstyles.Active.BackgroundPanel))
+
+	// lineIndexOf returns the first line number containing needle, or -1.
+	lineIndexOf := func(needle string) int {
+		for i, line := range strings.Split(rendered, "\n") {
+			if strings.Contains(line, needle) {
+				return i
+			}
+		}
+		return -1
+	}
+	iA := lineIndexOf("▌◻ A")
+	iB := lineIndexOf("▌◻ B ▾")
+	iB1 := lineIndexOf("▌◻ B1")
+	iB2 := lineIndexOf("▌◻ B2")
+	iCreate := lineIndexOf("▌- Add a task")
+	if iA < 0 || iB < 0 || iB1 < 0 || iB2 < 0 || iCreate < 0 {
+		t.Fatalf("missing a rendered line (A=%d B=%d B1=%d B2=%d create=%d)\n%s",
+			iA, iB, iB1, iB2, iCreate, rendered)
+	}
+	// Order in the pending section must be A, B, B1, B2; the create card
+	// must render AFTER B2 (after the anchor's whole subtree).
+	if !(iA < iB && iB < iB1 && iB1 < iB2) {
+		t.Errorf("expected A<B<B1<B2 line order, got %d,%d,%d,%d", iA, iB, iB1, iB2)
+	}
+	if iCreate < iB2 {
+		t.Errorf("create card at line %d must render after B's children (B1@%d, B2@%d); "+
+			"it renders between the anchor and its first child", iCreate, iB1, iB2)
+	}
+}

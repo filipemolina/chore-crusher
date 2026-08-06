@@ -129,13 +129,57 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg c
 	return lipgloss.JoinVertical(lipgloss.Top, lines...)
 }
 
+// createRenderAnchorID returns the id of the row after which the inline
+// create row should be rendered in the given visible slice: the anchor's
+// last visible descendant, or the anchor itself if it has no visible
+// descendants, or "" when there is no anchor (append at end). This keeps the
+// create card visually after the selected task's entire visible subtree,
+// matching where the committed task lands (resolveCreateLocation inserts the
+// sibling after the anchor's subtree): selecting a parent-with-children and
+// pressing n must render (and create) the new sibling after that subtree,
+// not between the parent and its first child (bug 5).
+func createRenderAnchorID(rows []apptypes.Row, beforeID string) string {
+	if beforeID == "" {
+		return ""
+	}
+	anchorIdx := -1
+	anchorDepth := -1
+	for i, r := range rows {
+		if r.Task.ID == beforeID {
+			anchorIdx = i
+			anchorDepth = r.Depth
+			break
+		}
+	}
+	if anchorIdx < 0 {
+		return beforeID
+	}
+	// In depth-first preorder, descendants form a contiguous run after the
+	// anchor with depth > anchorDepth; the last one is the render anchor. If
+	// none exist (the anchor has no visible children, e.g. a collapsed
+	// subtree), the anchor itself is the render point.
+	lastDesc := anchorIdx
+	for i := anchorIdx + 1; i < len(rows); i++ {
+		if rows[i].Depth <= anchorDepth {
+			break
+		}
+		lastDesc = i
+	}
+	return rows[lastDesc].Task.ID
+}
+
 // appendSectionRows renders each row of a section, inserting the create row
-// immediately after the row whose id matches createBeforeID (the insertion
-// reference) when in creating mode.
+// immediately after the anchor's last visible descendant when in creating
+// mode (createRenderAnchorID), so a parent-with-children does not split from
+// its subtree around the input (bug 5).
 func (m *Model) appendSectionRows(lines []string, rows []apptypes.Row, width int, bg color.Color, placed bool) ([]string, bool) {
+	anchor := ""
+	if m.creating {
+		anchor = createRenderAnchorID(rows, m.createBeforeID)
+	}
 	for _, row := range rows {
 		lines = append(lines, m.renderRow(row, width, bg))
-		if m.creating && !placed && row.Task.ID == m.createBeforeID {
+		if m.creating && !placed && anchor != "" && row.Task.ID == anchor {
 			lines = append(lines, m.renderCreateRow(width, bg))
 			placed = true
 		}
