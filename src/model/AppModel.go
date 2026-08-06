@@ -22,13 +22,20 @@ import (
 // docs/plans/phase-3-tui-shell.md, and stack-stitcher's docs/DESIGN.md §5
 // "Body" for the "no page is active at startup" trap).
 type AppModel struct {
-	store             *store.Store
-	cfg               config.Config
-	terminalWidth     int
-	terminalHeight    int
-	bodyLayout        cmds.SetBodyLayoutMsg
-	focusedZone       int
+	store          *store.Store
+	cfg            config.Config
+	terminalWidth  int
+	terminalHeight int
+	bodyLayout     cmds.SetBodyLayoutMsg
+	focusedZone    int
+	// listsPanelVisible is the user's Lists preference, not whether it has
+	// width this frame — listsPanelRendered() is that derived predicate. On the
+	// first window-size message the preference is seeded from terminal width
+	// (docs/DESIGN.md §5); after that L is the only thing that flips it.
 	listsPanelVisible bool
+	// layoutInitialized guards the one-time startup width policy so a later
+	// resize never re-applies it over a user's L toggle.
+	layoutInitialized bool
 	// detailsPanelVisible and detailsTaskID track the exclusive Details side
 	// surface (docs/DESIGN.md §5). Details replaces Lists on the right and is
 	// never in the tab cycle: it is entered and left by explicit open/close
@@ -110,7 +117,7 @@ func (m AppModel) helpContext() keys.Context {
 
 	return keys.Context{
 		Focused:             m.focusedZone,
-		ListsPanelVisible:   m.listsPanelVisible,
+		ListsPanelVisible:   m.listsPanelRendered(),
 		DetailsPanelVisible: m.detailsPanelVisible,
 		TaskTreeEmpty:       m.taskTreeEmpty(),
 		HasActiveList:       m.activeListID != "",
@@ -133,4 +140,14 @@ func (m AppModel) taskTreeEmpty() bool {
 func (m AppModel) footerContextCmd() tea.Cmd {
 	ctx := m.helpContext()
 	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.DetailsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal)
+}
+
+// listsPanelRendered reports whether the Lists panel actually occupies width
+// on this frame: the user preference is on AND the current layout gave it
+// columns. A too-narrow terminal drives ListsWidth to 0 without touching the
+// preference, so the panel yields cleanly and returns on a later resize. This
+// is the predicate for focus, footer, and render decisions — listsPanelVisible
+// alone is only the stored intent (docs/DESIGN.md §5).
+func (m AppModel) listsPanelRendered() bool {
+	return m.listsPanelVisible && m.bodyLayout.ListsWidth > 0
 }

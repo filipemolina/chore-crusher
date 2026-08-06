@@ -170,6 +170,7 @@ func TestDeleteDeletesHighlightedListNotActive(t *testing.T) {
 
 	// Open and focus the lists panel: A is highlighted, B is active.
 	m.listsPanelVisible = true
+	m.bodyLayout = m.calculateBodyLayout()
 	m = refresh(t, m, m.ChangeFocus(1)())
 	if got := listsPanelSelectedID(t, m); got != listA {
 		t.Fatalf("setup: panel highlight = %q, want A", got)
@@ -285,6 +286,7 @@ func TestDeleteRecoversPanelCursor(t *testing.T) {
 	_ = listA
 
 	m.listsPanelVisible = true
+	m.bodyLayout = m.calculateBodyLayout()
 	m = refresh(t, m, cmds.RefreshLists(m.store)())
 	m = refresh(t, m, m.ChangeFocus(1)())
 
@@ -329,6 +331,7 @@ func TestRenameTargetsHighlightedList(t *testing.T) {
 	m = refresh(t, m, cmds.RefreshLists(m.store)())
 	m = refresh(t, m, cmds.JumpToTaskMsg{TaskID: taskB, ListID: listB})
 	m.listsPanelVisible = true
+	m.bodyLayout = m.calculateBodyLayout()
 	m = refresh(t, m, m.ChangeFocus(1)())
 	if got := listsPanelSelectedID(t, m); got != listA {
 		t.Fatalf("setup: panel highlight = %q, want A", got)
@@ -378,6 +381,7 @@ func TestDeleteErrorSurfacesInLastError(t *testing.T) {
 	listA, _ := m.store.CreateList("A", "")
 
 	m.listsPanelVisible = true
+	m.bodyLayout = m.calculateBodyLayout()
 	m = refresh(t, m, cmds.RefreshLists(m.store)())
 	m = refresh(t, m, m.ChangeFocus(1)())
 

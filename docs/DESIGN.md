@@ -227,10 +227,21 @@ itself never hides, unlike a modal, so `esc` here has exactly one job.
 Two keyboard focus targets, not three — this app
 has a sidebar that can be entirely absent from the cycle:
 
-- **Lists panel** — present in the cycle only while visible (`L` toggles
-  visibility; see §6). Hidden by default on every launch — this app's whole
-  premise is "spend your time in one list," and a sidebar that's there by
-  default fights that.
+- **Lists panel** — present in the cycle only while *rendered* (`L` toggles
+  the preference; see §6). `listsPanelVisible` is the user's stored preference;
+  a separate derived predicate, `listsPanelRendered()` (preference on **and**
+  the layout gave it width this frame), decides whether it actually occupies
+  the row — and that predicate, not the raw preference, governs focus, the
+  footer, and rendering, so focus can never land on a zero-width panel. On the
+  **first** window-size message the preference is seeded from terminal width:
+  Lists auto-shows at `AUTO_SHOW_LISTS_MIN_WIDTH` (120 columns) or wider and
+  starts hidden below it — spending your time in one list is still the premise,
+  but a wide terminal has room for both. That seeding happens once; afterward
+  `L` is the sole authority and a resize never reverses a toggle. When the
+  terminal is too narrow for any sidebar (`MIN_PANEL_WIDTH + BODY_GUTTER_WIDTH`)
+  Lists yields its width without changing the preference and focus falls back
+  to Tasks; it reappears on a later resize if the preference is still on.
+  Opening it by width never steals focus — the first focus is always Tasks.
 - **Task tree** — the Tasks surface's Pending/Complete sections, one flat
   keyboard-navigable cursor across both (see §6 for why the split is visual
   section headers, not two independently-focusable lists). Inline creation

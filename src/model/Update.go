@@ -195,7 +195,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.terminalWidth = msg.Width
 		m.terminalHeight = msg.Height
+		// One-time startup policy: seed the Lists preference from terminal
+		// width before the first layout — open at AUTO_SHOW_LISTS_MIN_WIDTH or
+		// wider, hidden below it. Never re-applied, so a later resize can't
+		// reverse a user's L toggle (docs/DESIGN.md §5). Focus stays on Tasks —
+		// showing Lists by width is not an instruction to focus it.
+		if !m.layoutInitialized {
+			m.layoutInitialized = true
+			m.listsPanelVisible = msg.Width >= constants.AUTO_SHOW_LISTS_MIN_WIDTH
+		}
 		m.bodyLayout = m.calculateBodyLayout()
+		// If a resize just took a rendered Lists panel out from under the focus
+		// (too narrow, or width returned but focus never left), pull focus back
+		// to Tasks. The stored preference is untouched, so Lists reappears on a
+		// later resize if it is still on.
+		if m.focusedZone == constants.COMPONENT_LISTS_PANEL && !m.listsPanelRendered() {
+			m.focusedZone = constants.COMPONENT_TASK_TREE
+			finalCmds = append(finalCmds, cmds.SetFocus(constants.COMPONENT_TASK_TREE))
+		}
 		finalCmds = append(finalCmds, m.broadcastBodyLayout(), m.footerContextCmd())
 
 	// The poll tick re-issues itself here, which is what makes the poll
@@ -499,7 +516,7 @@ func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 // entering and leaving the cycle at runtime.
 func (m AppModel) focusableZones() []int {
 	zones := []int{constants.COMPONENT_TASK_TREE}
-	if m.listsPanelVisible {
+	if m.listsPanelRendered() {
 		zones = append(zones, constants.COMPONENT_LISTS_PANEL)
 	}
 	return zones

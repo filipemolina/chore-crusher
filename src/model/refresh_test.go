@@ -25,7 +25,13 @@ func newTestModel(t *testing.T, dataDir string) AppModel {
 	}
 	t.Cleanup(func() { s.Close() })
 
-	return GetInitialModel(s, config.Config{}).(AppModel)
+	// Give the model a realistic terminal so the Lists panel can actually
+	// render when a test toggles it on. 100 columns is below
+	// AUTO_SHOW_LISTS_MIN_WIDTH (120), so Lists still starts hidden — matching
+	// the historical default these tests were written against — but wide enough
+	// that L then renders a non-zero-width panel focus can land on.
+	m, _ := GetInitialModel(s, config.Config{}).Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	return m.(AppModel)
 }
 
 // refresh runs the message through the model the way the loop would, plus
@@ -311,6 +317,7 @@ func TestTabCyclesFocusWhileCreating(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
 	// This test exercises the two-panel cycle; Lists is hidden by default.
 	m.listsPanelVisible = true
+	m.bodyLayout = m.calculateBodyLayout()
 	lists, _ := m.store.ListLists()
 	for _, l := range lists {
 		m.store.DeleteList(l.ID)

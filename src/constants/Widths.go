@@ -14,6 +14,14 @@ const LEFT_PANEL_WIDTH float32 = 0.33
 // and the panels clip their own content.
 const MIN_PANEL_WIDTH = 30
 
+// AUTO_SHOW_LISTS_MIN_WIDTH is a startup policy, not a minimum rendering
+// width: on the first window-size message the Lists panel opens automatically
+// at this terminal width or wider, and starts hidden below it (docs/DESIGN.md
+// §5). After that first frame, L is the sole authority — a resize never
+// reverses a user's toggle. It is unrelated to MIN_PANEL_WIDTH, which governs
+// whether a sidebar can physically render at all.
+const AUTO_SHOW_LISTS_MIN_WIDTH = 120
+
 // BODY_GUTTER_WIDTH is the blank tier-2 column rendered between the lists
 // panel and the main panel so they don't touch. It is subtracted from the
 // row before the panels are sized, so the gutter never pushes the layout

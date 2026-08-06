@@ -205,9 +205,11 @@ func TestTaskTreeStartsFocused(t *testing.T) {
 }
 
 // L opens the hidden Lists panel and moves focus to it, so its list keys work
-// immediately without requiring a separate tab keypress.
+// immediately without requiring a separate tab keypress. Started below
+// AUTO_SHOW_LISTS_MIN_WIDTH so Lists is hidden until L (above 120 it would
+// already be open on startup).
 func TestToggleListsPanelFocusesLists(t *testing.T) {
-	m := startup(120, 40)
+	m := startup(100, 40)
 
 	m = refresh(t, m, tea.KeyPressMsg{Text: "L", Code: 'L'})
 

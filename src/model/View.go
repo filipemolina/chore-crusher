@@ -70,7 +70,7 @@ func (m AppModel) renderBody() string {
 	switch {
 	case m.detailsPanelVisible && layout.DetailsWidth > 0:
 		side = m.components.DetailsPanel.View().Content
-	case m.listsPanelVisible && layout.ListsWidth > 0:
+	case m.listsPanelRendered():
 		side = m.components.ListsPanel.View().Content
 	default:
 		return main
