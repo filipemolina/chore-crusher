@@ -29,13 +29,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.terminalWidth = msg.TerminalWidth
 	case cmds.SetFooterContextMsg:
 		m.ctx = keys.Context{
-			Focused:           msg.Focused,
-			ListsPanelVisible: msg.ListsPanelVisible,
-			TaskTreeEmpty:     msg.TaskTreeEmpty,
-			HasActiveList:     msg.HasActiveList,
-			Creating:          msg.Creating,
-			Filtering:         msg.Filtering,
-			HasModal:          msg.HasModal,
+			Focused:             msg.Focused,
+			ListsPanelVisible:   msg.ListsPanelVisible,
+			DetailsPanelVisible: msg.DetailsPanelVisible,
+			TaskTreeEmpty:       msg.TaskTreeEmpty,
+			HasActiveList:       msg.HasActiveList,
+			Creating:            msg.Creating,
+			Filtering:           msg.Filtering,
+			HasModal:            msg.HasModal,
 		}
 	case cmds.SetFocusMsg:
 		m.ctx.Focused = int(msg)

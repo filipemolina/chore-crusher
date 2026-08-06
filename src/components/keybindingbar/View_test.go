@@ -28,6 +28,32 @@ func TestFooterRendersContextAndGlobalKeys(t *testing.T) {
 	}
 }
 
+// TestFooterInDetailsContextShowsOnlyDetailsHints verifies that while the
+// Details side panel owns the keyboard, the footer advertises its bindings
+// (save/next field/mode/cancel) and none of the task-tree or global keys that
+// are intentionally routed only to Details (docs/DESIGN.md §5).
+func TestFooterInDetailsContextShowsOnlyDetailsHints(t *testing.T) {
+	m := New()
+	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})
+	m, _ = m.(Model).Update(cmds.SetFooterContextMsg{
+		Focused:             constants.COMPONENT_DETAILS_PANEL,
+		DetailsPanelVisible: true,
+		HasActiveList:       true,
+	})
+
+	out := m.(Model).View().Content
+	for _, label := range []string{"save", "next field", "cancel"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("Details footer missing %q:\n%s", label, out)
+		}
+	}
+	for _, absent := range []string{"lists", "help", "navigate", "search", "theme"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("Details footer must not advertise %q:\n%s", absent, out)
+		}
+	}
+}
+
 // TestFooterEmptyTreeAdvertisesNew verifies the empty task tree advertises
 // only n (new) as its context hint: the inline input is the empty state's
 // way in, and navigation/toggle keys have nothing to act on

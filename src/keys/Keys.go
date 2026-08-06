@@ -83,7 +83,7 @@ type ListsPanelKeys struct {
 	Delete   key.Binding
 }
 
-// DetailsKeys act inside the details screen modal: saving, cycling between
+// DetailsKeys act inside the Details side panel: saving, cycling between
 // notes and progress editor zones, cycling progress modes, and entering
 // percentages.
 type DetailsKeys struct {
@@ -125,10 +125,10 @@ var Tree = TaskTreeKeys{
 	OpenDetails: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
 	// New is handled at AppModel level (context = focused panel); kept here
 	// so the tree's handler can match it until the wiring moves in step 2.
-	New:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
-	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	Outdent: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
-	Indent:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
+	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Outdent:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
+	Indent:   key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
 	MoveUp:   key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
 	MoveDown: key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
 }
@@ -210,6 +210,10 @@ type Context struct {
 	// ListsPanelVisible reports whether the lists panel is in the layout
 	// (and therefore in the focus cycle) right now.
 	ListsPanelVisible bool
+	// DetailsPanelVisible reports whether the Details side panel is open. While
+	// it is, Details owns the keyboard (docs/DESIGN.md §5): only its own
+	// bindings plus Esc are live, and no global or task-tree key acts.
+	DetailsPanelVisible bool
 	// TaskTreeEmpty reports whether the active list has no visible rows.
 	TaskTreeEmpty bool
 	// HasActiveList reports whether a list is selected at all.
@@ -228,6 +232,17 @@ func Active(ctx Context) []key.Binding {
 	// A modal or overlay owns the keyboard exclusively while open.
 	if ctx.HasModal {
 		return nil
+	}
+
+	// The Details side panel owns the keyboard while open: only its own
+	// bindings plus Esc are live — no task-tree, Lists, tab, search, theme, or
+	// panel-toggle key acts (docs/DESIGN.md §5). ctrl+c stays the unadvertised
+	// emergency exit.
+	if ctx.DetailsPanelVisible {
+		return []key.Binding{
+			Details.Save, Details.NextField, Details.CycleMode,
+			Details.CycleModeBack, Overlay.Cancel,
+		}
 	}
 
 	// While the inline create input is active, only create keys are live.
@@ -344,7 +359,7 @@ func Catalog(ctx Context) []Scope {
 			})
 		default:
 			scopes = append(scopes, Scope{
-				Title:   "Task Tree",
+				Title: "Task Tree",
 				Entries: entries(
 					Tree.Navigate, Tree.Expand, Tree.Collapse,
 					Tree.Toggle, Tree.OpenDetails, Tree.Delete,
@@ -366,6 +381,12 @@ func Catalog(ctx Context) []Scope {
 // contextual ones Active returns, plus the globals that are always live
 // whether or not the footer has room to advertise them.
 func pressableNow(ctx Context) []key.Binding {
+	// While Details owns the keyboard, only its own bindings (Active returns
+	// them plus Esc) and the emergency ForceQuit are live — no globals.
+	if ctx.DetailsPanelVisible {
+		return append(Active(ctx), Global.ForceQuit)
+	}
+
 	live := append(Active(ctx), Globals()...)
 	live = append(live, Global.ForceQuit)
 

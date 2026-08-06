@@ -109,13 +109,14 @@ func (m AppModel) helpContext() keys.Context {
 	filtering := false
 
 	return keys.Context{
-		Focused:           m.focusedZone,
-		ListsPanelVisible: m.listsPanelVisible,
-		TaskTreeEmpty:     m.taskTreeEmpty(),
-		HasActiveList:     m.activeListID != "",
-		Creating:          creating,
-		Filtering:         filtering,
-		HasModal:          m.activeModal != nil,
+		Focused:             m.focusedZone,
+		ListsPanelVisible:   m.listsPanelVisible,
+		DetailsPanelVisible: m.detailsPanelVisible,
+		TaskTreeEmpty:       m.taskTreeEmpty(),
+		HasActiveList:       m.activeListID != "",
+		Creating:            creating,
+		Filtering:           filtering,
+		HasModal:            m.activeModal != nil,
 	}
 }
 
@@ -131,5 +132,5 @@ func (m AppModel) taskTreeEmpty() bool {
 // current context.
 func (m AppModel) footerContextCmd() tea.Cmd {
 	ctx := m.helpContext()
-	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, m.detailsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal)
+	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.DetailsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal)
 }

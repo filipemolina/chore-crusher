@@ -18,7 +18,13 @@ func (m Model) View() tea.View {
 	}
 
 	left := keys.Active(m.ctx)
-	right := globalsNotInLeft(left)
+	// While Details owns the keyboard, the right-side global hints are dropped:
+	// those keypresses are routed only to Details, so advertising them would be
+	// a lie (docs/DESIGN.md §5). ctrl+c stays an unadvertised emergency exit.
+	var right []key.Binding
+	if !m.ctx.DetailsPanelVisible {
+		right = globalsNotInLeft(left)
+	}
 
 	leftHints := chrome.RenderKeyHints(hintsFrom(left), appstyles.Active.TextDim)
 	rightHints := chrome.RenderKeyHints(hintsFrom(right), appstyles.Active.TextDim)

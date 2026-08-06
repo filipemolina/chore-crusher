@@ -141,6 +141,39 @@ func TestActiveReturnsEmptyWhenModalOwnsKeyboard(t *testing.T) {
 	}
 }
 
+func TestActiveReturnsDetailsBindingsWhenDetailsVisible(t *testing.T) {
+	ctx := Context{
+		Focused:             constants.COMPONENT_DETAILS_PANEL,
+		DetailsPanelVisible: true,
+		HasActiveList:       true,
+		ListsPanelVisible:   false,
+	}
+	bindings := Active(ctx)
+
+	want := []key.Binding{
+		Details.Save, Details.NextField, Details.CycleMode,
+		Details.CycleModeBack, Overlay.Cancel,
+	}
+	if len(bindings) != len(want) {
+		t.Fatalf("expected %d Details bindings, got %d: %v", len(want), len(bindings), bindings)
+	}
+	for _, b := range bindings {
+		if !containsBinding(want, b) {
+			t.Errorf("unexpected binding in Details context: %s", b.Help().Key)
+		}
+	}
+
+	// The task-tree, Lists, and normal global keys must not be live.
+	for _, banned := range []key.Binding{
+		Tree.Navigate, Tree.OpenDetails, Lists.Navigate,
+		Global.NextPanel, Global.Picker, Global.Theme, Global.ToggleListsPanel,
+	} {
+		if containsBinding(bindings, banned) {
+			t.Errorf("Details context wrongly advertises %q", banned.Help().Key)
+		}
+	}
+}
+
 func TestDeleteBindingIsD(t *testing.T) {
 	keys := Tree.Delete.Keys()
 	if len(keys) != 1 || keys[0] != "d" {
