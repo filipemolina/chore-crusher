@@ -43,6 +43,10 @@ func TestSearch(t *testing.T) {
 		if r.ID == "" || r.ListName == "" || r.Status == "" {
 			t.Errorf("search hit missing fields: %+v", r)
 		}
+		// Human-created lists (no --owner) carry an empty list_owner.
+		if r.ListOwner != "" {
+			t.Errorf("search hit list_owner = %q, want empty for unowned list", r.ListOwner)
+		}
 	}
 
 	// No matches: empty human output, empty JSON array, exit 0.
@@ -53,5 +57,24 @@ func TestSearch(t *testing.T) {
 	mustJSONCLI(t, data, &none, "search", "zzzz-no-such-text", "--json")
 	if len(none) != 0 {
 		t.Errorf("search no-match --json: %+v, want an empty array", none)
+	}
+}
+
+// TestSearchJSONCarriesListOwner verifies that list_owner appears on search
+// results: empty for human-created (unowned) lists and the agent tag for
+// lists created via --owner (CONTRIBUTING rule 6 shape: list_owner is the
+// parent list's created_by, exposed alongside list_id and list_name).
+func TestSearchJSONCarriesListOwner(t *testing.T) {
+	data := t.TempDir()
+	owned := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Backlog", "--owner", "pi"))
+	mustCLI(t, data, "add", owned, "Plan migration")
+
+	var payload []searchResultJSON
+	mustJSONCLI(t, data, &payload, "search", "migration", "--json")
+	if len(payload) != 1 {
+		t.Fatalf("search: %d hits, want 1", len(payload))
+	}
+	if payload[0].ListOwner != "pi" {
+		t.Errorf("list_owner = %q, want 'pi'", payload[0].ListOwner)
 	}
 }

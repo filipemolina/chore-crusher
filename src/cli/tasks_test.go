@@ -258,3 +258,28 @@ func TestMoveReparents(t *testing.T) {
 		t.Errorf("mv to a missing parent: exit %d, want 1", code)
 	}
 }
+
+// TestTasksJSONCarriesListOwner pins §10.5: the list_owner field (the
+// parent list's created_by) appears on task rows and show output. An owner
+// tag is set via `crush lists add --owner`, which is the CLI analogue of
+// the MCP add_list(created_by=...) path.
+func TestTasksJSONCarriesListOwner(t *testing.T) {
+	data := t.TempDir()
+	owned := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Sprint", "--owner", "pi"))
+	mustCLI(t, data, "add", owned, "Write tests")
+
+	// crush tasks --json carries list_owner on every row.
+	var rows []taskRowJSON
+	mustJSONCLI(t, data, &rows, "tasks", owned, "--json")
+	if len(rows) != 1 || rows[0].ListOwner != "pi" {
+		t.Errorf("tasks --json list_owner = %+v, want pi", rows)
+	}
+
+	// crush show --json carries list_owner on the task and its children.
+	tid := strings.TrimSpace(mustCLI(t, data, "add", owned, "Child task", "--parent", rows[0].ID))
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if details.ListOwner != "pi" {
+		t.Errorf("show --json list_owner = %q, want pi", details.ListOwner)
+	}
+}

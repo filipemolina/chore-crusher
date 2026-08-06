@@ -108,14 +108,14 @@ identity from `CRUSH_AGENT` (default `agent`); cooperative-trust ownership
 
 | Plan | Why it is next | Status |
 | --- | --- | --- |
-| [`docs/plan/mcp-agent-todo-hardening.md`](plan/mcp-agent-todo-hardening.md) | Closes P0 bugs left by the four plans above: hardcoded `"pi"` in `Instructions`, `claim_work` defaulting `agent_id` to `"agent"` (breaks the write-heartbeat when `CRUSH_AGENT≠agent`), `my_list` returning an untagged name-prefixed list, CLI `crush show` empty children, missing `created_by` on list resources, no clean human→agent handoff (`--owner` / rename-adopt) | 🔲 Planned |
+| [`docs/plan/mcp-agent-todo-hardening.md`](plan/mcp-agent-todo-hardening.md) | Closes P0 bugs left by the four plans above: hardcoded `"pi"` in `Instructions`, `claim_work` defaulting `agent_id` to `"agent"` (breaks the write-heartbeat when `CRUSH_AGENT≠agent`), `my_list` returning an untagged name-prefixed list, CLI `crush show` empty children, missing `created_by` on list resources, no clean human→agent handoff (`--owner` / rename-adopt), `list_owner` on task read shapes | ✅ Complete (A–I + §10.5) |
 
 Recommended order inside that plan: **A → B → C** (presence + identity
 lies) before **D–I** (CLI parity, handoff, docs/tests).
 
 ### Deferred MCP follow-ups (after hardening)
 
-- Session-end claim release (enhancement promised it; TTL covers it today).
+- ~~Session-end claim release (enhancement promised it; TTL covers it today).~~ **Done** — `Run` now calls `s.ReleaseAllClaims()` after `server.Run` returns, closing the gap between the enhancement plan §3.1 promise and the implementation (H13). All claims clear on session disconnect so the TUI shows no stale spinners.
 - Optional: show list owner in the TUI; comments gated by `requireWritable`.
 - Do **not** add an `adopt_list` MCP tool unless the hardening CLI path
   proves insufficient — keep the tool-count ceiling.

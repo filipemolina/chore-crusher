@@ -19,6 +19,18 @@ post-alpha backlog.
 
 ## Latest change
 
+- **H13: Session-end claim release.** The MCP server enhancement plan (`§3.1`)
+  promised that agent-claim spinners would be removed when the MCP session
+  ends, but it was never wired (the 120s `WorkTTL` covered the gap). `Run` in
+  `src/mcpserver/server.go` now calls `store.ReleaseAllClaims()` after
+  `server.Run` returns (client disconnected or context cancelled), clearing
+  every row from the `AgentActivity` table so the TUI shows no stale
+  spinners for a dead agent. The new `ReleaseAllClaims()` method in
+  `src/store/activity.go` deletes all claims unconditionally (unlike
+  `PruneStaleWork` which preserves fresh claims). Tests:
+  `TestReleaseAllClaimsClearsAllClaims` (store), `TestMCPPendingClaimsClearedOnSessionEnd`
+  (MCP integration).
+
 - Implemented the MCP server wrapper (`src/mcpserver`). `crush mcp` exposes
   every CLI operation as an MCP tool over stdin/stdout: lists, tasks, add,
   complete/reopen/toggle, rename, notes, progress, move, delete, and search.

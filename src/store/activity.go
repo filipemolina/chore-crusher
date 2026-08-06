@@ -239,6 +239,24 @@ func (s *Store) PruneStaleWork(now int64) (int, error) {
 	return int(n), err
 }
 
+// ReleaseAllClaims removes every row from the AgentActivity table. It is
+// called when the MCP server shuts down (the MCP session has ended) so that
+// stale spinners do not linger in the TUI beyond the process's lifetime
+// (docs/plan/mcp-server-enhancement.md §3.1; hardening plan H13). Unlike
+// PruneStaleWork, this does not filter by WorkTTL — it clears all claims
+// unconditionally because the process that made them is going away.
+func (s *Store) ReleaseAllClaims() (int, error) {
+	res, err := s.db.Exec(`DELETE FROM AgentActivity`)
+	if err != nil {
+		return 0, fmt.Errorf("release all claims: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 // validateEntityExists checks that entityID refers to an existing row in the
 // target table. It uses the same "SELECT 1 WHERE EXISTS" pattern the rest of
 // the store uses (e.g. CreateTask checks list existence).

@@ -171,7 +171,7 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (`claim_work`) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above.
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (`claim_work`) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAllClaims` when the MCP session ends (client disconnect), so a dead agent's spinners vanish immediately rather than waiting for TTL (hardening plan H13).
 
 **The store owns every transition.** None of the above should be duplicated
 in both `store` and `cli` (or `store` and `components`). `store.Complete`,
@@ -558,7 +558,13 @@ resources mirror the tools row-for-row (including `created_by` on
 `crush:///lists` and `crush:///lists/{id}`). Both surfaces read the same
 store rows (`ListLists`, `ListTasks`), so a field added to one appears in
 the other (hardening plan §4.5, §4.7); the server-side tests that pin the
-MCP shapes live in `src/mcpserver/server_test.go`.
+MCP shapes live in `src/mcpserver/server_test.go`. The task read shapes —
+`show_task`/`crush show`, `list_tasks`/`crush tasks`, `search_tasks`/`crush
+search` — carry `list_owner` on every row (the parent list's `created_by`,
+`""` for an unowned list), so an agent holding a task id knows at a glance
+whether its list is writable without a separate `list_lists` round-trip
+(CONTRIBUTING rule 6: the CLI `--json` shapes gained the same additive
+field).
 
 **List ownership, and what the MCP server refuses.** Every `List` carries a
 `created_by` tag (§2). The MCP server reads its own identity once at start

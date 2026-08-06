@@ -468,6 +468,99 @@ func TestMCPSearchTasks(t *testing.T) {
 	}
 }
 
+func TestMCPTaskShapesCarryListOwner(t *testing.T) {
+	session := setupMCP(t)
+
+	// A list owned by the default identity ("agent"). Tasks can be added
+	// through the enforced surface.
+	var ownList map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Mine"}), &ownList)
+
+	var ownTask map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": ownList["id"],
+		"title":   "Own task",
+	}), &ownTask)
+
+	// A list owned by another agent ("claude"). Seed a task via the shared
+	// DB — the server (identity "agent") cannot write to it.
+	var theirList map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{
+		"name":       "claude: Backlog",
+		"created_by": "claude",
+	}), &theirList)
+
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	theirTaskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, ?, '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		theirTaskID, theirList["id"], "Their task", now, now,
+	); err != nil {
+		t.Fatalf("seed task on claude's list: %v", err)
+	}
+
+	// show_task carries list_owner on the task.
+	var details struct {
+		ListOwner string `json:"list_owner"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"task_id": theirTaskID,
+	}), &details)
+	if details.ListOwner != "claude" {
+		t.Fatalf("show_task list_owner = %q, want claude", details.ListOwner)
+	}
+
+	// list_tasks carries list_owner on every row.
+	var rows []struct {
+		ID        string `json:"id"`
+		ListOwner string `json:"list_owner"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": theirList["id"],
+	}), &rows)
+	if len(rows) == 0 || rows[0].ListOwner != "claude" {
+		t.Fatalf("list_tasks list_owner = %+v, want claude on every row", rows)
+	}
+
+	// search_tasks carries list_owner per result (results span both lists).
+	var results []struct {
+		ID        string `json:"id"`
+		ListID    string `json:"list_id"`
+		ListOwner string `json:"list_owner"`
+		Title     string `json:"title"`
+	}
+	mustUnmarshal(t, callTool(t, session, "search_tasks", map[string]any{"query": "task"}), &results)
+	var foundAgent, foundClaude bool
+	for _, r := range results {
+		switch r.ListOwner {
+		case "agent":
+			foundAgent = true
+		case "claude":
+			foundClaude = true
+		}
+	}
+	if !foundAgent || !foundClaude {
+		t.Fatalf("search_tasks list_owner results = %+v, want both agent and claude", results)
+	}
+
+	// The own list's task also has the right list_owner.
+	var ownDetails struct {
+		ListOwner string `json:"list_owner"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"task_id": ownTask["id"],
+	}), &ownDetails)
+	if ownDetails.ListOwner != "agent" {
+		t.Fatalf("show_task own-task list_owner = %q, want agent", ownDetails.ListOwner)
+	}
+}
+
 func TestMCPClaimAndReleaseWork(t *testing.T) {
 	session := setupMCP(t)
 
@@ -847,11 +940,12 @@ func TestMCPTaskResource(t *testing.T) {
 	}
 
 	var details struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
+		ID        string `json:"id"`
+		Title     string `json:"title"`
+		ListOwner string `json:"list_owner"`
 	}
 	mustUnmarshal(t, res.Contents[0].Text, &details)
-	if details.ID != task["id"] || details.Title != "Write docs" {
+	if details.ID != task["id"] || details.Title != "Write docs" || details.ListOwner != "agent" {
 		t.Fatalf("crush:///tasks = %+v", details)
 	}
 }
@@ -875,10 +969,11 @@ func TestMCPSearchResource(t *testing.T) {
 	}
 
 	var results []struct {
-		Title string `json:"title"`
+		Title     string `json:"title"`
+		ListOwner string `json:"list_owner"`
 	}
 	mustUnmarshal(t, res.Contents[0].Text, &results)
-	if len(results) != 1 || results[0].Title != "Draft proposal" {
+	if len(results) != 1 || results[0].Title != "Draft proposal" || results[0].ListOwner != "agent" {
 		t.Fatalf("crush:///search/proposal = %+v", results)
 	}
 }
@@ -1313,6 +1408,69 @@ func TestMCPAddListRejectsBadTag(t *testing.T) {
 	})
 	if !strings.Contains(msg, "created_by must match") {
 		t.Fatalf("add_list bad tag error = %q, want the pattern error", msg)
+	}
+}
+
+// TestMCPPendingClaimsClearedOnSessionEnd verifies H13: when the MCP session
+// ends, ReleaseAllClaims (called by Run after server.Run returns) clears every
+// claim so the TUI shows no stale spinners. The test makes claims through the
+// MCP interface, then calls ReleaseAllClaims on a separate store handle to the
+// same DB (mirroring what Run does after server.Run returns), and confirms
+// list_work goes empty.
+func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+
+	// Claim via the MCP tool (defaults to identity "agent").
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "pi",
+	})
+	// A second claim on the list by a different agent.
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "list",
+		"entity_id":   list["id"],
+		"agent_id":    "claude",
+	})
+
+	// Both claims are visible before session-end cleanup.
+	var work []struct {
+		AgentID string `json:"agent_id"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	if len(work) != 2 {
+		t.Fatalf("expected 2 claims before cleanup, got %d", len(work))
+	}
+
+	// Simulate session-end cleanup: open a handle to the same DB (as Run does
+	// via the shared *store.Store) and clear all claims.
+	cleanup, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open for cleanup: %v", err)
+	}
+	t.Cleanup(func() { cleanup.Close() })
+
+	n, err := cleanup.ReleaseAllClaims()
+	if err != nil {
+		t.Fatalf("ReleaseAllClaims: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 claims released, got %d", n)
+	}
+
+	// list_work is now empty — the TUI has no spinners to show.
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	if len(work) != 0 {
+		t.Fatalf("expected 0 claims after session-end cleanup, got %d", len(work))
 	}
 }
 

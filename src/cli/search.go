@@ -15,12 +15,13 @@ import (
 // the list it lives in, so a cross-list result carries its context without a
 // second lookup.
 type searchResultJSON struct {
-	ID       string       `json:"id"`
-	ListID   string       `json:"list_id"`
-	ListName string       `json:"list_name"`
-	Title    string       `json:"title"`
-	Status   string       `json:"status"`
-	Progress progressJSON `json:"progress"`
+	ID        string       `json:"id"`
+	ListID    string       `json:"list_id"`
+	ListName  string       `json:"list_name"`
+	ListOwner string       `json:"list_owner"`
+	Title     string       `json:"title"`
+	Status    string       `json:"status"`
+	Progress  progressJSON `json:"progress"`
 }
 
 func newSearchCmd() *cobra.Command {
@@ -83,8 +84,10 @@ func rankSearch(s *store.Store, query string, candidates []store.Task) ([]search
 		return nil, err
 	}
 	names := make(map[string]string, len(lists))
+	owners := make(map[string]string, len(lists))
 	for _, l := range lists {
 		names[l.ID] = l.Name
+		owners[l.ID] = l.CreatedBy
 	}
 
 	titles := make([]string, len(candidates))
@@ -95,7 +98,7 @@ func rankSearch(s *store.Store, query string, candidates []store.Task) ([]search
 	out := make([]searchResultJSON, 0, len(candidates))
 	for _, m := range fuzzy.Find(query, titles) {
 		matched[m.Index] = true
-		r, err := searchResultOf(s, candidates[m.Index], names)
+		r, err := searchResultOf(s, candidates[m.Index], names, owners)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +106,7 @@ func rankSearch(s *store.Store, query string, candidates []store.Task) ([]search
 	}
 	for i, c := range candidates {
 		if !matched[i] {
-			r, err := searchResultOf(s, c, names)
+			r, err := searchResultOf(s, c, names, owners)
 			if err != nil {
 				return nil, err
 			}
@@ -113,17 +116,18 @@ func rankSearch(s *store.Store, query string, candidates []store.Task) ([]search
 	return out, nil
 }
 
-func searchResultOf(s *store.Store, t store.Task, names map[string]string) (searchResultJSON, error) {
+func searchResultOf(s *store.Store, t store.Task, names map[string]string, owners map[string]string) (searchResultJSON, error) {
 	p, err := progressOf(s, t.ID)
 	if err != nil {
 		return searchResultJSON{}, err
 	}
 	return searchResultJSON{
-		ID:       t.ID,
-		ListID:   t.ListID,
-		ListName: names[t.ListID],
-		Title:    t.Title,
-		Status:   string(t.Status),
-		Progress: p,
+		ID:        t.ID,
+		ListID:    t.ListID,
+		ListName:  names[t.ListID],
+		ListOwner: owners[t.ListID],
+		Title:     t.Title,
+		Status:    string(t.Status),
+		Progress:  p,
 	}, nil
 }

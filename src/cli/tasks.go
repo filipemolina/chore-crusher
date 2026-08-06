@@ -47,12 +47,13 @@ func progressOf(s *store.Store, id string) (progressJSON, error) {
 // walks the same shape whether or not it asked for --flat (docs/DESIGN.md
 // §9).
 type taskRowJSON struct {
-	ID       string       `json:"id"`
-	ParentID *string      `json:"parent_id"`
-	Title    string       `json:"title"`
-	Status   string       `json:"status"`
-	Progress progressJSON `json:"progress"`
-	Depth    int          `json:"depth"`
+	ID        string       `json:"id"`
+	ParentID  *string      `json:"parent_id"`
+	Title     string       `json:"title"`
+	Status    string       `json:"status"`
+	Progress  progressJSON `json:"progress"`
+	Depth     int          `json:"depth"`
+	ListOwner string       `json:"list_owner"`
 }
 
 // taskView is one flattened row with its derived progress computed once, so
@@ -223,6 +224,10 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		l, err := s.GetList(id)
+		if err != nil {
+			return err
+		}
 		tasks, err := s.ListTasks(id)
 		if err != nil {
 			return err
@@ -240,12 +245,13 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		payload := make([]taskRowJSON, 0, len(pendingViews)+len(completeViews))
 		for _, v := range append(pendingViews, completeViews...) {
 			payload = append(payload, taskRowJSON{
-				ID:       v.row.Task.ID,
-				ParentID: v.row.Task.ParentID,
-				Title:    v.row.Task.Title,
-				Status:   string(v.row.Task.Status),
-				Progress: v.prog,
-				Depth:    v.row.Depth,
+				ID:        v.row.Task.ID,
+				ParentID:  v.row.Task.ParentID,
+				Title:     v.row.Task.Title,
+				Status:    string(v.row.Task.Status),
+				Progress:  v.prog,
+				Depth:     v.row.Depth,
+				ListOwner: l.CreatedBy,
 			})
 		}
 
@@ -343,6 +349,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 type showJSON struct {
 	ID          string        `json:"id"`
 	ListID      string        `json:"list_id"`
+	ListOwner   string        `json:"list_owner"`
 	Title       string        `json:"title"`
 	Notes       string        `json:"notes"`
 	Status      string        `json:"status"`
@@ -373,6 +380,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		l, err := s.GetList(t.ListID)
+		if err != nil {
+			return err
+		}
 		childViews, err := viewsOf(s, apptypes.DescendantsOf(apptypes.FromStoreTasks(all), id))
 		if err != nil {
 			return err
@@ -381,12 +392,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 		children := make([]taskRowJSON, 0, len(childViews))
 		for _, v := range childViews {
 			children = append(children, taskRowJSON{
-				ID:       v.row.Task.ID,
-				ParentID: v.row.Task.ParentID,
-				Title:    v.row.Task.Title,
-				Status:   string(v.row.Task.Status),
-				Progress: v.prog,
-				Depth:    v.row.Depth,
+				ID:        v.row.Task.ID,
+				ParentID:  v.row.Task.ParentID,
+				Title:     v.row.Task.Title,
+				Status:    string(v.row.Task.Status),
+				Progress:  v.prog,
+				Depth:     v.row.Depth,
+				ListOwner: l.CreatedBy,
 			})
 		}
 
@@ -409,6 +421,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}, showJSON{
 			ID:          t.ID,
 			ListID:      t.ListID,
+			ListOwner:   l.CreatedBy,
 			Title:       t.Title,
 			Notes:       t.Notes,
 			Status:      string(t.Status),

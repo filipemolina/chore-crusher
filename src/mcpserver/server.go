@@ -36,18 +36,20 @@ type progressJSON struct {
 // taskRowJSON is one row of a task tree/list result, matching the CLI's
 // --json shape for tasks (docs/DESIGN.md §9).
 type taskRowJSON struct {
-	ID       string       `json:"id"`
-	ParentID *string      `json:"parent_id"`
-	Title    string       `json:"title"`
-	Status   string       `json:"status"`
-	Progress progressJSON `json:"progress"`
-	Depth    int          `json:"depth"`
+	ID        string       `json:"id"`
+	ParentID  *string      `json:"parent_id"`
+	Title     string       `json:"title"`
+	Status    string       `json:"status"`
+	Progress  progressJSON `json:"progress"`
+	Depth     int          `json:"depth"`
+	ListOwner string       `json:"list_owner"`
 }
 
 // taskDetailsJSON is the payload for the show_task tool.
 type taskDetailsJSON struct {
 	ID          string        `json:"id"`
 	ListID      string        `json:"list_id"`
+	ListOwner   string        `json:"list_owner"`
 	Title       string        `json:"title"`
 	Notes       string        `json:"notes"`
 	Status      string        `json:"status"`
@@ -60,12 +62,13 @@ type taskDetailsJSON struct {
 
 // searchResultJSON is one row of the search_tasks result.
 type searchResultJSON struct {
-	ID       string       `json:"id"`
-	ListID   string       `json:"list_id"`
-	ListName string       `json:"list_name"`
-	Title    string       `json:"title"`
-	Status   string       `json:"status"`
-	Progress progressJSON `json:"progress"`
+	ID        string       `json:"id"`
+	ListID    string       `json:"list_id"`
+	ListName  string       `json:"list_name"`
+	ListOwner string       `json:"list_owner"`
+	Title     string       `json:"title"`
+	Status    string       `json:"status"`
+	Progress  progressJSON `json:"progress"`
 }
 
 // NewServer opens the default store, registers every MCP tool, and returns
@@ -144,7 +147,16 @@ func Run(ctx context.Context) error {
 	}
 	defer s.Close()
 
-	return server.Run(ctx, &mcp.StdioTransport{})
+	err = server.Run(ctx, &mcp.StdioTransport{})
+	// H13: when the MCP session ends (client disconnected or context
+	// cancelled), release every claim so the TUI does not show stale
+	// spinners for a disconnected agent. The enhancement plan
+	// (docs/plan/mcp-server-enhancement.md §3.1) promised this on session
+	// end but it was never wired; the 120s TTL covered the gap.
+	if _, rErr := s.ReleaseAllClaims(); rErr != nil {
+		fmt.Fprintf(os.Stderr, "releasing claims on session end: %v\n", rErr)
+	}
+	return err
 }
 
 // addListTools registers the list-oriented MCP tools.
@@ -293,12 +305,17 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			return errorResult(err), nil, nil
 		}
 
+		list, err := s.GetList(listID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+
 		tasks, err := s.ListTasks(listID)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
-		rows, err := sectionRows(s, tasks, in.Status)
+		rows, err := sectionRows(s, tasks, in.Status, list.CreatedBy)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -361,7 +378,12 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			return errorResult(err), nil, nil
 		}
 
-		children, err := descendantRows(s, all, id)
+		l, err := s.GetList(t.ListID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+
+		children, err := descendantRows(s, all, id, l.CreatedBy)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -369,6 +391,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		return jsonResult(taskDetailsJSON{
 			ID:          t.ID,
 			ListID:      t.ListID,
+			ListOwner:   l.CreatedBy,
 			Title:       t.Title,
 			Notes:       t.Notes,
 			Status:      string(t.Status),
@@ -550,8 +573,10 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			return errorResult(err), nil, nil
 		}
 		listNames := make(map[string]string, len(lists))
+		listOwners := make(map[string]string, len(lists))
 		for _, l := range lists {
 			listNames[l.List.ID] = l.List.Name
+			listOwners[l.List.ID] = l.List.CreatedBy
 		}
 
 		out := make([]searchResultJSON, len(tasks))
@@ -561,12 +586,13 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				return errorResult(err), nil, nil
 			}
 			out[i] = searchResultJSON{
-				ID:       t.ID,
-				ListID:   t.ListID,
-				ListName: listNames[t.ListID],
-				Title:    t.Title,
-				Status:   string(t.Status),
-				Progress: prog,
+				ID:        t.ID,
+				ListID:    t.ListID,
+				ListName:  listNames[t.ListID],
+				ListOwner: listOwners[t.ListID],
+				Title:     t.Title,
+				Status:    string(t.Status),
+				Progress:  prog,
 			}
 		}
 		return jsonResult(out)
@@ -636,7 +662,7 @@ func requireWritableTask(s *store.Store, identity, taskID string) error {
 
 // sectionRows returns the preorder task rows for a status filter, mirroring
 // the CLI's sectionRows logic (docs/DESIGN.md §6, §9).
-func sectionRows(s *store.Store, tasks []store.Task, status string) ([]taskRowJSON, error) {
+func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner string) ([]taskRowJSON, error) {
 	converted := apptypes.FromStoreTasks(tasks)
 	rows := apptypes.Flatten(converted)
 	byID := make(map[string]apptypes.Task, len(converted))
@@ -670,12 +696,13 @@ func sectionRows(s *store.Store, tasks []store.Task, status string) ([]taskRowJS
 			return nil, err
 		}
 		out = append(out, taskRowJSON{
-			ID:       r.Task.ID,
-			ParentID: r.Task.ParentID,
-			Title:    r.Task.Title,
-			Status:   string(r.Task.Status),
-			Progress: prog,
-			Depth:    r.Depth,
+			ID:        r.Task.ID,
+			ParentID:  r.Task.ParentID,
+			Title:     r.Task.Title,
+			Status:    string(r.Task.Status),
+			Progress:  prog,
+			Depth:     r.Depth,
+			ListOwner: listOwner,
 		})
 	}
 	return out, nil
@@ -702,7 +729,7 @@ func taskProgressJSON(s *store.Store, id string) (progressJSON, error) {
 // through apptypes.Flatten, but Flatten only emits ParentID==nil rows, so a
 // pure-descendant set (no list root) flattened to nothing and "children"
 // was always empty.
-func descendantRows(s *store.Store, tasks []store.Task, rootID string) ([]taskRowJSON, error) {
+func descendantRows(s *store.Store, tasks []store.Task, rootID string, listOwner string) ([]taskRowJSON, error) {
 	rows := apptypes.DescendantsOf(apptypes.FromStoreTasks(tasks), rootID)
 	out := make([]taskRowJSON, 0, len(rows))
 	for _, r := range rows {
@@ -711,12 +738,13 @@ func descendantRows(s *store.Store, tasks []store.Task, rootID string) ([]taskRo
 			return nil, err
 		}
 		out = append(out, taskRowJSON{
-			ID:       r.Task.ID,
-			ParentID: r.Task.ParentID,
-			Title:    r.Task.Title,
-			Status:   string(r.Task.Status),
-			Progress: prog,
-			Depth:    r.Depth,
+			ID:        r.Task.ID,
+			ParentID:  r.Task.ParentID,
+			Title:     r.Task.Title,
+			Status:    string(r.Task.Status),
+			Progress:  prog,
+			Depth:     r.Depth,
+			ListOwner: listOwner,
 		})
 	}
 	return out, nil
@@ -984,11 +1012,15 @@ func addResources(server *mcp.Server, s *store.Store) {
 		if err != nil {
 			return nil, mcp.ResourceNotFoundError(req.Params.URI)
 		}
+		l, err := s.GetList(resolved)
+		if err != nil {
+			return nil, err
+		}
 		tasks, err := s.ListTasks(resolved)
 		if err != nil {
 			return nil, err
 		}
-		rows, err := sectionRows(s, tasks, "all")
+		rows, err := sectionRows(s, tasks, "all", l.CreatedBy)
 		if err != nil {
 			return nil, err
 		}
@@ -1022,12 +1054,16 @@ func addResources(server *mcp.Server, s *store.Store) {
 		if err != nil {
 			return nil, err
 		}
-		children, err := descendantRows(s, all, resolved)
+		l, err := s.GetList(t.ListID)
+		if err != nil {
+			return nil, err
+		}
+		children, err := descendantRows(s, all, resolved, l.CreatedBy)
 		if err != nil {
 			return nil, err
 		}
 		return marshalResource(req.Params.URI, taskDetailsJSON{
-			ID: t.ID, ListID: t.ListID, Title: t.Title, Notes: t.Notes,
+			ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
 			Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
 			UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt, Children: children,
 		})
@@ -1053,8 +1089,10 @@ func addResources(server *mcp.Server, s *store.Store) {
 			return nil, err
 		}
 		listNames := make(map[string]string, len(lists))
+		listOwners := make(map[string]string, len(lists))
 		for _, l := range lists {
 			listNames[l.List.ID] = l.List.Name
+			listOwners[l.List.ID] = l.List.CreatedBy
 		}
 		out := make([]searchResultJSON, len(tasks))
 		for i, t := range tasks {
@@ -1064,7 +1102,7 @@ func addResources(server *mcp.Server, s *store.Store) {
 			}
 			out[i] = searchResultJSON{
 				ID: t.ID, ListID: t.ListID, ListName: listNames[t.ListID],
-				Title: t.Title, Status: string(t.Status), Progress: prog,
+				ListOwner: listOwners[t.ListID], Title: t.Title, Status: string(t.Status), Progress: prog,
 			}
 		}
 		return marshalResource(req.Params.URI, out)

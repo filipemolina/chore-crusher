@@ -500,3 +500,50 @@ func TestClaimedTaskListIDsExcludesStale(t *testing.T) {
 		t.Fatalf("stale task claim must be excluded, got %v", set)
 	}
 }
+
+// TestReleaseAllClaimsClearsAllClaims verifies the session-end cleanup
+// (hardening plan H13): when the MCP process shuts down, every claim—regardless
+// of agent or staleness—is deleted so the TUI does not show lingering spinners
+// for a disconnected agent.
+func TestReleaseAllClaimsClearsAllClaims(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid := mustTask(t, s, lid, "task", nil)
+
+	// Two claims: one fresh, one stale, from different agents.
+	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	if _, err := s.ClaimWork("list", lid, "a2", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	// Force one row stale so PruneStaleWork would normally skip it.
+	stale := time.Now().Add(-WorkTTL - time.Minute).Unix()
+	if _, err := s.db.Exec(
+		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
+		stale, tid,
+	); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	n, err := s.ReleaseAllClaims()
+	if err != nil {
+		t.Fatalf("ReleaseAllClaims: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 deleted rows, got %d", n)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 0 {
+		t.Fatalf("expected 0 active claims after release, got %d", len(work))
+	}
+
+	// Calling on an empty table is a no-op, not an error.
+	if n2, err := s.ReleaseAllClaims(); err != nil || n2 != 0 {
+		t.Fatalf("empty ReleaseAllClaims = (%d, %v), want (0, nil)", n2, err)
+	}
+}
