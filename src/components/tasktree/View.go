@@ -25,31 +25,102 @@ func (m Model) View() tea.View {
 	return tea.NewView(m.ViewInPanel(chrome.PanelBodyWidth(m.body.MainWidth), chrome.PanelBodyHeight(m.body.Height), chrome.PanelBg(m.focused)))
 }
 
-// ViewInPanel renders the task tree as raw Tasks-surface content. Taskspanel
-// owns the enclosing frame, title, elevation, and footer composition.
+// panelLine is one display line of the task-tree body. taskID names the task a
+// row line belongs to (empty for chrome: section headers, blank spacers, the
+// section rule, the filter bar, the inline create row, empty-state cards), so
+// the scroll logic can find the selected row's line without re-deriving the
+// header and spacing counts the renderer already knows (Commit 5 step 2).
+type panelLine struct {
+	taskID  string
+	content string
+}
+
+// createLineID is the sentinel taskID the inline create row carries, so the
+// scroll target can be the create row (where the cursor's input sits) rather
+// than the anchor task while creating. Real task ids are ULIDs, so this can
+// never collide with one.
+const createLineID = "\x00create"
+
+func chromeLine(content string) panelLine { return panelLine{content: content} }
+
+// ViewInPanel renders the task tree as raw Tasks-surface content, windowed to
+// height so a list taller than the panel stays reachable by scrolling.
+// Taskspanel owns the enclosing frame, title, elevation, and footer.
 func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	m.filterInput.SetWidth(max(0, width-6))
 
 	switch {
 	case !m.activeList:
 		return appstyles.FillBackground(bg, lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Render("Add a task to get started"))
-	case m.creating:
-		// Inline creation mode: render the sections and splice the create row
-		// at the insertion point. On an empty list this renders just the
-		// create row.
-		pending, complete := m.splitSections()
-		return appstyles.FillBackground(bg, m.renderSections(pending, complete, width, bg))
-	case len(m.rows) == 0:
+	case len(m.rows) == 0 && !m.creating:
 		// An empty list after an esc cancel: the standard recessed empty-state
 		// card. The input is no longer the empty state — single-press esc
 		// removes it (docs/plan/task-row-cards-and-status.md).
 		return appstyles.FillBackground(bg, chrome.EmptyStateCard("No tasks yet.\nPress n to create one.", width, height))
+	case m.filterActive() && len(filterMatches(m.rows, m.filterQuery)) == 0:
+		// Filtered to nothing: the filter bar over a recessed "no match" card.
+		// There are no rows to scroll, so this renders directly rather than
+		// through the line-plan window.
+		body := lipgloss.JoinVertical(lipgloss.Top, m.renderFilterBar(), chrome.EmptyStateCard("No tasks match", width, 3))
+		return appstyles.FillBackground(bg, fillToHeight(body, height, width, bg))
+	default:
+		plan := m.linePlan(width, bg)
+		return appstyles.FillBackground(bg, m.renderWindow(plan, height, width, bg))
+	}
+}
+
+// linePlan builds the one task-tree line plan the renderer and the scroll math
+// share. It mirrors ViewInPanel's state precedence: inline creation and the
+// unfiltered view both render the Pending/Complete sections (creation splices
+// its input row in), and an active filter renders the flat filtered list.
+func (m *Model) linePlan(width int, bg color.Color) []panelLine {
+	switch {
+	case m.creating:
+		pending, complete := m.splitSections()
+		return m.planSections(pending, complete, width, bg)
 	case m.filterActive():
-		return appstyles.FillBackground(bg, m.renderFiltered(width, bg))
+		return m.planFiltered(width, bg)
 	default:
 		pending, complete := m.splitSections()
-		return appstyles.FillBackground(bg, m.renderSections(pending, complete, width, bg))
+		return m.planSections(pending, complete, width, bg)
 	}
+}
+
+// renderWindow renders exactly the height display lines starting at the
+// selection-driven scroll offset, then pads any short remainder to height with
+// the panel background so the window always paints its full box (no bleed on a
+// short tail). The offset is re-derived from the stored scrollOffset here so a
+// render never mutates persistent state; Update is what advances scrollOffset.
+func (m Model) renderWindow(plan []panelLine, height, width int, bg color.Color) string {
+	if height <= 0 {
+		return ""
+	}
+	off := clampScroll(len(plan), m.selectedLineIndex(plan), height, m.scrollOffset)
+	end := min(len(plan), off+height)
+	lines := make([]string, 0, height)
+	for i := off; i < end; i++ {
+		lines = append(lines, plan[i].content)
+	}
+	for len(lines) < height {
+		lines = append(lines, lipgloss.NewStyle().Background(bg).Width(max(0, width)).Render(""))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+// fillToHeight clips or pads a rendered block to exactly height lines, padding
+// with background-painted blanks so a short block still seals its full box.
+func fillToHeight(block string, height, width int, bg color.Color) string {
+	if height <= 0 {
+		return ""
+	}
+	lines := strings.Split(block, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, lipgloss.NewStyle().Background(bg).Width(max(0, width)).Render(""))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
 // splitSections splits displayed rows into Pending and Complete based on root
@@ -80,13 +151,14 @@ func (m *Model) splitSections() (pending, complete []apptypes.Row) {
 	return
 }
 
-// renderSections renders the Pending and Complete sections, splicing the
-// inline create row in immediately after the reference task (its insertion
-// point) within whichever section that task lives. The create row is never
-// shown as a "no tasks yet" card: on an empty list it is the only row,
-// placed at the end.
-func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg color.Color) string {
-	var lines []string
+// planSections builds the line plan for the Pending and Complete sections,
+// splicing the inline create row in immediately after the reference task (its
+// insertion point) within whichever section that task lives. The create row is
+// never shown as a "no tasks yet" card: on an empty list it is the only row,
+// placed at the end. Each task row line carries its task id; headers, spacers,
+// the rule, and the create row are chrome lines (empty id).
+func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg color.Color) []panelLine {
+	var plan []panelLine
 	placedCreate := false
 
 	// An empty list's create row opens under the Pending header: the input
@@ -94,39 +166,45 @@ func (m *Model) renderSections(pending, complete []apptypes.Row, width int, bg c
 	// the card belongs to the Pending section even while that section has
 	// nothing in it yet (docs/plan/task-row-cards-and-status.md).
 	if m.creating && len(pending) == 0 && len(complete) == 0 {
-		lines = append(lines, sectionHeader("Pending", 0))
-		lines = append(lines, "")
-		lines = append(lines, m.renderCreateRow(width, bg))
-		return lipgloss.JoinVertical(lipgloss.Top, lines...)
+		plan = append(plan, chromeLine(sectionHeader("Pending", 0)))
+		plan = append(plan, chromeLine(""))
+		plan = append(plan, m.createLine(width, bg))
+		return plan
 	}
 
 	if len(pending) > 0 {
-		lines = append(lines, sectionHeader("Pending", len(pending)))
+		plan = append(plan, chromeLine(sectionHeader("Pending", len(pending))))
 		// One blank line below each section title, and one below the last
 		// pending row, so the sections read as blocks with air around them
 		// (docs/DESIGN.md §6).
-		lines = append(lines, "")
-		lines, placedCreate = m.appendSectionRows(lines, pending, width, bg, placedCreate)
+		plan = append(plan, chromeLine(""))
+		plan, placedCreate = m.appendSectionPlan(plan, pending, width, bg, placedCreate)
 		if len(complete) > 0 {
-			lines = append(lines, "")
+			plan = append(plan, chromeLine(""))
 		}
 	}
 
 	if len(pending) > 0 && len(complete) > 0 {
-		lines = append(lines, chrome.PanelRule(width))
+		plan = append(plan, chromeLine(chrome.PanelRule(width)))
 	}
 
 	if len(complete) > 0 {
-		lines = append(lines, sectionHeader("Complete", len(complete)))
-		lines = append(lines, "")
-		lines, placedCreate = m.appendSectionRows(lines, complete, width, bg, placedCreate)
+		plan = append(plan, chromeLine(sectionHeader("Complete", len(complete))))
+		plan = append(plan, chromeLine(""))
+		plan, placedCreate = m.appendSectionPlan(plan, complete, width, bg, placedCreate)
 	}
 
 	if m.creating && !placedCreate {
-		lines = append(lines, m.renderCreateRow(width, bg))
+		plan = append(plan, m.createLine(width, bg))
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Top, lines...)
+	return plan
+}
+
+// createLine renders the inline create row as a plan line tagged with the
+// create sentinel, so the scroll target follows the input.
+func (m *Model) createLine(width int, bg color.Color) panelLine {
+	return panelLine{taskID: createLineID, content: m.renderCreateRow(width, bg)}
 }
 
 // createRenderAnchorID returns the id of the row after which the inline
@@ -168,23 +246,23 @@ func createRenderAnchorID(rows []apptypes.Row, beforeID string) string {
 	return rows[lastDesc].Task.ID
 }
 
-// appendSectionRows renders each row of a section, inserting the create row
-// immediately after the anchor's last visible descendant when in creating
-// mode (createRenderAnchorID), so a parent-with-children does not split from
-// its subtree around the input (bug 5).
-func (m *Model) appendSectionRows(lines []string, rows []apptypes.Row, width int, bg color.Color, placed bool) ([]string, bool) {
+// appendSectionPlan appends each row of a section as a task line, inserting the
+// create row immediately after the anchor's last visible descendant when in
+// creating mode (createRenderAnchorID), so a parent-with-children does not split
+// from its subtree around the input (bug 5).
+func (m *Model) appendSectionPlan(plan []panelLine, rows []apptypes.Row, width int, bg color.Color, placed bool) ([]panelLine, bool) {
 	anchor := ""
 	if m.creating {
 		anchor = createRenderAnchorID(rows, m.createBeforeID)
 	}
 	for _, row := range rows {
-		lines = append(lines, m.renderRow(row, width, bg))
+		plan = append(plan, panelLine{taskID: row.Task.ID, content: m.renderRow(row, width, bg)})
 		if m.creating && !placed && anchor != "" && row.Task.ID == anchor {
-			lines = append(lines, m.renderCreateRow(width, bg))
+			plan = append(plan, m.createLine(width, bg))
 			placed = true
 		}
 	}
-	return lines, placed
+	return plan, placed
 }
 
 // sectionHeader renders a bold TextPrimary name followed by a dimmed count,
@@ -194,26 +272,23 @@ func sectionHeader(name string, count int) string {
 	return primary(true).Render(name) + " " + muted().Render("("+strconv.Itoa(count)+")")
 }
 
-// renderFiltered renders the /-filter view: the filter bar over the flat
-// filtered row list. The Pending/Complete section headers are suppressed while
-// filtering — there is no honest way to split a half-filtered set into them
-// (docs/plans/phase-8-search.md step 1).
-func (m *Model) renderFiltered(width int, bg color.Color) string {
+// planFiltered builds the line plan for the /-filter view: the filter bar over
+// the flat filtered row list. The Pending/Complete section headers are
+// suppressed while filtering — there is no honest way to split a half-filtered
+// set into them (docs/plans/phase-8-search.md step 1). The empty-match case is
+// handled directly in ViewInPanel, so this is only reached with rows to show.
+func (m *Model) planFiltered(width int, bg color.Color) []panelLine {
 	rows, matched := matchVisible(m.rows, m.filterQuery)
 
-	lines := []string{m.renderFilterBar()}
-	if len(rows) == 0 {
-		lines = append(lines, chrome.EmptyStateCard("No tasks match", width, 3))
-	} else {
-		for _, row := range rows {
-			// Only dim ancestors of a real match; when the query is empty (the
-			// input is open but nothing typed yet) nothing is dimmed.
-			dimmed := m.filterQuery != "" && !matched[row.Task.ID]
-			lines = append(lines, m.renderFilterRow(row, width, dimmed, bg))
-		}
+	plan := []panelLine{chromeLine(m.renderFilterBar())}
+	for _, row := range rows {
+		// Only dim ancestors of a real match; when the query is empty (the
+		// input is open but nothing typed yet) nothing is dimmed.
+		dimmed := m.filterQuery != "" && !matched[row.Task.ID]
+		plan = append(plan, panelLine{taskID: row.Task.ID, content: m.renderFilterRow(row, width, dimmed, bg)})
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Top, lines...)
+	return plan
 }
 
 // renderFilterBar shows the live input while typing ([/ query]) or, once a

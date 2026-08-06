@@ -416,6 +416,24 @@ pending list's bottom edge doesn't collide with the complete header. The
 blank line after a section's last row is part of the section, not the next
 one: it renders even when the next section is empty.
 
+**Scrolling is selection-driven, not a second navigation mode.** When the two
+sections together are taller than the panel body, the tree renders only a
+vertical window of its lines and shifts that window the minimum needed to keep
+the selected row (or, mid-create, the inline input row) inside it, under the
+existing `↑`/`↓`/`j`/`k` walk — there is no mouse wheel, no page-up/page-down
+binding, and no horizontal scroll (all out of scope). The window is computed
+from one **line plan** (`[]panelLine` in `tasktree`, each entry a single display
+line tagged with its task id or blank for chrome) that the renderer and the
+scroll math share, so header/blank/rule counts are never duplicated in the
+scroll logic. The scroll offset lives in the tree model and is advanced by a
+Bubble Tea update — never by rendering — after navigation, refresh, filter
+change, collapse/expand, create start/cancel/confirm, and a layout resize; a
+resize that shrinks the panel clamps a now-too-large offset, and an empty or
+no-selection state resets it to the top. The window always paints its full
+height: any short remainder is filled with the panel-tier background so a
+partly-filled panel never bleeds. The `Lists` panel keeps its existing
+Bubbles-list scrolling unchanged — one scrolling system per panel.
+
 ## 7. Live refresh: how the TUI sees the CLI's writes
 
 There is no daemon, no socket, no file watcher — the same abstinence

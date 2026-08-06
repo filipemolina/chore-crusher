@@ -82,6 +82,14 @@ type Model struct {
 	// work is keyed by entity_id for EntityType=="task" claims.
 	work      map[string]apptypes.AgentActivity
 	animFrame int
+
+	// scrollOffset is the index of the first rendered line of the task-tree
+	// line plan (see View.go). It is selection-driven: a Bubble Tea update
+	// recomputes it to keep the selected row (or the inline create row) within
+	// the visible window, never rendering — so long lists stay reachable with
+	// the existing navigation keys (docs/DESIGN.md §§5, 6). There is no mouse
+	// or page-key scrolling and no horizontal scroll.
+	scrollOffset int
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -191,7 +199,28 @@ func (m *Model) applyRows(rows []apptypes.Row) {
 	m.selectedID = rows[idx].Task.ID
 }
 
+// Update handles a message and then keeps the vertical scroll offset in step
+// with the current selection. All the real work is in updateInner; this wrapper
+// only recomputes scrollOffset so the selected row (or the inline create row)
+// stays visible after navigation, refresh, filter, collapse/expand, create
+// start/cancel/confirm, and layout changes — the one place scroll state
+// changes, per docs/DESIGN.md §§5/6 (a Bubble Tea update, never rendering).
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := m.updateInner(msg)
+	var tm Model
+	switch v := updated.(type) {
+	case Model:
+		tm = v
+	case *Model:
+		tm = *v
+	default:
+		return updated, cmd
+	}
+	tm.scrollOffset = tm.scrollFor(tm.scrollOffset)
+	return tm, cmd
+}
+
+func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case cmds.SetBodyLayoutMsg:
 		m.body = msg
@@ -375,6 +404,74 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// bodyHeight and bodyWidth are the inner dimensions the tree renders into,
+// derived from the last layout the panel broadcast — the same values taskspanel
+// passes to ViewInPanel, so the scroll math and the render agree on the window.
+func (m Model) bodyHeight() int { return chrome.PanelBodyHeight(m.body.Height) }
+func (m Model) bodyWidth() int  { return chrome.PanelBodyWidth(m.body.MainWidth) }
+
+// scrollTargetID is the id of the line the window must keep visible: the inline
+// create row while creating (the cursor is in its input), otherwise the
+// selected task. Empty means there is nothing to keep visible (an empty or
+// no-active-list state), which resets the offset to the top.
+func (m Model) scrollTargetID() string {
+	if m.creating {
+		return createLineID
+	}
+	return m.selectedID
+}
+
+// selectedLineIndex returns the plan index of the scroll target line, or -1
+// when the target is absent (nothing selected, or an empty/error state). It
+// reads the same line plan the renderer uses, so no header/spacing counts are
+// duplicated here (Commit 5 step 2).
+func (m Model) selectedLineIndex(plan []panelLine) int {
+	target := m.scrollTargetID()
+	if target == "" {
+		return -1
+	}
+	for i, ln := range plan {
+		if ln.taskID == target {
+			return i
+		}
+	}
+	return -1
+}
+
+// scrollFor returns the scroll offset that keeps the current selection visible,
+// shifting prev only as far as needed. It is 0 for the states that never scroll
+// (no active list, or an empty list that is not mid-create) and clamps to the
+// plan against the current body height otherwise.
+func (m Model) scrollFor(prev int) int {
+	height := m.bodyHeight()
+	if height <= 0 || !m.activeList || (len(m.rows) == 0 && !m.creating) {
+		return 0
+	}
+	plan := m.linePlan(m.bodyWidth(), chrome.PanelBg(m.focused))
+	return clampScroll(len(plan), m.selectedLineIndex(plan), height, prev)
+}
+
+// clampScroll keeps the selected plan line inside the visible window
+// [offset, offset+height). It shifts the previous offset the minimum distance
+// needed, then clamps to the valid range; with no selected line (selIdx < 0) or
+// a plan that fits, it returns the top (0).
+func clampScroll(planLen, selIdx, height, prev int) int {
+	if height <= 0 {
+		return 0
+	}
+	maxOffset := max(0, planLen-height)
+	if selIdx < 0 {
+		return 0
+	}
+	off := min(max(prev, 0), maxOffset)
+	if selIdx < off {
+		off = selIdx
+	} else if selIdx >= off+height {
+		off = selIdx - height + 1
+	}
+	return min(max(off, 0), maxOffset)
 }
 
 // filterActive reports whether the /-filter is narrowing the visible rows:
