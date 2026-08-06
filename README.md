@@ -148,18 +148,21 @@ can discover without reading source. Two jobs, one board:
 
 ### Surface
 
-- **21 tools** — every CLI operation (`list_tasks`, `complete_task`,
+- **22 tools** — every CLI operation (`list_tasks`, `complete_task`,
   `set_progress`, `move_task`, …) returning the same `--json` shapes, plus
-  `my_list`, plus the presence trio: `claim_work` marks a task or list as
-  being worked on, `release_work` drops the claim, `list_work` lists what is
-  claimed.
-- **6 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
+  `my_list`, `show_tasks` (batch details for up to 50 tasks), and the presence
+  trio: `claim_work` marks a task or list as being worked on, `release_work`
+  drops the claim, `list_work` lists what is claimed.
+- **7 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
   `crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
-  `crush:///tasks/{id}`, `crush:///search/{query}`, and `crush://work` (the
-  live claim set).
-- **2 prompts** — canned workflows with current state already filled in:
-  `crush_daily_agenda` (triage today's lists and tasks) and `crush_breakdown`
-  (decompose a task into subtasks).
+  `crush:///tasks/{id}`, `crush:///search/{query}`, `crush:///inbox` (one-shot
+  start-of-session context: your list + every foreign list with top pending
+  tasks and notes), and `crush://work` (the live claim set).
+- **3 prompts** — canned workflows with current state already filled in:
+  `crush_daily_agenda` (triage today's lists and tasks),
+  `crush_inbox` (one-shot opener: read `crush:///inbox` and pick the next
+  task — fewer round-trips than `my_list` + `list_tasks` + `show_task`
+  fan-out), and `crush_breakdown` (decompose a task into subtasks).
 
 Destructive tools require `force=true`, and every response — success or error
 — is one JSON shape, mirroring the CLI contract.

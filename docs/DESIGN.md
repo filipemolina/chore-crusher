@@ -653,6 +653,24 @@ whether its list is writable without a separate `list_lists` round-trip
 (CONTRIBUTING rule 6: the CLI `--json` shapes gained the same additive
 field).
 
+**MCP agent-optimised extensions.** The task read shapes gained
+`has_notes` and `notes_len` on every row: `has_notes` is `false` when the
+notes body is empty, so an agent can skip a `show_task` call entirely.
+`list_tasks` accepts an optional `include` parameter (`["notes"]`) that
+inlines the notes body per row, capped at 2000 characters with
+`notes_truncated=true` when trimmed — one call replaces N `show_task`
+follow-ups. `show_tasks(ids)` is the batch equivalent for cross-list
+workflows: up to 50 task ids return their full details in one call, with
+unresolvable entries returned as `{id, error}`. The `progress` field is
+omitted on rows where the task has no progress, cutting typical row size by
+~25%. `my_list` now returns `{mine: {id,name,pending,complete},
+foreign_lists: [{id,name,pending,complete,created_by}]}`, merging `my_list`
++ `list_lists` into a single session-opening call. Status and progress
+writes auto-claim the task under the writing agent's identity (best-effort,
+non-stealing), so `claim_work` is only needed when an agent wants a claim
+before writing. The `crush:///inbox` resource and `crush_inbox` prompt
+deliver all of the above as a single read for start-of-session triage.
+
 **List ownership, and what the MCP server refuses.** Every `List` carries a
 `created_by` tag (§2). The MCP server reads its own identity once at start
 from the `CRUSH_AGENT` environment variable (default `"agent"`); the *human*

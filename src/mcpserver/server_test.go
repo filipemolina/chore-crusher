@@ -142,27 +142,68 @@ func TestMCPMyList(t *testing.T) {
 	// First call creates the agent's list.
 	var first map[string]any
 	mustUnmarshal(t, callTool(t, session, "my_list", nil), &first)
-	if first["id"] == "" || first["name"] != "pi: Inbox" {
-		t.Fatalf("my_list (first) = %+v, want id set and name \"pi: Inbox\"", first)
+	mine, ok := first["mine"].(map[string]any)
+	if !ok {
+		t.Fatalf("my_list (first) = %+v, want mine block", first)
+	}
+	if mine["id"] == "" || mine["name"] != "pi: Inbox" {
+		t.Fatalf("mine block = %+v, want id set and name \"pi: Inbox\"", mine)
 	}
 
 	// Counts come along: 0 pending / 0 complete on a fresh list.
-	if first["pending"] != float64(0) || first["complete"] != float64(0) {
-		t.Fatalf("my_list counts = pending=%v complete=%v, want 0/0", first["pending"], first["complete"])
+	if mine["pending"] != float64(0) || mine["complete"] != float64(0) {
+		t.Fatalf("my_list counts = pending=%v complete=%v, want 0/0", mine["pending"], mine["complete"])
 	}
 
 	// Second call returns the same list (idempotent — no duplicate created).
 	var second map[string]any
 	mustUnmarshal(t, callTool(t, session, "my_list", nil), &second)
-	if second["id"] != first["id"] {
-		t.Fatalf("my_list not idempotent: %v != %v", second["id"], first["id"])
+	mine2 := second["mine"].(map[string]any)
+	if mine2["id"] != mine["id"] {
+		t.Fatalf("my_list not idempotent: %v != %v", mine2["id"], mine["id"])
 	}
 
 	// list_lists sees exactly one list, matching my_list's id.
 	var lists []map[string]any
 	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
-	if len(lists) != 1 || lists[0]["id"] != first["id"] {
+	if len(lists) != 1 || lists[0]["id"] != mine["id"] {
 		t.Fatalf("list_lists = %+v, want one list matching my_list", lists)
+	}
+
+	// With only the agent's own list, foreign_lists is empty (not nil).
+	foreign, ok := first["foreign_lists"].([]any)
+	if !ok {
+		t.Fatalf("foreign_lists missing or not an array: %#v", first["foreign_lists"])
+	}
+	if len(foreign) != 0 {
+		t.Fatalf("expected 0 foreign lists, got %d", len(foreign))
+	}
+}
+
+func TestMyListIncludesForeign(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	// One foreign list (created by a different identity).
+	callTool(t, session, "add_list", map[string]any{"name": "human inbox", "created_by": "human"})
+	// Force the agent's own list to exist.
+	var res map[string]any
+	mustUnmarshal(t, callTool(t, session, "my_list", nil), &res)
+	mine, ok := res["mine"].(map[string]any)
+	if !ok || mine["name"] == nil {
+		t.Fatalf("mine missing: %#v", res)
+	}
+	if mine["name"] != "pi: Inbox" {
+		t.Errorf("mine.name = %v, want pi: Inbox", mine["name"])
+	}
+	foreign, ok := res["foreign_lists"].([]any)
+	if !ok || len(foreign) < 1 {
+		t.Fatalf("foreign_lists missing or empty: %#v", res["foreign_lists"])
+	}
+	row := foreign[0].(map[string]any)
+	if row["created_by"] != "human" {
+		t.Errorf("foreign row should carry created_by='human', got %v", row["created_by"])
+	}
+	if row["name"] != "human inbox" {
+		t.Errorf("foreign row name = %v, want human inbox", row["name"])
 	}
 }
 
@@ -766,6 +807,32 @@ func TestMCPClaimDefaultsToIdentity(t *testing.T) {
 	}
 }
 
+func TestStatusWriteAutoClaims(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "work",
+	}), &task)
+	// No explicit claim_work first — just start setting progress.
+	callTool(t, session, "set_progress", map[string]any{
+		"id": task["id"], "mode": "percentage", "percent": 25,
+	})
+	var work []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	found := false
+	for _, w := range work {
+		if w["entity_id"] == task["id"] && w["agent_id"] == "pi" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("status write should have auto-claimed the task; work=%#v", work)
+	}
+}
+
 func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
@@ -989,15 +1056,14 @@ func TestMCPResourcesListed(t *testing.T) {
 	if len(res.Resources) == 0 {
 		t.Fatalf("expected at least one resource, got %d", len(res.Resources))
 	}
-	found := false
+	found := make(map[string]bool, len(res.Resources))
 	for _, r := range res.Resources {
-		if r.URI == "crush:///lists" {
-			found = true
-			break
-		}
+		found[r.URI] = true
 	}
-	if !found {
-		t.Fatalf("crush:///lists not in resources: %+v", res.Resources)
+	for _, uri := range []string{"crush:///lists", "crush:///inbox"} {
+		if !found[uri] {
+			t.Fatalf("resource %q not in resources: %+v", uri, res.Resources)
+		}
 	}
 
 	tres, err := session.ListResourceTemplates(context.Background(), nil)
@@ -1007,15 +1073,105 @@ func TestMCPResourcesListed(t *testing.T) {
 	if len(tres.ResourceTemplates) == 0 {
 		t.Fatalf("expected at least one resource template, got %d", len(tres.ResourceTemplates))
 	}
-	found = false
+	templateFound := false
 	for _, rt := range tres.ResourceTemplates {
 		if rt.URITemplate == "crush:///tasks/{id}" {
-			found = true
+			templateFound = true
 			break
 		}
 	}
-	if !found {
-		t.Fatalf("crush:///tasks/{id} not in templates: %+v", tres.ResourceTemplates)
+	if !templateFound {
+	}
+}
+
+func TestInboxResourceReturnsMineAndForeign(t *testing.T) {
+	// Use a shared data dir so two server identities (human + pi) see the same store.
+	dataDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+
+	// human session: create a list + two pending tasks (one with notes).
+	t.Setenv("CRUSH_AGENT", "human")
+	humanServer, humanStore, err := mcpserver.NewServer()
+	if err != nil {
+		t.Fatalf("NewServer (human): %v", err)
+	}
+	t.Cleanup(func() { humanStore.Close() })
+	ctx := context.Background()
+	hct, hst := mcp.NewInMemoryTransports()
+	hss, err := humanServer.Connect(ctx, hst, nil)
+	if err != nil {
+		t.Fatalf("human server.Connect: %v", err)
+	}
+	t.Cleanup(func() { hss.Close() })
+	hClient := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.0"}, nil)
+	hSession, err := hClient.Connect(ctx, hct, nil)
+	if err != nil {
+		t.Fatalf("human client.Connect: %v", err)
+	}
+	t.Cleanup(func() { hSession.Close() })
+
+	var hlist map[string]string
+	mustUnmarshal(t, callTool(t, hSession, "add_list", map[string]any{"name": "human"}), &hlist)
+	mustUnmarshal(t, callTool(t, hSession, "add_task", map[string]any{"list_id": hlist["id"], "title": "F1", "notes": "why"}), &struct{}{})
+	callTool(t, hSession, "add_task", map[string]any{"list_id": hlist["id"], "title": "F2"})
+
+	// pi session: read the inbox resource.
+	t.Setenv("CRUSH_AGENT", "pi")
+	piServer, _, err := mcpserver.NewServer()
+	if err != nil {
+		t.Fatalf("NewServer (pi): %v", err)
+	}
+	pct, pst := mcp.NewInMemoryTransports()
+	pss, err := piServer.Connect(ctx, pst, nil)
+	if err != nil {
+		t.Fatalf("pi server.Connect: %v", err)
+	}
+	t.Cleanup(func() { pss.Close() })
+	pClient := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.0"}, nil)
+	piSession, err := pClient.Connect(ctx, pct, nil)
+	if err != nil {
+		t.Fatalf("pi client.Connect: %v", err)
+	}
+	t.Cleanup(func() { piSession.Close() })
+	callTool(t, piSession, "my_list", nil) // force pi's own list to exist
+
+	res, err := piSession.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "crush:///inbox"})
+	if err != nil {
+		t.Fatalf("ReadResource crush:///inbox: %v", err)
+	}
+	var got map[string]any
+	mustUnmarshal(t, res.Contents[0].Text, &got)
+
+	mine, ok := got["mine"].(map[string]any)
+	if !ok || mine["name"] == nil {
+		t.Fatalf("mine missing: %#v", got)
+	}
+	if mine["name"] != "pi: Inbox" {
+		t.Errorf("mine.name = %v, want pi: Inbox", mine["name"])
+	}
+
+	foreign, ok := got["foreign_lists"].([]any)
+	if !ok || len(foreign) == 0 {
+		t.Fatalf("foreign_lists missing: %#v", got["foreign_lists"])
+	}
+	fBlock := foreign[0].(map[string]any)
+	tasks, ok := fBlock["tasks"].([]any)
+	if !ok || len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks in foreign block, got %#v", tasks)
+	}
+	byTitle := map[string]map[string]any{}
+	for _, r := range tasks {
+		row := r.(map[string]any)
+		byTitle[row["title"].(string)] = row
+	}
+	if byTitle["F1"]["has_notes"] != true || byTitle["F1"]["notes"] != "why" {
+		t.Errorf("F1 should carry has_notes=true + notes body, got %#v", byTitle["F1"])
+	}
+	if byTitle["F2"]["has_notes"] != false {
+		t.Errorf("F2 should carry has_notes=false, got %#v", byTitle["F2"])
+	}
+	if _, present := byTitle["F2"]["notes"]; present {
+		t.Errorf("F2 must not have a notes body (empty notes), got %#v", byTitle["F2"])
 	}
 }
 
@@ -1033,7 +1189,7 @@ func TestMCPPromptsListed(t *testing.T) {
 	for _, p := range res.Prompts {
 		found[p.Name] = true
 	}
-	for _, name := range []string{"crush_daily_agenda", "crush_breakdown"} {
+	for _, name := range []string{"crush_daily_agenda", "crush_inbox", "crush_breakdown"} {
 		if !found[name] {
 			t.Fatalf("prompt %q not listed: %+v", name, res.Prompts)
 		}
@@ -1505,6 +1661,103 @@ func TestListTasksReportsNotesFlags(t *testing.T) {
 	}
 	if _, present := byTitle["with notes"]["notes"]; present {
 		t.Errorf("notes body must NOT appear without include=notes")
+	}
+}
+
+func TestListTasksIncludeNotes(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "short", "notes": "abc",
+	})
+	longNote := strings.Repeat("x", 2500)
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "long", "notes": longNote,
+	})
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"], "include": []string{"notes"},
+	}), &rows)
+	byTitle := map[string]map[string]any{}
+	for _, r := range rows {
+		byTitle[r["title"].(string)] = r
+	}
+
+	if byTitle["short"]["notes"] != "abc" {
+		t.Errorf("short notes should inline verbatim, got %v", byTitle["short"]["notes"])
+	}
+	if _, tr := byTitle["short"]["notes_truncated"]; tr {
+		t.Errorf("short notes should not report truncation")
+	}
+	if len(byTitle["long"]["notes"].(string)) != 2000 {
+		t.Errorf("long notes should truncate at 2000 chars, got %d", len(byTitle["long"]["notes"].(string)))
+	}
+	if byTitle["long"]["notes_truncated"] != true {
+		t.Errorf("long notes should carry notes_truncated=true")
+	}
+}
+
+func TestListTasksUnknownIncludeRejected(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	msg := callToolErr(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"], "include": []string{"bogus"},
+	})
+	if !strings.Contains(msg, "unknown include") {
+		t.Errorf("expected 'unknown include' error, got %q", msg)
+	}
+}
+
+func TestListTasksOmitsEmptyProgress(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "A"})
+	raw := callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]})
+	if strings.Contains(raw, `"progress"`) {
+		t.Errorf("no-progress task should not include a progress key; got: %s", raw)
+	}
+}
+
+func TestShowTasksBatch(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var a, b map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "A", "notes": "aa",
+	}), &a)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "B",
+	}), &b)
+	var got []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_tasks",
+		map[string]any{"ids": []string{a["id"], b["id"], "does-not-exist"}}), &got)
+	if len(got) != 3 {
+		t.Fatalf("want 3 rows, got %d", len(got))
+	}
+	if got[0]["title"] != "A" || got[0]["notes"] != "aa" {
+		t.Errorf("row 0: %#v", got[0])
+	}
+	if got[1]["title"] != "B" {
+		t.Errorf("row 1: %#v", got[1])
+	}
+	if _, hasErr := got[2]["error"]; !hasErr {
+		t.Errorf("row 2 must be an error row, got %#v", got[2])
+	}
+}
+
+func TestShowTasksCap(t *testing.T) {
+	session := setupMCP(t)
+	ids := make([]string, 51)
+	for i := range ids {
+		ids[i] = "x"
+	}
+	msg := callToolErr(t, session, "show_tasks", map[string]any{"ids": ids})
+	if !strings.Contains(msg, "capped at 50") {
+		t.Errorf("expected cap error, got %q", msg)
 	}
 }
 
