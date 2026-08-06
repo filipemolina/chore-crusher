@@ -68,37 +68,27 @@ type AppModel struct {
 	}
 }
 
-// GetInitialModel builds the app model. The lists panel starts hidden,
-// and if the store has no lists yet a default "New List" is created so the
-// add input always has somewhere to create its first task. The task tree is
-// the startup focus zone — the app's premise is "spend your time in one
-// list" (docs/DESIGN.md §5) — so the tree's keys live from the first frame
-// and inline creation can begin before any focus change.
+// GetInitialModel builds the app model. It does no database work: the
+// constructor returns immediately with no active list so Bubble Tea can render
+// the first frame (the Tasks panel's initial-load animation) before the
+// opening Lists query completes. The first RefreshListsMsg — issued from Init —
+// adopts the first list or creates the default "New List" when the store is
+// empty (see AppModel.Update), preserving the invariant that a successful first
+// load ends with an active list. The task tree is the startup focus zone — the
+// app's premise is "spend your time in one list" (docs/DESIGN.md §5) — so the
+// tree's keys live from the first frame and inline creation can begin before
+// any focus change.
 func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
-	activeListID := ""
-	if s != nil {
-		if lists, err := s.ListLists(); err == nil {
-			if len(lists) > 0 {
-				activeListID = lists[0].List.ID
-			} else {
-				if id, err := s.CreateList("New List", ""); err == nil {
-					activeListID = id
-				}
-			}
-		}
-	}
-
 	m := AppModel{
 		store:             s,
 		cfg:               cfg,
 		focusedZone:       constants.COMPONENT_TASK_TREE,
 		listsPanelVisible: false,
-		activeListID:      activeListID,
 	}
 	m.components.MainMenu = mainmenu.New()
 	m.components.KeybindingBar = keybindingbar.New()
 	m.components.ListsPanel = listspanel.New()
-	m.components.TaskPanel = taskspanel.New(s, activeListID)
+	m.components.TaskPanel = taskspanel.New(s, "")
 	m.components.DetailsPanel = detailspanel.New(s)
 	return m
 }

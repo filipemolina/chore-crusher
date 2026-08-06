@@ -442,6 +442,21 @@ reload.
 
 **Agent activity claims are read by the same poll.** Each `RefreshLists` and `RefreshTasks` call also runs `store.ListWork()` to fetch the current set of live agent claims (entities claimed within the `WorkTTL` window). The returned `[]AgentActivity` travels with the refresh messages so the task tree and lists panel can render a spinner on claimed rows. `RefreshLists` additionally computes the set of lists with any live task claim (`ClaimedTaskListIDs`) and carries it on the message, so the lists panel shows a spinner on a list row when an agent is working inside it — not only when the list itself is claimed. The same 1s poll tick governs both data and claims — no separate IPC or interval is needed.
 
+**The very first load is animated, later polls are not.** `GetInitialModel`
+does no database work: it constructs the components and returns immediately with
+no active list, so Bubble Tea can paint the first frame before the opening
+`RefreshLists` query completes. Until that first `RefreshListsMsg` arrives —
+success *or* error — the Tasks panel renders a sealed `Loading` label with an
+animated ellipsis (Bubbles' `spinner.Ellipsis` frames `""`, `.`, `..`, `...`,
+so the animation adds no ambiguous emoji width). The animation lives only in the
+`taskspanel` initial-load state; the first refresh leaves that state permanently
+and no later `PollTickMsg`/`RefreshListsMsg` cycle ever restores it. The ellipsis
+is drawn through a render-time `Foreground(appstyles.Active.Accent)` style read
+fresh each frame — no theme color is cached on the spinner, so a live theme
+switch mid-load repaints it. The empty-store default-list creation that the old
+constructor did synchronously now happens on that first refresh (§5): a
+successful first load still ends with an active list.
+
 **The TUI never holds a write transaction, and no poll tick is allowed to
 block on one.** It opens a read connection at startup and keeps it; every
 poll is a `SELECT`, full stop. All writes — from the TUI's own keypress

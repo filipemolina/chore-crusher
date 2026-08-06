@@ -7,7 +7,10 @@ package taskspanel
 import (
 	"image/color"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
@@ -25,20 +28,33 @@ type treeView interface {
 
 // Model owns the task tree inside the Tasks surface. Inline creation is
 // handled by the tree, so there is no separate add-input component here.
+//
+// loading is the one-shot initial-database-load state: it starts true and the
+// panel shows an animated "Loading" label until the very first RefreshListsMsg
+// (success or error) arrives, after which it is permanently false — later poll
+// refreshes never restore it (docs/DESIGN.md §7). The spinner drives only that
+// animation; its theme color is applied at render time, never cached in the
+// spinner's Style (a live theme switch would leave a cached color stale).
 type Model struct {
 	focused  bool
 	body     cmds.SetBodyLayoutMsg
 	tree     tea.Model
 	listName string
+	loading  bool
+	spinner  spinner.Model
 }
 
 func New(st *store.Store, activeListID string) tea.Model {
 	return Model{
-		tree: tasktree.New(),
+		tree:    tasktree.New(),
+		loading: true,
+		spinner: spinner.New(spinner.WithSpinner(spinner.Ellipsis)),
 	}
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+// Init starts the initial-load spinner. AppModel batches this so the first
+// frame animates while the opening Lists query is still outstanding.
+func (m Model) Init() tea.Cmd { return m.spinner.Tick }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if layout, ok := msg.(cmds.SetBodyLayoutMsg); ok {
@@ -51,10 +67,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if refresh, ok := msg.(cmds.RefreshTasksMsg); ok && refresh.Err == nil {
 		m.listName = refresh.ListName
 	}
+	// The first Lists refresh — success or error — ends the initial-load
+	// animation for good. Guarding on m.loading keeps a later poll refresh
+	// from ever forwarding another spinner tick.
+	if _, ok := msg.(cmds.RefreshListsMsg); ok {
+		m.loading = false
+	}
+
+	var cmdList []tea.Cmd
+	// Advance the spinner only while loading, and only for its own tick, so it
+	// never claims a share of any other message and stops cleanly once loaded.
+	if m.loading {
+		if _, ok := msg.(spinner.TickMsg); ok {
+			var spCmd tea.Cmd
+			m.spinner, spCmd = m.spinner.Update(msg)
+			cmdList = append(cmdList, spCmd)
+		}
+	}
 
 	var treeCmd tea.Cmd
 	m.tree, treeCmd = m.tree.Update(msg)
-	return m, treeCmd
+	cmdList = append(cmdList, treeCmd)
+	return m, tea.Batch(cmdList...)
 }
 
 func (m Model) View() tea.View {
@@ -65,11 +99,36 @@ func (m Model) View() tea.View {
 	// The tree owns its full body height: with the add input removed there is
 	// no footer to reserve a row for. PanelBodyWithFooter treats an empty
 	// footer as zero-height, so this passes the tree's render through at full
-	// height (see chrome.PanelBodyWithFooter).
-	content := m.tree.(treeView).ViewInPanel(width, max(0, height), bg)
+	// height (see chrome.PanelBodyWithFooter). While the initial Lists query is
+	// still outstanding the body is the sealed loading label instead.
+	var content string
+	if m.loading {
+		content = m.loadingBody(width, max(0, height), bg)
+	} else {
+		content = m.tree.(treeView).ViewInPanel(width, max(0, height), bg)
+	}
 	body := chrome.PanelBodyWithFooter(width, height, bg, content, "")
 
 	return tea.NewView(chrome.PanelFrameWithRightTitle("Tasks", m.listName, m.focused, m.body.MainWidth, m.body.Height, body))
+}
+
+// loadingBody renders the centered "Loading" label and its ellipsis animation,
+// sealed to the panel body box. The label uses the panel tier's primary text
+// and the ellipsis the accent, both read fresh from appstyles.Active at draw
+// time so a live theme switch repaints them (the plan's render-time-color
+// rule; no themed style is cached on the spinner).
+func (m Model) loadingBody(width, height int, bg color.Color) string {
+	label := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg).Render("Loading")
+	ellipsis := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Background(bg).Render(m.spinner.View())
+	line := lipgloss.JoinHorizontal(lipgloss.Top, label, ellipsis)
+
+	box := lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Background(bg).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render(line)
+	return appstyles.FillBackground(bg, box)
 }
 
 // OwnsKeyboard reports whether the task tree has claimed the keyboard for

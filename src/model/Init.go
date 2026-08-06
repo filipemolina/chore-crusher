@@ -22,5 +22,8 @@ func (m AppModel) Init() tea.Cmd {
 		cmds.RefreshLists(m.store),
 		cmds.SetFocus(constants.COMPONENT_TASK_TREE),
 		m.footerContextCmd(),
+		// Start the Tasks panel's initial-load spinner. It ticks only until the
+		// first RefreshLists above lands, then stops for the life of the app.
+		m.components.TaskPanel.Init(),
 	)
 }

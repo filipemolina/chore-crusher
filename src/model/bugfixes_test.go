@@ -216,6 +216,10 @@ func taskParent(t *testing.T, m AppModel, id string) string {
 // instead of chasing it.
 func TestIndentDuringRefreshWindowTargetsPostChangeState(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
+	// GetInitialModel no longer creates the default list synchronously; the
+	// first Lists refresh does. Drive it so the empty store gets its "New List"
+	// and activeListID is populated before this test seeds tasks into it.
+	m = refresh(t, m, cmds.RefreshLists(m.store)())
 	listID := m.activeListID
 	if listID == "" {
 		t.Fatal("no initial list to seed into")
