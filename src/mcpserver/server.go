@@ -36,13 +36,16 @@ type progressJSON struct {
 // taskRowJSON is one row of a task tree/list result, matching the CLI's
 // --json shape for tasks (docs/DESIGN.md §9).
 type taskRowJSON struct {
-	ID        string       `json:"id"`
-	ParentID  *string      `json:"parent_id"`
-	Title     string       `json:"title"`
-	Status    string       `json:"status"`
-	Progress  progressJSON `json:"progress"`
-	Depth     int          `json:"depth"`
-	ListOwner string       `json:"list_owner"`
+	ID        string        `json:"id"`
+	ParentID  *string       `json:"parent_id"`
+	Title     string        `json:"title"`
+	Status    string        `json:"status"`
+	Progress  *progressJSON `json:"progress,omitempty"`
+	Depth     int           `json:"depth"`
+	ListOwner string        `json:"list_owner"`
+	HasNotes  bool          `json:"has_notes"`
+	NotesLen  int           `json:"notes_len"`
+	Notes     string        `json:"notes,omitempty"` // populated only when include=notes; see step B
 }
 
 // taskDetailsJSON is the payload for the show_task tool.
@@ -58,6 +61,18 @@ type taskDetailsJSON struct {
 	UpdatedAt   int64         `json:"updated_at"`
 	CompletedAt *int64        `json:"completed_at"`
 	Children    []taskRowJSON `json:"children"`
+	Comments    []commentJSON `json:"comments"`
+}
+
+// commentJSON mirrors store.Comment for the MCP surface (docs/plan/task-comments.md
+// §4). It appears in taskDetailsJSON (show_task / crush:///tasks/{id}) and as
+// each entry in show_tasks (§3.C). Author is the OS username (CLI/TUI path)
+// or the server identity (agent path).
+type commentJSON struct {
+	ID        string `json:"id"`
+	Author    string `json:"author"`
+	Note      string `json:"note"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 // searchResultJSON is one row of the search_tasks result.
@@ -103,6 +118,7 @@ QUICK REFERENCE (tool: parameters)
 - chore_crusher_list_lists()                      every list with pending/complete counts
 - chore_crusher_list_tasks(list_id, status)       one list's tasks as a depth-annotated tree; status = all|pending|in_progress|complete (default all)
 - chore_crusher_show_task(task_id)                one task's details plus its children
+- chore_crusher_add_comment(task_id, note)        append a comment (author = your identity); refused if the list has comments disabled
 - chore_crusher_search_tasks(query, list_id)      fuzzy search across titles and notes (title matches rank first); list_id narrows to one list
 - chore_crusher_set_progress(id, mode, percent)   mode = simple|subtasks|percentage; percent required only for percentage
 - chore_crusher_complete_task(id)                 complete, cascades to descendants and auto-completes ancestors once all their children are done
@@ -126,7 +142,8 @@ BEHAVIOUR & GOTCHAS
 - chore_crusher_set_progress on an already-complete task errors ("reopen it first"): set progress before completing the last child.
 - chore_crusher_claim_work is a presence heartbeat: status/progress writes by the claiming agent refresh it; a live claim by another agent on that entity blocks writes — take another task or work your own list.
 - chore_crusher_claim_work's agent_id defaults to your identity: omit it, or set it equal to your tag, or your writes will not refresh the spinner.
-- Reclaim after an idle pause of ~2 minutes; chore_crusher_release_work when you finish.`})
+- Reclaim after an idle pause of ~2 minutes; chore_crusher_release_work when you finish.
+- chore_crusher_add_comment attributes the comment to your identity (CRUSH_AGENT) — author is not accepted as a parameter. Anyone may comment on any task regardless of ownership, unless the list has comments_disabled; show_task returns comments oldest-first.`})
 
 	addListTools(server, s, identity)
 	addTaskTools(server, s, identity)
@@ -388,6 +405,20 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			return errorResult(err), nil, nil
 		}
 
+		comments, err := s.ListComments(id)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		commentJSONs := make([]commentJSON, 0, len(comments))
+		for _, c := range comments {
+			commentJSONs = append(commentJSONs, commentJSON{
+				ID:        c.ID,
+				Author:    c.Author,
+				Note:      c.Note,
+				CreatedAt: c.CreatedAt,
+			})
+		}
+
 		return jsonResult(taskDetailsJSON{
 			ID:          t.ID,
 			ListID:      t.ListID,
@@ -400,7 +431,33 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			UpdatedAt:   t.UpdatedAt,
 			CompletedAt: t.CompletedAt,
 			Children:    children,
+			Comments:    commentJSONs,
 		})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "add_comment",
+		Description: "Add a comment to a task. Anyone may comment on any task regardless of ownership, unless the list has comments disabled. Example: add_comment(task_id='01ABC...', note='checking in'). author is not accepted — comments are attributed to this server's identity (CRUSH_AGENT).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		TaskID string `json:"task_id" jsonschema:"task id or unambiguous prefix"`
+		Note   string `json:"note" jsonschema:"the comment text"`
+		Author string `json:"author,omitempty" jsonschema:"rejected if set — comments are always attributed to the server identity"`
+	}) (*mcp.CallToolResult, any, error) {
+		if in.Author != "" {
+			return errorResult(fmt.Errorf("author is not a supported parameter: comments are attributed to this server's identity (%q)", identity)), nil, nil
+		}
+		if strings.TrimSpace(in.Note) == "" {
+			return errorResult(fmt.Errorf("note must not be empty")), nil, nil
+		}
+		id, err := s.ResolveID("task", in.TaskID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		cid, err := s.AddComment(id, identity, in.Note)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]string{"id": cid})
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -695,15 +752,22 @@ func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner st
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, taskRowJSON{
+		notes := r.Task.Notes
+		row := taskRowJSON{
 			ID:        r.Task.ID,
 			ParentID:  r.Task.ParentID,
 			Title:     r.Task.Title,
 			Status:    string(r.Task.Status),
-			Progress:  prog,
 			Depth:     r.Depth,
 			ListOwner: listOwner,
-		})
+			HasNotes:  len(notes) > 0,
+			NotesLen:  len(notes),
+		}
+		if !(prog.Kind == "none" && prog.Percent == nil && prog.DisplayAsSimple) {
+			p := prog
+			row.Progress = &p
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }
@@ -737,15 +801,22 @@ func descendantRows(s *store.Store, tasks []store.Task, rootID string, listOwner
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, taskRowJSON{
+		notes := r.Task.Notes
+		row := taskRowJSON{
 			ID:        r.Task.ID,
 			ParentID:  r.Task.ParentID,
 			Title:     r.Task.Title,
 			Status:    string(r.Task.Status),
-			Progress:  prog,
 			Depth:     r.Depth,
 			ListOwner: listOwner,
-		})
+			HasNotes:  len(notes) > 0,
+			NotesLen:  len(notes),
+		}
+		if !(prog.Kind == "none" && prog.Percent == nil && prog.DisplayAsSimple) {
+			p := prog
+			row.Progress = &p
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }

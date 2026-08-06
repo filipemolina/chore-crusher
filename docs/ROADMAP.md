@@ -100,7 +100,7 @@ comfort S4.
 | [`MCP_COMFORT_PLAN.md`](../MCP_COMFORT_PLAN.md) | `SQLITE_BUSY` fix, `show_task` children, prefixed `Instructions` names, always-on todo rule, `my_list` | ✅ Complete (S1–S6) |
 | [`docs/plan/list-ownership-enforcement.md`](plan/list-ownership-enforcement.md) | `created_by` on lists; MCP refuses structural writes on foreign/untagged lists; status/progress stay open | ✅ Complete (A–F) |
 
-**Surface today:** `crush mcp` — **20 tools**, **6 resources**, **2 prompts**;
+**Surface today:** `crush mcp` — **21 tools**, **6 resources**, **2 prompts**;
 identity from `CRUSH_AGENT` (default `agent`); cooperative-trust ownership
 (not auth). Full contract: `docs/DESIGN.md` §9.
 

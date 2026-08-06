@@ -1474,6 +1474,156 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	}
 }
 
+func TestListTasksReportsNotesFlags(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "with notes", "notes": "hello",
+	})
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "no notes",
+	})
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks",
+		map[string]any{"list_id": list["id"]}), &rows)
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(rows))
+	}
+	byTitle := map[string]map[string]any{}
+	for _, r := range rows {
+		byTitle[r["title"].(string)] = r
+	}
+	if byTitle["with notes"]["has_notes"] != true {
+		t.Errorf("with-notes row missing has_notes=true: %#v", byTitle["with notes"])
+	}
+	if int(byTitle["with notes"]["notes_len"].(float64)) != 5 {
+		t.Errorf("notes_len for 'hello' should be 5, got %v", byTitle["with notes"]["notes_len"])
+	}
+	if byTitle["no notes"]["has_notes"] != false {
+		t.Errorf("no-notes row should have has_notes=false: %#v", byTitle["no notes"])
+	}
+	if _, present := byTitle["with notes"]["notes"]; present {
+		t.Errorf("notes body must NOT appear without include=notes")
+	}
+}
+
+// TestMCPAddCommentRoundTrip pins the add_comment tool (docs/plan/task-comments.md §4):
+// it succeeds on a normal task, attributes the comment to the server identity,
+// and the comment appears in a subsequent show_task.
+func TestMCPAddCommentRoundTrip(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+
+	cid, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "add_comment",
+		Arguments: map[string]any{"task_id": task["id"], "note": "hello"},
+	})
+	if err != nil {
+		t.Fatalf("add_comment: %v", err)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	mustUnmarshal(t, textContent(t, cid), &res)
+	if res.ID == "" {
+		t.Fatal("add_comment returned empty id")
+	}
+
+	var details struct {
+		ID       string `json:"id"`
+		Comments []struct {
+			ID     string `json:"id"`
+			Author string `json:"author"`
+			Note   string `json:"note"`
+		} `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"task_id": task["id"],
+	}), &details)
+	if len(details.Comments) != 1 {
+		t.Fatalf("show_task comments = %d, want 1", len(details.Comments))
+	}
+	if details.Comments[0].ID != res.ID {
+		t.Errorf("comment id = %q, want %q", details.Comments[0].ID, res.ID)
+	}
+	if details.Comments[0].Author != "pi" {
+		t.Errorf("comment author = %q, want pi (server identity)", details.Comments[0].Author)
+	}
+	if details.Comments[0].Note != "hello" {
+		t.Errorf("comment note = %q, want hello", details.Comments[0].Note)
+	}
+}
+
+// TestMCPAddCommentRefusedOnDisabledList pins the list-level disable flag
+// enforcement over MCP (docs/plan/task-comments.md §4).
+func TestMCPAddCommentRefusedOnDisabledList(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+
+	// No MCP tool toggles comments_disabled yet (deferred per the plan);
+	// disable via a direct SQL write to the live store.
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE List SET comments_disabled = 1 WHERE id = ?`, list["id"]); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+
+	msg := callToolErr(t, session, "add_comment", map[string]any{
+		"task_id": task["id"], "note": "hello",
+	})
+	if !strings.Contains(msg, "disabled") {
+		t.Errorf("expected 'disabled' error, got %q", msg)
+	}
+}
+
+// TestMCPAddCommentRejectsExplicitAuthor pins the plan's recommendation to
+// reject an explicit author rather than silently ignoring it — comments are
+// always attributed to the server's identity.
+func TestMCPAddCommentRejectsExplicitAuthor(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+
+	msg := callToolErr(t, session, "add_comment", map[string]any{
+		"task_id": task["id"], "note": "hello", "author": "someone-else",
+	})
+	if !strings.Contains(msg, "author") {
+		t.Errorf("expected error mentioning author, got %q", msg)
+	}
+}
+
+// TestMCPAddCommentRefusedOnMissingTask verifies the existence check.
+func TestMCPAddCommentRefusedOnMissingTask(t *testing.T) {
+	session := setupMCP(t)
+	msg := callToolErr(t, session, "add_comment", map[string]any{
+		"task_id": "01ARZ", "note": "hello",
+	})
+	if !strings.Contains(msg, "not found") {
+		t.Errorf("expected 'not found' error, got %q", msg)
+	}
+}
+
 func TestMain(m *testing.M) {
 	// Tests set XDG_DATA_HOME explicitly; make sure the default HOME-based
 	// path is not accidentally used when t.Setenv is active.

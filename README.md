@@ -148,7 +148,7 @@ can discover without reading source. Two jobs, one board:
 
 ### Surface
 
-- **20 tools** — every CLI operation (`list_tasks`, `complete_task`,
+- **21 tools** — every CLI operation (`list_tasks`, `complete_task`,
   `set_progress`, `move_task`, …) returning the same `--json` shapes, plus
   `my_list`, plus the presence trio: `claim_work` marks a task or list as
   being worked on, `release_work` drops the claim, `list_work` lists what is
