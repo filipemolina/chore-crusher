@@ -813,3 +813,45 @@ func TestAltMoveKeysReachMoveHandler(t *testing.T) {
 		t.Errorf("alt+k produced %T, want cmds.MoveTaskMsg", cmd())
 	}
 }
+
+// Bug 1 regression: while the filter input is open (filterTyping, before
+// enter applies a query), the tree must still claim esc for itself so
+// AppModel's ladder forwards the key instead of swallowing it.
+func TestKeepsEscDuringFilterTyping(t *testing.T) {
+	m := Model{focused: true, filterTyping: true}
+	if !m.KeepsEsc() {
+		t.Error("tree with an open filter input should keep esc so the ladder lets it cancel")
+	}
+	idle := Model{focused: true}
+	if idle.KeepsEsc() {
+		t.Error("idle focused tree must not keep esc")
+	}
+}
+
+// Bug 3: pasting while the filter input is open inserts the content.
+func TestPasteInsertsIntoFilterInput(t *testing.T) {
+	m := New().(Model)
+	m.focused = true
+	m.applyRows(rows(2))
+	next, _ := m.Update(cmds.ActivateFilterMsg{})
+	m = next.(Model)
+	next, _ = m.Update(tea.PasteMsg{Content: "zorb"})
+	m = next.(Model)
+	if got := m.filterInput.Value(); got != "zorb" {
+		t.Errorf("filter input value = %q, want %q", got, "zorb")
+	}
+}
+
+// Bug 3: pasting while inline-creating inserts the content.
+func TestPasteInsertsIntoCreateInput(t *testing.T) {
+	m := New().(Model)
+	m.focused = true
+	m.applyRows(rows(2))
+	m.selectedID = "1"
+	m.StartCreating("1")
+	next, _ := m.Update(tea.PasteMsg{Content: "buy milk"})
+	m = next.(Model)
+	if got := m.createInput.Value(); got != "buy milk" {
+		t.Errorf("create input value = %q, want %q", got, "buy milk")
+	}
+}

@@ -34,7 +34,8 @@ func New() tea.Model {
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
-	l.SetShowFilter(false)
+	l.SetShowFilter(true)
+	l.SetFilteringEnabled(true)
 	l.KeyMap = keys.ListKeyMap()
 	return Model{list: l}
 }
@@ -68,7 +69,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for i, l := range msg.Lists {
 				items[i] = l
 			}
+			prevSelected := m.SelectedListID()
 			m.list.SetItems(items)
+			if len(items) > 0 && m.SelectedListID() != prevSelected && prevSelected != "" {
+				// The refresh moved the highlight — the selected list was
+				// deleted ahead of the cursor. bubbles' SetItems clamps a
+				// stale cursor to the new last item, but silently: the
+				// highlight moves without the SelectListMsg that keeps
+				// AppModel's active list in step, leaving highlight and
+				// active list out of sync until the next keypress. Re-broadcast
+				// the new selection so they stay together.
+				return m, m.selectList()
+			}
 			if len(items) > 0 && m.list.Index() < 0 {
 				m.list.Select(0)
 				return m, m.selectList()
@@ -79,6 +91,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.animFrame = msg.Frame
 		m.listDelegate.animFrame = msg.Frame
 		m.list.SetDelegate(m.listDelegate)
+
+	case cmds.ActivateListFilterMsg:
+		m.list.SetFilterState(list.Filtering)
 
 	case tea.KeyPressMsg:
 		if !m.focused {
@@ -110,6 +125,10 @@ func (m Model) SelectedListID() string {
 	return ""
 }
 
+// FilterActive reports whether the panel's own filter is open or applied,
+// for AppModel-level tests.
+func (m Model) FilterActive() bool { return m.list.FilterState() != list.Unfiltered }
+
 // selectList broadcasts which list is selected to AppModel.
 func (m Model) selectList() tea.Cmd {
 	if len(m.list.Items()) == 0 {
@@ -130,9 +149,9 @@ func (m Model) OwnsKeyboard() bool {
 	return m.list.FilterState() == list.Filtering
 }
 
-// KeepsEsc reports whether the list needs esc for itself: an applied filter
-// is cleared by esc alone, and the key only reaches the list while the list
-// is focused. AppModel's "back" checks this before it takes focus away.
+// KeepsEsc reports whether the list needs esc for itself: typing in
+// the filter or an applied filter both claim esc so the ladder
+// doesn't steal it before the list can handle it.
 func (m Model) KeepsEsc() bool {
-	return m.focused && m.list.FilterState() == list.FilterApplied
+	return m.focused && m.list.FilterState() != list.Unfiltered
 }

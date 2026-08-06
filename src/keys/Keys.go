@@ -149,19 +149,20 @@ var Lists = ListsPanelKeys{
 // list, replacing list.DefaultKeyMap.
 //
 // The default map is written for a list that is the whole program, so it
-// claims keys this app spends elsewhere: / is the task tree's filter, esc
-// and ? are handled by AppModel, and ctrl+c is the app's quit key.
-// The results were visible - pressing / both opened the filter and did nothing
-// useful in the lists panel - so the list has to be told which keys are not
-// its own.
+// claims keys this app spends elsewhere: / was the task tree's filter (now
+// contextual — see src/model/Update.go), esc is normally AppModel's, and
+// ctrl+c is the app's quit key. Keys the app owns outright are left with no
+// keystrokes rather than removed, because list.Model reads every field: an
+// empty binding matches nothing, which is the intent, whereas a missing one
+// would be a nil-safe accident.
 //
-// What stays is what only the list can answer: where its cursor is. Filtering
-// is worth keeping with many lists, but the lists panel currently has no
-// filter input, so it is unbound here.
-//
-// Keys the app owns are left with no keystrokes rather than removed, because
-// list.Model reads every field: an empty binding matches nothing, which is the
-// intent, whereas a missing one would be a nil-safe accident.
+// The filter keys are bound so the list's own handling works once the
+// filter is open, but / itself stays unbound: AppModel intercepts the
+// global / and routes it contextually (ActivateListFilterMsg when the lists
+// panel is focused), so the list must not also claim it. esc reaches the
+// list only because the panel's KeepsEsc claims it while a filter is open
+// or applied; inside the list, esc cancels (CancelWhileFiltering while
+// typing, ClearFilter while browsing an applied filter) and enter accepts.
 func ListKeyMap() list.KeyMap {
 	unbound := key.NewBinding()
 
@@ -173,14 +174,14 @@ func ListKeyMap() list.KeyMap {
 		GoToStart:  key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "first row")),
 		GoToEnd:    key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "last row")),
 
-		Filter:            unbound,
-		ClearFilter:       unbound,
-		CancelWhileFiltering: unbound,
-		AcceptWhileFiltering: unbound,
-		ShowFullHelp:      unbound,
-		CloseFullHelp:     unbound,
-		Quit:              unbound,
-		ForceQuit:         unbound,
+		Filter:               unbound,
+		ClearFilter:          key.NewBinding(key.WithKeys("esc")),
+		CancelWhileFiltering: key.NewBinding(key.WithKeys("esc")),
+		AcceptWhileFiltering: key.NewBinding(key.WithKeys("enter")),
+		ShowFullHelp:         unbound,
+		CloseFullHelp:        unbound,
+		Quit:                 unbound,
+		ForceQuit:            unbound,
 	}
 }
 

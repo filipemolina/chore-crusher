@@ -113,6 +113,24 @@ identity from `CRUSH_AGENT` (default `agent`); cooperative-trust ownership
 Recommended order inside that plan: **A → B → C** (presence + identity
 lies) before **D–I** (CLI parity, handoff, docs/tests).
 
+### Chore Crusher list triage (2026-08-05)
+
+Six new plan docs, written to close out every pending item in the
+"Chore Crusher" list (`crush show` on the parent Bugs/UI/Features/MCP
+Servers tasks). Recommended order — bugs first (small, no product
+decisions), then UI, then features, rename last (breaking, touches
+everything above it):
+
+| Plan | Covers | Status |
+| --- | --- | --- |
+| [`docs/plan/chore-crusher-bug-fixes.md`](plan/chore-crusher-bug-fixes.md) | 6 filed bugs (filter-esc, Lists-panel filter, paste, task indent, create-above-with-children, delete-empty-list) + per-user-DB doc note | 🔲 Planned |
+| [`docs/plan/ui-improvements.md`](plan/ui-improvements.md) | Loading animation, responsive Lists panel, document-icon column, scrollable panels, default theme (retargeted catppuccin mocha), + new Commit 6: list name in Tasks panel header | 🔲 Planned (retargeted + extended 2026-08-05) |
+| [`docs/plans/details-panel-title-editing.md`](plans/details-panel-title-editing.md) | Editable task title + `e` edit shortcut — depends on `docs/plans/details-as-sidepanel.md` landing first | 🔲 Planned |
+| [`docs/plan/tui-interaction-polish.md`](plan/tui-interaction-polish.md) | Enter/Esc panel-close behavior, select-new-list-closes-panel, copy-id-to-clipboard shortcut, collapse-semantics (needs confirmation) | 🔲 Planned |
+| [`docs/plan/task-comments.md`](plan/task-comments.md) | Comments on tasks — schema, store, CLI, MCP (raises tool ceiling to 21, needs sign-off), TUI icon + cards | 🔲 Planned |
+| [`docs/plan/agent-scratch-list-cleanup.md`](plan/agent-scratch-list-cleanup.md) | Agent's auto-created `<identity>: Inbox` list deleted at session end once fully complete — never a human-named list | 🔲 Planned |
+| [`docs/plan/rename-lists-to-projects.md`](plan/rename-lists-to-projects.md) | Full "Lists" → "Projects" rename: DB, store, CLI, MCP tool names, TUI, docs. Run **last**, after everything above | 🔲 Planned |
+
 ### Deferred MCP follow-ups (after hardening)
 
 - ~~Session-end claim release (enhancement promised it; TTL covers it today).~~ **Done** — `Run` now calls `s.ReleaseAllClaims()` after `server.Run` returns, closing the gap between the enhancement plan §3.1 promise and the implementation (H13). All claims clear on session disconnect so the TUI shows no stale spinners.
@@ -142,8 +160,8 @@ decision it depends on.
 
 | Plan | Notes | Status |
 | --- | --- | --- |
-| [`docs/plan/ui-improvements.md`](plan/ui-improvements.md) | Nord default, loading animation, responsive lists panel, document-icon column, scrollable panels | Active plan |
-| [`docs/plans/details-as-sidepanel.md`](plans/details-as-sidepanel.md) | Details as a side panel instead of a full screen | Proposal |
+| [`docs/plan/ui-improvements.md`](plan/ui-improvements.md) | catppuccin-mocha default, loading animation, responsive lists panel, document-icon column, scrollable panels, list name in Tasks header | See "Chore Crusher list triage" above |
+| [`docs/plans/details-as-sidepanel.md`](plans/details-as-sidepanel.md) | Details as a side panel instead of a full screen | Proposal — [`docs/plans/details-panel-title-editing.md`](plans/details-panel-title-editing.md) depends on this landing first |
 | [`docs/plan/task-row-redesign-and-inline-creation.md`](plan/task-row-redesign-and-inline-creation.md) | Task row / inline creation redesign | See plan status |
 | [`docs/plan/task-row-cards-and-status.md`](plan/task-row-cards-and-status.md) | Card chrome + status presentation | See plan status |
 | [`docs/plans/ux-redesign.md`](plans/ux-redesign.md) | Broader UX redesign notes | Historical / reference |

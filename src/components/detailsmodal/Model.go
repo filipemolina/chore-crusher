@@ -184,6 +184,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// NotesValue returns the notes textarea's current value, for tests.
+func (m *Model) NotesValue() string { return m.notes.Value() }
+
 func (m *Model) handleProgressKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "right", "l":

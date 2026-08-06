@@ -88,17 +88,21 @@ func (m Model) OwnsKeyboard() bool {
 	return m.filterTyping || m.creating
 }
 
-// KeepsEsc reports whether the tree needs esc for itself: an applied filter
-// is cleared by esc alone, and the key only reaches the tree while the tree
-// is focused. AppModel's "back" checks this before it takes focus away.
+// KeepsEsc reports whether the tree needs esc for itself: typing in the
+// filter, an applied filter, or inline creating all claim esc so the
+// ladder doesn't steal it before the tree can handle it.
 func (m Model) KeepsEsc() bool {
-	return m.focused && (m.filterApplied || m.creating)
+	return m.focused && (m.filterTyping || m.filterApplied || m.creating)
 }
 
 // Rows returns the tree's current (unfiltered) rows. The model's tests read
 // it to check the poll cycle end to end; phase 4's tree reads the same field
 // internally.
 func (m Model) Rows() []apptypes.Row { return m.rows }
+
+// FilterActive reports whether the /-filter is narrowing rows (typing or
+// applied), for AppModel-level tests.
+func (m Model) FilterActive() bool { return m.filterActive() }
 
 // SelectedID returns the currently selected task id, for tests and the
 // cross-list picker's jump verification.
@@ -327,6 +331,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if row := m.findRow(m.selectedID); row != nil {
 				return m, cmds.SetSelection(row.Task.ID, row.Depth)
 			}
+		}
+
+	case tea.PasteMsg:
+		if m.filterTyping {
+			var cmd tea.Cmd
+			m.filterInput, cmd = m.filterInput.Update(msg)
+			return m, cmd
+		}
+		if m.creating {
+			var cmd tea.Cmd
+			m.createInput, cmd = m.createInput.Update(msg)
+			return m, cmd
 		}
 
 	case cmds.CloseModalMsg:

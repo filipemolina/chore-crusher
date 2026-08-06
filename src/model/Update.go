@@ -34,10 +34,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// While a modal is open, it owns all key input exclusively — the zones
-	// and the global keys are frozen until it closes.
+	// While a modal is open, it owns all input exclusively — the zones
+	// and the global keys are frozen until it closes. Only the messages the
+	// modal can act on are routed to it: keypresses (its buttons, inputs and
+	// esc/enter) and terminal pastes (a focused textarea inside the modal).
+	// Everything else — CloseModalMsg above all, but also refresh, poll and
+	// layout messages — must fall through to AppModel's own handling;
+	// forwarding them to the modal too would deadlock closing (the modals
+	// only answer to KeyPressMsg/PasteMsg, so CloseModalMsg would be
+	// swallowed and no modal could ever close).
 	if m.activeModal != nil {
-		if _, ok := msg.(tea.KeyPressMsg); ok {
+		switch msg.(type) {
+		case tea.KeyPressMsg, tea.PasteMsg:
 			var modalCmd tea.Cmd
 			m.activeModal, modalCmd = m.activeModal.Update(msg)
 			return m, modalCmd
@@ -98,12 +106,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				finalCmds = append(finalCmds, cmds.OpenThemePicker())
 			}
 
-		// / enters the task tree's local filter; F opens the cross-list picker.
-		// Both are global keys — they work whenever no modal owns the
-		// keyboard, focused zone notwithstanding (docs/DESIGN.md §5).
+		// / enters a local filter: the task tree's fuzzy filter when the tree
+		// is focused, the lists panel's filter when the lists panel is.
+		// F opens the cross-list picker. Both are global keys — they work
+		// whenever no modal owns the keyboard, and the filter's target
+		// follows focus (docs/DESIGN.md §5).
 		case key.Matches(msg, keys.Global.Filter):
 			if !keyboardOwned() {
-				finalCmds = append(finalCmds, cmds.ActivateFilter())
+				if m.focusedZone == constants.COMPONENT_LISTS_PANEL {
+					finalCmds = append(finalCmds, cmds.ActivateListFilter())
+				} else {
+					finalCmds = append(finalCmds, cmds.ActivateFilter())
+				}
 			}
 
 		case key.Matches(msg, keys.Global.Picker):
@@ -135,20 +149,27 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		// List CRUD keys: only active when lists panel is visible and focused
+		// List CRUD keys: only active when lists panel is visible and focused.
+		// Both rename and delete act on the panel's highlighted list, not on
+		// the list open in the tasks panel: the two diverge whenever the
+		// active list changes without the panel cursor moving (the global
+		// picker jumping to another list, or a delete ahead of the cursor).
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.New):
 			m.activeModal = listnamemodal.New(listnamemodal.ModeNew, "", m.store)
 
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Rename):
-			if m.activeListID != "" {
-				m.activeModal = listnamemodal.New(listnamemodal.ModeRename, m.activeListID, m.store)
+			if target := m.highlightedListID(); target != "" {
+				m.activeModal = listnamemodal.New(listnamemodal.ModeRename, target, m.store)
 			}
 
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Delete):
-			if m.activeListID != "" {
+			if target := m.highlightedListID(); target != "" {
 				m.activeModal = confirmmodal.New("Delete list", "Are you sure? This will delete every task in the list.", func() tea.Msg {
-					if err := m.store.DeleteList(m.activeListID); err != nil {
-						return nil
+					if err := m.store.DeleteList(target); err != nil {
+						// Report through the same channel a failed refresh uses
+						// (the RefreshListsMsg handler records it in lastError)
+						// instead of swallowing it like the old nil return did.
+						return cmds.RefreshListsMsg{Err: err}
 					}
 					return cmds.RefreshLists(m.store)()
 				})
@@ -409,6 +430,18 @@ func (m AppModel) focusableZones() []int {
 		zones = append(zones, constants.COMPONENT_LISTS_PANEL)
 	}
 	return zones
+}
+
+// highlightedListID returns the id of the list currently highlighted in the
+// lists panel, or "" when the panel has no selection. The lists-panel CRUD
+// keys act on this, not on the open list: the two differ whenever the active
+// list changes without the panel cursor moving.
+func (m AppModel) highlightedListID() string {
+	lists, ok := m.components.ListsPanel.(interface{ SelectedListID() string })
+	if !ok {
+		return ""
+	}
+	return lists.SelectedListID()
 }
 
 // ChangeFocus moves focus delta steps through the computed cycle (tab +1,

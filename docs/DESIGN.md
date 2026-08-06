@@ -302,10 +302,12 @@ changes; **`tab`** cycles between the notes editor and the progress selector;
 (`simple`/`subtasks`/`percentage`); `esc` closes with a discard-changes prompt
 if anything is unsaved.
 
-**`/?`** enters the task tree's local fuzzy filter (phase 8): a live input
-narrows the current list's rows in place to each match plus its ancestor
-chain, so a matched leaf never loses its parent rows. `enter` applies the
-query and leaves the filtered view active; `esc` clears it.
+**`/?`** enters a local fuzzy filter, and its target follows focus: the
+**task tree** filter (phase 8) narrows the current list's rows in place to
+each match plus its ancestor chain, so a matched leaf never loses its
+parent rows; the **lists panel** filter narrows the visible lists the same
+way. `enter` applies the query and leaves the filtered view active;
+`esc` clears it.
 
 **`F`** opens the cross-list search picker (phase 8): a text input searches
 every list live, ranking title matches before notes-only hits, and showing
@@ -325,12 +327,13 @@ be recorded here in §5 alongside the other task-tree keybindings.
 `esc` follows the "ladder of claims" stack-stitcher documents: a modal
 (details screen, theme picker, confirm) closes itself first — it intercepts
 all keypresses at the top of `Update`, so by the time esc reaches AppModel's
-own handler no modal is open. Next, the tree claims esc if it declared
-`KeepsEsc` (inline create with text, or an applied filter, §8); after that,
-a no-op. The ladder is one switch case (`keys.Global.Back`) that checks
-`KeepsEsc` on the focused component. Keep this ladder tested against every
-claim in order — checking claims in the wrong order silently breaks whichever
-claim got skipped.
+own handler no modal is open. Next, the focused panel claims esc if it
+declared `KeepsEsc`: the tree while typing in or applying a `/` filter, or
+inline-creating (§8); the lists panel while its filter is open or applied.
+After that, a no-op. The ladder is one switch case (`keys.Global.Back`) that
+checks `KeepsEsc` on the focused component. Keep this ladder tested against
+its claims in order — checking claims in the wrong order silently breaks
+whichever claim got skipped.
 
 ## 6. The main panel: Pending and Complete
 
@@ -438,6 +441,12 @@ could accidentally undo by opening the connection differently elsewhere, so:
 every caller — `main.go`'s TUI path and every CLI subcommand — calls it. Do
 not open a second `sql.DB` anywhere; a second connection that forgets the WAL
 pragma is a subtle, load-bearing regression, not a stylistic one.
+
+The database is **already per-OS-user**: the path derives from `$XDG_DATA_HOME`
+(or `~/.local/share`), which is per-account by definition. Two OS users on the
+same machine get independent databases with no extra code — the
+"separate SQLite databases by user" ask is satisfied as-is, and the CLI/TUI
+is not multi-tenant within one OS account.
 
 **Migrations** are numbered `.sql` files embedded via `embed.FS`
 (`store/migrations/0001_init.sql`, `0002_*.sql`, …), applied in order inside

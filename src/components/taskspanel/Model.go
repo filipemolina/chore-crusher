@@ -104,3 +104,12 @@ func (m Model) Rows() []apptypes.Row { return m.tree.(treeView).Rows() }
 
 // SelectedID returns the selected task id for model-level behavior tests.
 func (m Model) SelectedID() string { return m.tree.(treeView).SelectedID() }
+
+// FilterActive reports whether the tree's /-filter is open or applied, for
+// AppModel-level tests.
+func (m Model) FilterActive() bool {
+	if tree, ok := m.tree.(interface{ FilterActive() bool }); ok && tree.FilterActive() {
+		return true
+	}
+	return false
+}
