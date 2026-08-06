@@ -99,8 +99,9 @@ comfort S4.
 | [`docs/plan/agent-presence-heartbeat.md`](plan/agent-presence-heartbeat.md) | Write-heartbeat on status/progress; lists-panel spinner for any claimed task inside a list; `CRUSH_AGENT` identity | ✅ Complete (A–F) |
 | [`MCP_COMFORT_PLAN.md`](../MCP_COMFORT_PLAN.md) | `SQLITE_BUSY` fix, `show_task` children, prefixed `Instructions` names, always-on todo rule, `my_list` | ✅ Complete (S1–S6) |
 | [`docs/plan/list-ownership-enforcement.md`](plan/list-ownership-enforcement.md) | `created_by` on lists; MCP refuses structural writes on foreign/untagged lists; status/progress stay open | ✅ Complete (A–F) |
+| [`docs/plan/mcp-batch-writes.md`](plan/mcp-batch-writes.md) | `update_tasks(ids, op, mode, percent)`: batch status/progress on up to 50 tasks with partial results; destructive/structural edits excluded; auto-claim per touched task. Batch reads already shipped. | ✅ Complete |
 
-**Surface today:** `crush mcp` — **21 tools**, **6 resources**, **2 prompts**;
+**Surface today:** `crush mcp` — **23 tools**, **6 resources**, **2 prompts**;
 identity from `CRUSH_AGENT` (default `agent`); cooperative-trust ownership
 (not auth). Full contract: `docs/DESIGN.md` §9.
 
@@ -130,6 +131,24 @@ everything above it):
 | [`docs/plan/task-comments.md`](plan/task-comments.md) | Comments on tasks — schema, store, CLI, MCP (raises tool ceiling to 21, needs sign-off), TUI icon + cards | 🔲 Planned |
 | [`docs/plan/agent-scratch-list-cleanup.md`](plan/agent-scratch-list-cleanup.md) | Agent's auto-created `<identity>: Inbox` list deleted at session end once fully complete — never a human-named list | 🔲 Planned |
 | [`docs/plan/rename-lists-to-projects.md`](plan/rename-lists-to-projects.md) | Full "Lists" → "Projects" rename: DB, store, CLI, MCP tool names, TUI, docs. Run **last**, after everything above | 🔲 Planned |
+
+### MCP Servers subtask plans (2026-08-06)
+
+The 2026-08-05 triage above planned only one of the "MCP Servers" parent's
+subtasks (agent-scratch-list-cleanup). The remaining pending subtasks now have
+plans. Two of them (`list_changes`, `update_tasks`) add MCP tools and **need
+tool-ceiling sign-off** before implementation (surface is already 22 vs. the
+S4 ~20 ceiling).
+
+| Plan | Chore Crusher subtask | Covers | Status |
+| --- | --- | --- | --- |
+| [`docs/plan/agent-working-loop-instructions.md`](plan/agent-working-loop-instructions.md) | "Instruct the agent to update himself" + "Improve the instructions to the agent" | Always-on `Instructions` + skill working-loop: update status as you go, set percentage scaled to task size, read notes+comments before/after, re-check the list between tasks. No new tools. | 🔲 Planned |
+| [`docs/plan/mcp-list-changes-since.md`](plan/mcp-list-changes-since.md) | "Create an endpoint that returns the changes on the list" | New `list_changes(list_id, since)` tool (or `…/changes` resource) via `Task.updated_at`; bump `updated_at` on comment so new comments count as changes. **Adds a tool — needs sign-off.** | 🔲 Planned (ceiling sign-off) |
+| [`docs/plan/mcp-presence-on-all-writes.md`](plan/mcp-presence-on-all-writes.md) | "MCP triggers Agent animation" | Extend the existing `autoClaim` (status/progress only today) to `add_comment`/`add_task`/`rename_task`/`set_notes`/`move_task`. Server-managed presence; no new tools. | 🔲 Planned |
+| [`docs/plan/mcp-batch-writes.md`](plan/mcp-batch-writes.md) | "Add batch endpoints" (write half) | New `update_tasks(ids, op)` for batch status/progress with partial results. Batch **reads** already shipped by `mcp-agent-fewer-roundtrips`. **Adds a tool — needs sign-off.** | ✅ Complete |
+
+"Setup the MCP Server" and "A loading animation on a task being worked on" (the
+two complete subtasks) are already shipped.
 
 ### Deferred MCP follow-ups (after hardening)
 

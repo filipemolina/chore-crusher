@@ -668,8 +668,22 @@ foreign_lists: [{id,name,pending,complete,created_by}]}`, merging `my_list`
 + `list_lists` into a single session-opening call. Status and progress
 writes auto-claim the task under the writing agent's identity (best-effort,
 non-stealing), so `claim_work` is only needed when an agent wants a claim
-before writing. The `crush:///inbox` resource and `crush_inbox` prompt
+before writing. Every other task write — `add_task`, `add_comment`,
+`rename_task`, `set_notes`, `move_task` — auto-claims the touched task too;
+`delete_task` does not (the task no longer exists), and `DeleteTask` clears
+any claim rows on the deleted subtree so a removed task cannot keep a spinner
+alive. Full rationale: `docs/plan/mcp-presence-on-all-writes.md`. The
+`crush:///inbox` resource and `crush_inbox` prompt
 deliver all of the above as a single read for start-of-session triage.
+
+**`update_tasks`** batches the open status/progress writes: one op
+(`complete`, `reopen`, `toggle`, `set_progress`) applied to up to 50 task
+ids in a single call, returning one `{id, ok:true}` / `{id, error}` row per
+id in input order (a bad id does not stop the rest — not a transaction).
+`delete`/`rename`/`set_notes`/`move` are excluded: destructive or
+ownership-gated, they stay single-task. Each touched task is auto-claimed
+under the writing agent's identity, same as the single-task writes. Full
+rationale: `docs/plan/mcp-batch-writes.md`.
 
 **List ownership, and what the MCP server refuses.** Every `List` carries a
 `created_by` tag (§2). The MCP server reads its own identity once at start

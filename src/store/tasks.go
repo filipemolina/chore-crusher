@@ -398,8 +398,53 @@ func (s *Store) MoveTask(taskID, afterID string) error {
 // DeleteTask deletes the task and, via the parent_id foreign key's ON DELETE
 // CASCADE, every descendant at every depth. Sibling subtrees are untouched.
 func (s *Store) DeleteTask(id string) error {
-	res, err := s.db.Exec(`DELETE FROM Task WHERE id = ?`, id)
+	// Collect every id in the subtree FIRST: the parent_id foreign key's
+	// CASCADE removes the descendants from Task, but AgentActivity has no FK
+	// to Task, so we must delete those claim rows ourselves (a live claim on a
+	// deleted task would leave an orphaned spinner — docs/plan/mcp-presence-on-all-writes.md §4).
+	var ids []string
+	rows, err := s.db.Query(`WITH RECURSIVE subtree AS (
+		SELECT id FROM Task WHERE id = ?
+		UNION ALL
+		SELECT t.id FROM Task t JOIN subtree s ON t.parent_id = s.id
+	) SELECT id FROM subtree`, id)
 	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var tid string
+		if err := rows.Scan(&tid); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, tid)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("task %q not found", id)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, tid := range ids {
+		// AgentActivity has no FK to Task, so claim rows for the deleted
+		// subtree must be removed explicitly (§4). TaskComment cascades via
+		// its task_id FK, so it needs no explicit delete here.
+		if _, err := tx.Exec(`DELETE FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`, tid); err != nil {
+			return err
+		}
+	}
+	res, err := tx.Exec(`DELETE FROM Task WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 	return requireAffected(res, "task", id)

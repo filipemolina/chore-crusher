@@ -123,6 +123,7 @@ QUICK REFERENCE (tool: parameters)
 - chore_crusher_add_comment(task_id, note)        append a comment (author = your identity); refused if the list has comments disabled
 - chore_crusher_search_tasks(query, list_id)      fuzzy search across titles and notes (title matches rank first); list_id narrows to one list
 - chore_crusher_set_progress(id, mode, percent)   mode = simple|subtasks|percentage; percent required only for percentage
+- chore_crusher_update_tasks(ids, op, mode, percent)   apply one status/progress op to up to 50 tasks in one call; op = complete|reopen|toggle|set_progress
 - chore_crusher_complete_task(id)                 complete, cascades to descendants and auto-completes ancestors once all their children are done
 - chore_crusher_reopen_task(id)                   reopen to pending; does NOT cascade to children
 - chore_crusher_toggle_task(id)                   toggle complete <-> pending
@@ -404,6 +405,8 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		// Light the spinner on the task just created.
+		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]string{"id": id})
 	})
 
@@ -551,6 +554,9 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		// A comment is activity on the task: paint the spinner under this
+		// agent, same as a status/progress write (docs/plan/mcp-presence-on-all-writes.md).
+		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]string{"id": cid})
 	})
 
@@ -609,6 +615,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err := s.RenameTask(id, in.Title); err != nil {
 			return errorResult(err), nil, nil
 		}
+		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
 	})
 
@@ -629,6 +636,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err := s.SetNotes(id, in.Notes); err != nil {
 			return errorResult(err), nil, nil
 		}
+		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
 	})
 
@@ -651,6 +659,81 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		// identity so a prior claim_work is not required before setting progress.
 		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "update_tasks",
+		Description: "Apply one status/progress change to up to 50 tasks in one " +
+			"call, instead of N separate writes. op is one of: complete, reopen, " +
+			"toggle, set_progress. For set_progress pass mode (simple|subtasks|" +
+			"percentage) and, for percentage, percent (0-100). Returns one result " +
+			"per id in input order: {id, ok:true} or {id, error}; a bad id does not " +
+			"stop the rest. Destructive/structural edits (delete, rename, notes, " +
+			"move) are not batchable — use their single-task tools. " +
+			"Example: update_tasks(ids=['01A','01B'], op='complete').",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		IDs     []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; max 50"`
+		Op      string   `json:"op" jsonschema:"complete, reopen, toggle, or set_progress"`
+		Mode    string   `json:"mode,omitempty" jsonschema:"for set_progress: simple, subtasks, or percentage"`
+		Percent *int     `json:"percent,omitempty" jsonschema:"for set_progress percentage mode, 0-100"`
+	}) (*mcp.CallToolResult, any, error) {
+		if len(in.IDs) == 0 {
+			return errorResult(fmt.Errorf("update_tasks requires at least one id")), nil, nil
+		}
+		if len(in.IDs) > 50 {
+			return errorResult(fmt.Errorf("update_tasks capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
+		}
+
+		// Build the per-id operation once, validating op + args up front so a
+		// bad request fails before any write.
+		var fn func(id string) error
+		switch in.Op {
+		case "complete":
+			fn = func(id string) error { return s.Complete(id) }
+		case "reopen":
+			fn = func(id string) error { return s.Reopen(id) }
+		case "toggle":
+			fn = func(id string) error { return s.Toggle(id) }
+		case "set_progress":
+			switch in.Mode {
+			case "simple", "subtasks":
+				if in.Percent != nil {
+					return errorResult(fmt.Errorf("percent is only valid with mode=percentage")), nil, nil
+				}
+			case "percentage":
+				if in.Percent == nil {
+					return errorResult(fmt.Errorf("mode=percentage requires percent")), nil, nil
+				}
+			default:
+				return errorResult(fmt.Errorf("invalid mode %q for set_progress: want simple, subtasks, or percentage", in.Mode)), nil, nil
+			}
+			kind := store.ProgressKind(in.Mode)
+			percent := in.Percent
+			fn = func(id string) error { return s.SetProgress(id, kind, percent) }
+		default:
+			return errorResult(fmt.Errorf("unknown op %q: want complete, reopen, toggle, or set_progress", in.Op)), nil, nil
+		}
+
+		type resultRow struct {
+			ID    string `json:"id"`
+			OK    bool   `json:"ok,omitempty"`
+			Error string `json:"error,omitempty"`
+		}
+		out := make([]resultRow, 0, len(in.IDs))
+		for _, raw := range in.IDs {
+			id, err := s.ResolveID("task", raw)
+			if err != nil {
+				out = append(out, resultRow{ID: raw, Error: err.Error()})
+				continue
+			}
+			if err := fn(id); err != nil {
+				out = append(out, resultRow{ID: raw, Error: err.Error()})
+				continue
+			}
+			autoClaim(s, "task", id, identity)
+			out = append(out, resultRow{ID: id, OK: true})
+		}
+		return jsonResult(out)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -695,6 +778,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err := s.Reparent(id, parentID); err != nil {
 			return errorResult(err), nil, nil
 		}
+		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
 	})
 
@@ -1446,7 +1530,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{{
-				Role: "user",
+				Role:    "user",
 				Content: &mcp.TextContent{Text: "Read the resource crush:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. Pick one pending task from a foreign list, claim it with claim_work, and start working. Do not fan out to show_task for tasks whose has_notes is false."},
 			}},
 		}, nil

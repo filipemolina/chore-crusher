@@ -614,6 +614,14 @@ func TestMCPClaimAndReleaseWork(t *testing.T) {
 		"title":   "Write docs",
 	}), &task)
 
+	// add_task auto-claims under the server identity ("agent"); release it so
+	// "claude" can claim below (docs/plan/mcp-presence-on-all-writes.md).
+	callTool(t, session, "release_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "agent",
+	})
+
 	// Claim the task.
 	var claim map[string]string
 	mustUnmarshal(t, callTool(t, session, "claim_work", map[string]any{
@@ -660,6 +668,13 @@ func TestMCPClaimWorkConflict(t *testing.T) {
 		"list_id": list["id"],
 		"title":   "Write docs",
 	}), &task)
+
+	// add_task auto-claims under "agent"; release it so "a1" can claim below.
+	callTool(t, session, "release_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "agent",
+	})
 
 	callTool(t, session, "claim_work", map[string]any{
 		"entity_type": "task",
@@ -845,6 +860,14 @@ func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
 		"title":   "Write docs",
 	}), &task)
 
+	// add_task auto-claims under "pi"; release it so "other" can hold the claim
+	// below, so we can assert pi's status write does not refresh it.
+	callTool(t, session, "release_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "pi",
+	})
+
 	// Another agent holds the claim; pi's writes must not touch it.
 	callTool(t, session, "claim_work", map[string]any{
 		"entity_type": "task",
@@ -891,6 +914,13 @@ func TestMCPWorkResource(t *testing.T) {
 		"list_id": list["id"],
 		"title":   "Write docs",
 	}), &task)
+
+	// add_task auto-claims under "agent"; release it so "claude" can claim below.
+	callTool(t, session, "release_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "agent",
+	})
 
 	// Claim and verify crush://work resource matches list_work.
 	callTool(t, session, "claim_work", map[string]any{
@@ -1585,6 +1615,13 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 		"title":   "Write docs",
 	}), &task)
 
+	// add_task auto-claims under "agent"; release it so "pi" can claim below.
+	callTool(t, session, "release_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   task["id"],
+		"agent_id":    "agent",
+	})
+
 	// Claim via the MCP tool (defaults to identity "agent").
 	callTool(t, session, "claim_work", map[string]any{
 		"entity_type": "task",
@@ -1874,6 +1911,265 @@ func TestMCPAddCommentRefusedOnMissingTask(t *testing.T) {
 	})
 	if !strings.Contains(msg, "not found") {
 		t.Errorf("expected 'not found' error, got %q", msg)
+	}
+}
+
+// hasClaim reports whether list_work shows a live claim on taskID by agent.
+func hasClaim(t *testing.T, session *mcp.ClientSession, taskID, agent string) bool {
+	t.Helper()
+	var work []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	for _, w := range work {
+		if w["entity_id"] == taskID && w["agent_id"] == agent {
+			return true
+		}
+	}
+	return false
+}
+
+func TestAddCommentAutoClaims(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "work",
+	}), &task)
+	// add_task now auto-claims too, so release first to prove add_comment claims.
+	callTool(t, session, "release_work", map[string]any{
+		"entity_type": "task", "entity_id": task["id"], "agent_id": "pi",
+	})
+	callTool(t, session, "add_comment", map[string]any{
+		"task_id": task["id"], "note": "checking in",
+	})
+	if !hasClaim(t, session, task["id"], "pi") {
+		t.Errorf("add_comment should have auto-claimed the task")
+	}
+}
+
+func TestAddTaskAutoClaims(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "new",
+	}), &task)
+	if !hasClaim(t, session, task["id"], "pi") {
+		t.Errorf("add_task should have auto-claimed the new task")
+	}
+}
+
+func TestRenameNotesMoveAutoClaim(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	newTask := func(title string) string {
+		var tk map[string]string
+		mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+			"list_id": list["id"], "title": title,
+		}), &tk)
+		// Clear the add_task auto-claim so each sub-case proves its own write claims.
+		callTool(t, session, "release_work", map[string]any{
+			"entity_type": "task", "entity_id": tk["id"], "agent_id": "pi",
+		})
+		return tk["id"]
+	}
+
+	rename := newTask("a")
+	callTool(t, session, "rename_task", map[string]any{"id": rename, "title": "a2"})
+	if !hasClaim(t, session, rename, "pi") {
+		t.Errorf("rename_task should auto-claim")
+	}
+
+	notes := newTask("b")
+	callTool(t, session, "set_notes", map[string]any{"id": notes, "notes": "n"})
+	if !hasClaim(t, session, notes, "pi") {
+		t.Errorf("set_notes should auto-claim")
+	}
+
+	parent := newTask("p")
+	child := newTask("c")
+	callTool(t, session, "move_task", map[string]any{"id": child, "parent": parent})
+	if !hasClaim(t, session, child, "pi") {
+		t.Errorf("move_task should auto-claim the moved task")
+	}
+}
+
+func TestDeleteTaskDoesNotClaim(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "doomed",
+	}), &task)
+	callTool(t, session, "delete_task", map[string]any{"id": task["id"], "force": true})
+	if hasClaim(t, session, task["id"], "pi") {
+		t.Errorf("delete_task must NOT leave a claim on the deleted task")
+	}
+}
+
+func TestUpdateTasksComplete(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var ids []string
+	for _, title := range []string{"a", "b", "c"} {
+		var tk map[string]string
+		mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+			"list_id": list["id"], "title": title,
+		}), &tk)
+		ids = append(ids, tk["id"])
+	}
+	var res []map[string]any
+	mustUnmarshal(t, callTool(t, session, "update_tasks", map[string]any{
+		"ids": ids, "op": "complete",
+	}), &res)
+	if len(res) != 3 {
+		t.Fatalf("want 3 result rows, got %d", len(res))
+	}
+	for _, r := range res {
+		if r["ok"] != true {
+			t.Errorf("row not ok: %#v", r)
+		}
+	}
+	// All three now complete.
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"], "status": "complete",
+	}), &rows)
+	if len(rows) != 3 {
+		t.Errorf("want 3 complete tasks, got %d", len(rows))
+	}
+}
+
+func TestUpdateTasksSetProgressPercentage(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var a, b map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "a"}), &a)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "b"}), &b)
+	var res []map[string]any
+	mustUnmarshal(t, callTool(t, session, "update_tasks", map[string]any{
+		"ids": []string{a["id"], b["id"]}, "op": "set_progress", "mode": "percentage", "percent": 50,
+	}), &res)
+	for _, r := range res {
+		if r["ok"] != true {
+			t.Errorf("row not ok: %#v", r)
+		}
+	}
+	var detail map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"task_id": a["id"]}), &detail)
+	prog := detail["progress"].(map[string]any)
+	if int(prog["percent"].(float64)) != 50 {
+		t.Errorf("want 50%%, got %v", prog["percent"])
+	}
+}
+
+func TestUpdateTasksPartialFailure(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var good map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "g",
+	}), &good)
+	var res []map[string]any
+	mustUnmarshal(t, callTool(t, session, "update_tasks", map[string]any{
+		"ids": []string{good["id"], "does-not-exist"}, "op": "complete",
+	}), &res)
+	if len(res) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(res))
+	}
+	if res[0]["ok"] != true {
+		t.Errorf("good id should succeed: %#v", res[0])
+	}
+	if _, hasErr := res[1]["error"]; !hasErr {
+		t.Errorf("bad id should be an error row: %#v", res[1])
+	}
+	// The good write was NOT rolled back.
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"], "status": "complete",
+	}), &rows)
+	if len(rows) != 1 {
+		t.Errorf("good task should still be complete despite the bad id; got %d complete", len(rows))
+	}
+}
+
+func TestUpdateTasksRejectsBadOp(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var tk map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "a",
+	}), &tk)
+	for _, op := range []string{"delete", "rename"} {
+		msg := callToolErr(t, session, "update_tasks", map[string]any{"ids": []string{tk["id"]}, "op": op})
+		if !strings.Contains(msg, "unknown op") {
+			t.Errorf("op %q should be rejected with 'unknown op', got %q", op, msg)
+		}
+	}
+	// Task must be untouched (still pending).
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"], "status": "pending",
+	}), &rows)
+	if len(rows) != 1 {
+		t.Errorf("rejected op must not mutate anything")
+	}
+}
+
+func TestUpdateTasksCap(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	ids := make([]string, 51)
+	for i := range ids {
+		ids[i] = "x"
+	}
+	msg := callToolErr(t, session, "update_tasks", map[string]any{"ids": ids, "op": "complete"})
+	if !strings.Contains(msg, "capped at 50") {
+		t.Errorf("expected cap error, got %q", msg)
+	}
+}
+
+func TestUpdateTasksPercentRequired(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var tk map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "a",
+	}), &tk)
+	msg := callToolErr(t, session, "update_tasks", map[string]any{
+		"ids": []string{tk["id"]}, "op": "set_progress", "mode": "percentage",
+	})
+	if !strings.Contains(msg, "requires percent") {
+		t.Errorf("percentage without percent should error, got %q", msg)
+	}
+}
+
+func TestUpdateTasksAutoClaims(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var tk map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "a",
+	}), &tk)
+	callTool(t, session, "update_tasks", map[string]any{"ids": []string{tk["id"]}, "op": "complete"})
+	var work []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	found := false
+	for _, w := range work {
+		if w["entity_id"] == tk["id"] && w["agent_id"] == "pi" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("update_tasks should auto-claim each touched task; work=%#v", work)
 	}
 }
 

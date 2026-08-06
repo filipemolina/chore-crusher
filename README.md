@@ -101,7 +101,11 @@ and the task.
 
 **Live agent presence.** An agent driving the MCP server calls `claim_work`
 on a task or list while it works; the TUI renders an animated spinner on that
-row until the claim is released or expires after two minutes of silence.
+row. Any task write — add, rename, notes, comment, move, or a status/
+progress change — lights the spinner too (server-managed `autoClaim`), so
+`claim_work` is only needed when an agent wants a claim *before* it starts
+writing. The spinner clears when the claim is released or expires after
+two minutes of silence.
 Status and progress writes keep a live claim alive (a write-heartbeat), and
 the skill tells the agent to re-claim after a pause. The lists panel shows
 the spinner on any list an agent is working inside, not just on lists claimed
@@ -148,7 +152,7 @@ can discover without reading source. Two jobs, one board:
 
 ### Surface
 
-- **22 tools** — every CLI operation (`list_tasks`, `complete_task`,
+- **23 tools** — every CLI operation (`list_tasks`, `complete_task`,
   `set_progress`, `move_task`, …) returning the same `--json` shapes, plus
   `my_list`, `show_tasks` (batch details for up to 50 tasks), and the presence
   trio: `claim_work` marks a task or list as being worked on, `release_work`
