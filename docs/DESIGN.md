@@ -665,17 +665,17 @@ operation. The server is a thin adapter over `src/store` in
 over one store" rule from §1 and §10.
 
 **MCP rows are a superset of the CLI's `--json` shapes** (CONTRIBUTING rule
-6): `list_lists` adds `position` and `created_by` to the `lists` row
-(`id`/`name`/`pending`/`complete`/`created_at`), and the read-only
-resources mirror the tools row-for-row (including `created_by` on
-`crush:///lists` and `crush:///lists/{id}`). Both surfaces read the same
+6): `my_list` adds `position` and `created_by` to the `lists` rows it
+returns (`mine` + `foreign_lists`), and the read-only resources mirror the
+tools row-for-row (including `created_by` on `crush:///lists` and
+`crush:///lists/{id}`). Both surfaces read the same
 store rows (`ListLists`, `ListTasks`), so a field added to one appears in
 the other (hardening plan §4.5, §4.7); the server-side tests that pin the
 MCP shapes live in `src/mcpserver/server_test.go`. The task read shapes —
 `show_task`/`crush show`, `list_tasks`/`crush tasks`, `search_tasks`/`crush
 search` — carry `list_owner` on every row (the parent list's `created_by`,
 `""` for an unowned list), so an agent holding a task id knows at a glance
-whether its list is writable without a separate `list_lists` round-trip
+whether its list is writable without a separate `my_list` round-trip
 (CONTRIBUTING rule 6: the CLI `--json` shapes gained the same additive
 field).
 
@@ -685,31 +685,32 @@ notes body is empty, so an agent can skip a `show_task` call entirely.
 `list_tasks` accepts an optional `include` parameter (`["notes"]`) that
 inlines the notes body per row, capped at 2000 characters with
 `notes_truncated=true` when trimmed — one call replaces N `show_task`
-follow-ups. `show_tasks(ids)` is the batch equivalent for cross-list
-workflows: up to 50 task ids return their full details in one call, with
-unresolvable entries returned as `{id, error}`. The `progress` field is
+follow-ups. `show_task(ids)` is the batch equivalent for cross-list
+workflows: up to 50 task ids return their full details (including comments)
+in one call, with unresolvable entries returned as `{id, error}`. The `progress` field is
 omitted on rows where the task has no progress, cutting typical row size by
 ~25%. `my_list` now returns `{mine: {id,name,pending,complete},
 foreign_lists: [{id,name,pending,complete,created_by}]}`, merging `my_list`
 + `list_lists` into a single session-opening call. Status and progress
 writes auto-claim the task under the writing agent's identity (best-effort,
 non-stealing), so `claim_work` is only needed when an agent wants a claim
-before writing. Every other task write — `add_task`, `add_comment`,
-`rename_task`, `set_notes`, `move_task` — auto-claims the touched task too;
+before writing. Every other task write — `add_task`, `add_comment`, `edit_task` — auto-claims
+the touched task too;
 `delete_task` does not (the task no longer exists), and `DeleteTask` clears
 any claim rows on the deleted subtree so a removed task cannot keep a spinner
 alive. Full rationale: `docs/plan/mcp-presence-on-all-writes.md`. The
 `crush:///inbox` resource and `crush_inbox` prompt
 deliver all of the above as a single read for start-of-session triage.
 
-**`update_tasks`** batches the open status/progress writes: one op
-(`complete`, `reopen`, `toggle`, `set_progress`) applied to up to 50 task
-ids in a single call, returning one `{id, ok:true}` / `{id, error}` row per
-id in input order (a bad id does not stop the rest — not a transaction).
-`delete`/`rename`/`set_notes`/`move` are excluded: destructive or
-ownership-gated, they stay single-task. Each touched task is auto-claimed
+**Batch status/progress writes.** `set_progress(ids)`, `complete_task(ids)`,
+and `reopen_task(ids)` each take 1–50 task ids and return one
+`{id, ok:true}` / `{id, error}` row per id in input order (a bad id does not
+stop the rest — not a transaction). `edit_task` covers the
+rename/notes/re-parent/to-root structural edits in a single call (destructive
+or ownership-gated, it stays single-task). Each touched task is auto-claimed
 under the writing agent's identity, same as the single-task writes. Full
-rationale: `docs/plan/mcp-batch-writes.md`.
+rationale: `docs/plan/mcp-batch-writes.md` and
+`docs/plan/mcp-tool-consolidation.md`.
 
 **`list_changes`** lets an agent cheaply check "did anything change since I last
 looked?" on a single list: pass the unix timestamp of your previous call as
@@ -729,27 +730,26 @@ absent; an agent that must detect deletions diffs id sets against its last
 from the `CRUSH_AGENT` environment variable (default `"agent"`); the *human*
 sets it per server in the MCP client config, so one stdio session is one
 identity and no tool lets an agent change it. A list is writable by that
-session only when `created_by` equals the identity. The seven **structural**
-tools — `rename_list`, `delete_list`, `add_task`, `rename_task`, `set_notes`,
-`move_task`, `delete_task` — resolve their id first (the §9 prefix rule
-still applies), then refuse a foreign list with one error shape:
-`list <id> is owned by <owner> — you may read it and update task
-status/progress only`. `move_task` checks the list it would move *into* — the
-parent's list when a `parent` is given, the task's own list when moving to
-the root — before any write, so a refused move never half-happens.
+session only when `created_by` equals the identity. The structural tools — `add_task`, `edit_task`, `delete_task` — resolve
+their id first (the §9 prefix rule still applies), then refuse a foreign list
+with one error shape: `list <id> is owned by <owner> — you may read it and
+update task status/progress only`. `edit_task`'s re-parent checks the list it
+would move *into* — the parent's list when a `parent` is given, the task's own
+list when `to_root` is set — before any write, so a refused move never
+half-happens.
 (`store.Reparent` independently rejects a parent on a different list, so on a
 move that would otherwise succeed the two are the same list; the owner check
 runs first and reports ownership rather than the cross-list error.)
 
 **Status and progress are never gated.** `complete_task`, `reopen_task`,
-`toggle_task`, and `set_progress` work on every list, as do all reads, the
-presence trio, the resources, and the prompts. An **empty** `created_by`
+and `set_progress` work on every list, as do all reads, `claim_work`, the
+resources, and the prompts. An **empty** `created_by`
 means owned by nobody, which makes the list foreign to *every* identity: an
 untagged list — the shape `crush lists add` and the TUI create — is read +
 status/progress only for all agents, and only a human can restructure it.
 `add_list` defaults `created_by` to the session identity and accepts an
-explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `list_lists` reports
-`created_by` on every row. Ownership is adopted from the `<tag>: <name>`
+explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `my_list` and `crush:///lists`
+report `created_by` on every row. Ownership is adopted from the `<tag>: <name>`
 naming convention in two places (hardening plan §4.6–4.7): a rename into a
 tag adopts the owner **in the same write** (`store.RenameList` — the human's
 `crush lists rename Groceries "pi: Groceries"` handoff path takes effect

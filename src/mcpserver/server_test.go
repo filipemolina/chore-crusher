@@ -107,28 +107,83 @@ func mustUnmarshal(t *testing.T, s string, v any) {
 	}
 }
 
-func TestMCPListLists(t *testing.T) {
+// readResourceText reads a resource and returns its single text body. The
+// crush:///lists and crush://work resources now backfill the removed
+// list_lists and list_work tools (docs/plan/mcp-tool-consolidation.md §4.4–4.5).
+func readResourceText(t *testing.T, session *mcp.ClientSession, uri string) string {
+	t.Helper()
+	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: uri})
+	if err != nil {
+		t.Fatalf("ReadResource %s: %v", uri, err)
+	}
+	if len(res.Contents) != 1 {
+		t.Fatalf("ReadResource %s: expected 1 content, got %d", uri, len(res.Contents))
+	}
+	return res.Contents[0].Text
+}
+
+// listsJSON replaces the removed list_lists tool: the crush:///lists resource
+// serves the identical row shape.
+func listsJSON(t *testing.T, session *mcp.ClientSession) string {
+	t.Helper()
+	return readResourceText(t, session, "crush:///lists")
+}
+
+// workJSON replaces the removed list_work tool: the crush://work resource
+// serves the identical row shape.
+func workJSON(t *testing.T, session *mcp.ClientSession) string {
+	t.Helper()
+	return readResourceText(t, session, "crush://work")
+}
+
+// releaseWork replaces the removed release_work tool with the merged
+// claim_work(release=true) form.
+func releaseWork(t *testing.T, session *mcp.ClientSession, args map[string]any) string {
+	t.Helper()
+	with := map[string]any{"release": true}
+	for k, v := range args {
+		with[k] = v
+	}
+	return callTool(t, session, "claim_work", with)
+}
+
+// TestMCPToolSurface pins the consolidated tool surface
+// (docs/plan/mcp-tool-consolidation.md §2): exactly the 14 tools below, and
+// none of the removed ones. A new tool must be a deliberate edit here — the
+// ceiling is the point of the plan.
+func TestMCPToolSurface(t *testing.T) {
 	session := setupMCP(t)
 
-	if got := callTool(t, session, "list_lists", nil); got != "[]" {
-		t.Fatalf("list_lists = %q, want []", got)
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	got := map[string]bool{}
+	for _, tool := range res.Tools {
+		got[tool.Name] = true
 	}
 
-	var created map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &created)
-	if created["id"] == "" {
-		t.Fatalf("add_list returned empty id")
+	want := []string{
+		"my_list", "list_tasks", "list_changes", "show_task", "search_tasks",
+		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
+		"reopen_task", "add_comment", "add_list", "claim_work",
 	}
-
-	var lists []struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Pending  int    `json:"pending"`
-		Complete int    `json:"complete"`
+	for _, name := range want {
+		if !got[name] {
+			t.Errorf("tool %q missing from the surface", name)
+		}
 	}
-	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
-	if len(lists) != 1 || lists[0].Name != "Home" {
-		t.Fatalf("list_lists = %+v, want one Home list", lists)
+	for _, name := range []string{
+		"list_lists", "show_tasks", "toggle_task", "update_tasks", "rename_task",
+		"set_notes", "move_task", "rename_list", "delete_list", "release_work",
+		"list_work",
+	} {
+		if got[name] {
+			t.Errorf("removed tool %q is still registered", name)
+		}
+	}
+	if len(res.Tools) != len(want) {
+		t.Errorf("tool count = %d, want %d: %v", len(res.Tools), len(want), got)
 	}
 }
 
@@ -165,7 +220,7 @@ func TestMCPMyList(t *testing.T) {
 
 	// list_lists sees exactly one list, matching my_list's id.
 	var lists []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
+	mustUnmarshal(t, listsJSON(t, session), &lists)
 	if len(lists) != 1 || lists[0]["id"] != mine["id"] {
 		t.Fatalf("list_lists = %+v, want one list matching my_list", lists)
 	}
@@ -207,10 +262,12 @@ func TestMyListIncludesForeign(t *testing.T) {
 	}
 }
 
-// TestMCPInstructionsUsesPrefixedToolNames guards S2: the QUICK REFERENCE in
-// the Instructions doc the agent reads at session start must list tools with the
-// host-registered chore_crusher_<name> prefix. An unprefixed name (the original
-// bug) makes the agent's first call fail to resolve.
+// TestMCPInstructionsUsesPrefixedToolNames guards S2: the Instructions doc the
+// agent reads at session start must list tools with the host-registered
+// chore_crusher_<name> prefix. An unprefixed name (the original bug) makes the
+// agent's first call fail to resolve. The blob lists every tool under a TOOLS
+// heading as `name(...)`; scan the whole blob (not a fixed block) so the §9
+// rewrite does not force a brittle diff.
 func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	session := setupMCP(t)
 
@@ -219,39 +276,32 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 		t.Fatal("Instructions is empty")
 	}
 
-	lines := strings.Split(instructions, "\n")
-	inQuickRef := false
-	found := 0
-	var unprefixed []string
-	for _, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "QUICK REFERENCE"):
-			inQuickRef = true
-			continue
-		case inQuickRef && strings.TrimSpace(line) == "":
-			// blank line ends the QUICK REFERENCE block
-			inQuickRef = false
-			continue
-		case inQuickRef:
-			tool := strings.TrimSpace(strings.TrimPrefix(line, "- "))
-			if tool == "" {
-				continue
-			}
-			found++
-			name := tool
-			if i := strings.Index(name, "("); i >= 0 {
-				name = name[:i]
-			}
-			if !strings.HasPrefix(name, "chore_crusher_") {
-				unprefixed = append(unprefixed, tool)
-			}
+	// The blob lists each tool under a TOOLS heading as `name(...)` using the
+	// bare tool name; the host registers them as chore_crusher_<name>. Assert
+	// the bare names appear and the chore_crusher_ prefix is documented once.
+	wantTools := []string{
+		"my_list", "list_tasks", "list_changes", "show_task", "search_tasks",
+		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
+		"reopen_task", "add_comment", "add_list", "claim_work",
+	}
+	lower := strings.ToLower(instructions)
+	if !strings.Contains(lower, "chore_crusher_") {
+		t.Fatalf("Instructions must document the chore_crusher_ prefix;\nfull text:\n%s", instructions)
+	}
+	for _, name := range wantTools {
+		if !strings.Contains(lower, name+"(") {
+			t.Fatalf("Instructions missing tool %q;\nfull text:\n%s", name, instructions)
 		}
 	}
-	if found == 0 {
-		t.Fatal("no tools found in Instructions QUICK REFERENCE block")
-	}
-	if len(unprefixed) > 0 {
-		t.Fatalf("Instructions QUICK REFERENCE lists unprefixed tool names (the agent would fail to call them): %v", unprefixed)
+
+	// Removed tools (no MCP registration) must not appear as callables.
+	removed := []string{"list_lists", "release_work", "list_work", "rename_list",
+		"delete_list", "update_tasks", "toggle_task", "rename_task", "set_notes",
+		"move_task", "show_tasks"}
+	for _, name := range removed {
+		if strings.Contains(lower, name) {
+			t.Fatalf("Instructions still names removed tool %q;\nfull text:\n%s", name, instructions)
+		}
 	}
 }
 
@@ -293,7 +343,7 @@ func TestMCPInstructionsAlwaysOnTodoRule(t *testing.T) {
 		"do not use the host's built-in todo tool",
 		// Actionable guidance: where the agent should actually track its work.
 		"pi: ",
-		"chore_crusher_add_list",
+		"add_list",
 	} {
 		if !strings.Contains(lower, want) {
 			t.Fatalf("Instructions missing always-on todo rule element %q;\nfull text:\n%s", want, instructions)
@@ -308,18 +358,43 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	if instructions == "" {
 		t.Fatal("Instructions is empty")
 	}
+	// The blob stays slim (§9): it points at the crush_inbox prompt for the
+	// full loop instead of embedding it. Assert it names the loop and the
+	// opener, and that the loop itself lives in the crush_inbox prompt.
 	lower := strings.ToLower(instructions)
 	for _, want := range []string{
 		"working loop",
+		"crush_inbox",
+		"crush:///inbox",
+		"set_progress",
+	} {
+		if !strings.Contains(lower, want) {
+			t.Fatalf("Instructions missing loop pointer element %q;\nfull text:\n%s", want, instructions)
+		}
+	}
+
+	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "crush_inbox"})
+	if err != nil {
+		t.Fatalf("GetPrompt crush_inbox: %v", err)
+	}
+	if len(res.Messages) != 1 {
+		t.Fatalf("want 1 message, got %d", len(res.Messages))
+	}
+	tc, ok := res.Messages[0].Content.(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content type = %T, want *mcp.TextContent", res.Messages[0].Content)
+	}
+	loop := strings.ToLower(tc.Text)
+	for _, want := range []string{
 		"get your tasks from chore crusher",
-		"update their status",
+		"keep its status current",
 		"set_progress",
 		"percentage",
 		"crush:///inbox",
 		"before the next task",
 	} {
-		if !strings.Contains(lower, want) {
-			t.Fatalf("Instructions missing WORKING LOOP element %q;\nfull text:\n%s", want, instructions)
+		if !strings.Contains(loop, want) {
+			t.Fatalf("crush_inbox prompt missing working-loop element %q;\nfull text:\n%s", want, tc.Text)
 		}
 	}
 }
@@ -352,7 +427,7 @@ func TestMCPAddAndCompleteTask(t *testing.T) {
 		t.Fatalf("pending rows = %+v", rows)
 	}
 
-	callTool(t, session, "complete_task", map[string]any{"id": task["id"]})
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{task["id"]}})
 
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
@@ -434,7 +509,7 @@ func TestMCPShowTaskIncludesChildren(t *testing.T) {
 		"parent":  child["id"],
 	}), &grand)
 
-	var details struct {
+	var detailsArr []struct {
 		ID       string `json:"id"`
 		Title    string `json:"title"`
 		Children []struct {
@@ -445,8 +520,12 @@ func TestMCPShowTaskIncludesChildren(t *testing.T) {
 		} `json:"children"`
 	}
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
-		"task_id": parent["id"],
-	}), &details)
+		"ids": []string{parent["id"]},
+	}), &detailsArr)
+	if len(detailsArr) != 1 {
+		t.Fatalf("show_task returned %d rows, want 1", len(detailsArr))
+	}
+	details := detailsArr[0]
 
 	if details.ID != parent["id"] || details.Title != "Renovation" {
 		t.Fatalf("show_task root = %+v", details)
@@ -570,14 +649,17 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	}
 
 	// show_task carries list_owner on the task.
-	var details struct {
+	var detailsArr []struct {
 		ListOwner string `json:"list_owner"`
 	}
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
-		"task_id": theirTaskID,
-	}), &details)
-	if details.ListOwner != "claude" {
-		t.Fatalf("show_task list_owner = %q, want claude", details.ListOwner)
+		"ids": []string{theirTaskID},
+	}), &detailsArr)
+	if len(detailsArr) != 1 {
+		t.Fatalf("show_task returned %d rows, want 1", len(detailsArr))
+	}
+	if detailsArr[0].ListOwner != "claude" {
+		t.Fatalf("show_task list_owner = %q, want claude", detailsArr[0].ListOwner)
 	}
 
 	// list_tasks carries list_owner on every row.
@@ -614,14 +696,17 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	}
 
 	// The own list's task also has the right list_owner.
-	var ownDetails struct {
+	var ownDetailsArr []struct {
 		ListOwner string `json:"list_owner"`
 	}
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
-		"task_id": ownTask["id"],
-	}), &ownDetails)
-	if ownDetails.ListOwner != "agent" {
-		t.Fatalf("show_task own-task list_owner = %q, want agent", ownDetails.ListOwner)
+		"ids": []string{ownTask["id"]},
+	}), &ownDetailsArr)
+	if len(ownDetailsArr) != 1 {
+		t.Fatalf("show_task returned %d rows, want 1", len(ownDetailsArr))
+	}
+	if ownDetailsArr[0].ListOwner != "agent" {
+		t.Fatalf("show_task own-task list_owner = %q, want agent", ownDetailsArr[0].ListOwner)
 	}
 }
 
@@ -639,7 +724,7 @@ func TestMCPClaimAndReleaseWork(t *testing.T) {
 
 	// add_task auto-claims under the server identity ("agent"); release it so
 	// "claude" can claim below (docs/plan/mcp-presence-on-all-writes.md).
-	callTool(t, session, "release_work", map[string]any{
+	releaseWork(t, session, map[string]any{
 		"entity_type": "task",
 		"entity_id":   task["id"],
 		"agent_id":    "agent",
@@ -662,19 +747,19 @@ func TestMCPClaimAndReleaseWork(t *testing.T) {
 		EntityID   string `json:"entity_id"`
 		AgentID    string `json:"agent_id"`
 	}
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	if len(work) != 1 || work[0].EntityID != task["id"] || work[0].AgentID != "claude" {
 		t.Fatalf("list_work = %+v", work)
 	}
 
 	// Release it.
-	callTool(t, session, "release_work", map[string]any{
+	releaseWork(t, session, map[string]any{
 		"entity_type": "task",
 		"entity_id":   task["id"],
 		"agent_id":    "claude",
 	})
 
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	if len(work) != 0 {
 		t.Fatalf("expected empty after release, got %+v", work)
 	}
@@ -693,7 +778,7 @@ func TestMCPClaimWorkConflict(t *testing.T) {
 	}), &task)
 
 	// add_task auto-claims under "agent"; release it so "a1" can claim below.
-	callTool(t, session, "release_work", map[string]any{
+	releaseWork(t, session, map[string]any{
 		"entity_type": "task",
 		"entity_id":   task["id"],
 		"agent_id":    "agent",
@@ -716,10 +801,62 @@ func TestMCPClaimWorkConflict(t *testing.T) {
 	var work []struct {
 		AgentID string `json:"agent_id"`
 	}
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	if len(work) != 1 || work[0].AgentID != "a1" {
 		t.Fatalf("expected a1 still holding, got %+v", work)
 	}
+}
+
+// TestMCPClaimWorkRelease guards §4.5: release=true stops the spinner using
+// the server's own identity when agent_id is omitted, and is a no-op on an
+// unclaimed entity.
+func TestMCPClaimWorkRelease(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "pi: Work"}), &list)
+
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "Write docs",
+	}), &task)
+
+	// add_task auto-claimed under "pi"; release with agent_id omitted must
+	// default to the server identity and clear that claim.
+	var out map[string]bool
+	mustUnmarshal(t, callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task", "entity_id": task["id"], "release": true,
+	}), &out)
+	if !out["ok"] {
+		t.Fatalf("claim_work(release) = %+v, want {ok:true}", out)
+	}
+
+	var work []struct {
+		AgentID string `json:"agent_id"`
+	}
+	mustUnmarshal(t, workJSON(t, session), &work)
+	if len(work) != 0 {
+		t.Fatalf("claim_work(release) left claims = %+v", work)
+	}
+
+	// Releasing again is a no-op, not an error.
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task", "entity_id": task["id"], "release": true,
+	})
+
+	// release=false (omitted) still claims and returns an activity id.
+	var claim map[string]string
+	mustUnmarshal(t, callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task", "entity_id": task["id"],
+	}), &claim)
+	if claim["id"] == "" {
+		t.Fatalf("claim_work without release = %+v, want an activity id", claim)
+	}
+
+	// A bad entity_type is still rejected on the release path.
+	callToolErr(t, session, "claim_work", map[string]any{
+		"entity_type": "project", "entity_id": task["id"], "release": true,
+	})
 }
 
 func TestMCPStatusWritesRefreshClaim(t *testing.T) {
@@ -753,8 +890,8 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 		tool string
 		args map[string]any
 	}{
-		{"set_progress", "set_progress", map[string]any{"id": task["id"], "mode": "simple"}},
-		{"complete_task", "complete_task", map[string]any{"id": task["id"]}},
+		{"set_progress", "set_progress", map[string]any{"ids": []string{task["id"]}, "mode": "simple"}},
+		{"complete_task", "complete_task", map[string]any{"ids": []string{task["id"]}}},
 	} {
 		// Age the claim inside the TTL window; a status write must push it forward.
 		aged := time.Now().Add(-30 * time.Second).Unix()
@@ -831,7 +968,7 @@ func TestMCPClaimDefaultsToIdentity(t *testing.T) {
 		t.Fatalf("age claim: %v", err)
 	}
 
-	callTool(t, session, "complete_task", map[string]any{"id": task["id"]})
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{task["id"]}})
 
 	var after int64
 	if err := db.QueryRow(
@@ -855,10 +992,10 @@ func TestStatusWriteAutoClaims(t *testing.T) {
 	}), &task)
 	// No explicit claim_work first — just start setting progress.
 	callTool(t, session, "set_progress", map[string]any{
-		"id": task["id"], "mode": "percentage", "percent": 25,
+		"ids": []string{task["id"]}, "mode": "percentage", "percent": 25,
 	})
 	var work []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	found := false
 	for _, w := range work {
 		if w["entity_id"] == task["id"] && w["agent_id"] == "pi" {
@@ -885,7 +1022,7 @@ func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
 
 	// add_task auto-claims under "pi"; release it so "other" can hold the claim
 	// below, so we can assert pi's status write does not refresh it.
-	callTool(t, session, "release_work", map[string]any{
+	releaseWork(t, session, map[string]any{
 		"entity_type": "task",
 		"entity_id":   task["id"],
 		"agent_id":    "pi",
@@ -912,7 +1049,7 @@ func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
 		t.Fatalf("age claim: %v", err)
 	}
 
-	callTool(t, session, "complete_task", map[string]any{"id": task["id"]})
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{task["id"]}})
 
 	var after int64
 	if err := db.QueryRow(
@@ -939,13 +1076,14 @@ func TestMCPWorkResource(t *testing.T) {
 	}), &task)
 
 	// add_task auto-claims under "agent"; release it so "claude" can claim below.
-	callTool(t, session, "release_work", map[string]any{
+	releaseWork(t, session, map[string]any{
 		"entity_type": "task",
 		"entity_id":   task["id"],
 		"agent_id":    "agent",
 	})
 
-	// Claim and verify crush://work resource matches list_work.
+	// Claim and verify the crush://work resource reports it. The resource is
+	// only reader now that list_work is gone (§4.5).
 	callTool(t, session, "claim_work", map[string]any{
 		"entity_type": "task",
 		"entity_id":   task["id"],
@@ -974,16 +1112,6 @@ func TestMCPWorkResource(t *testing.T) {
 	if len(resourceWork) != 1 || resourceWork[0].EntityID != task["id"] || resourceWork[0].AgentID != "claude" {
 		t.Fatalf("crush://work = %+v", resourceWork)
 	}
-
-	// Compare with list_work tool.
-	var toolWork []struct {
-		EntityID string `json:"entity_id"`
-		AgentID  string `json:"agent_id"`
-	}
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &toolWork)
-	if len(toolWork) != 1 || toolWork[0].EntityID != resourceWork[0].EntityID {
-		t.Fatalf("list_work and crush://work diverged: tool=%+v resource=%+v", toolWork, resourceWork)
-	}
 }
 
 func TestMCPListsResource(t *testing.T) {
@@ -1009,18 +1137,10 @@ func TestMCPListsResource(t *testing.T) {
 		t.Fatalf("crush:///lists = %+v", lists)
 	}
 
-	// H5: the resource row must carry created_by, matching list_lists — no
-	// CRUSH_AGENT is set here, so the default identity is "agent".
+	// H5: the resource row must carry created_by — no CRUSH_AGENT is set
+	// here, so the default identity is "agent".
 	if lists[0].CreatedBy != "agent" {
 		t.Fatalf("crush:///lists created_by = %q, want the server identity (agent)", lists[0].CreatedBy)
-	}
-	var toolLists []struct {
-		ID        string `json:"id"`
-		CreatedBy string `json:"created_by"`
-	}
-	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &toolLists)
-	if len(toolLists) != 1 || toolLists[0].CreatedBy != lists[0].CreatedBy {
-		t.Fatalf("list_lists and crush:///lists diverged on created_by: tool=%+v resource=%+v", toolLists, lists)
 	}
 
 	// The single-list resource carries the same owner.
@@ -1242,45 +1362,10 @@ func TestMCPPromptsListed(t *testing.T) {
 	for _, p := range res.Prompts {
 		found[p.Name] = true
 	}
-	for _, name := range []string{"crush_daily_agenda", "crush_inbox", "crush_breakdown"} {
+	for _, name := range []string{"crush_inbox", "crush_breakdown"} {
 		if !found[name] {
 			t.Fatalf("prompt %q not listed: %+v", name, res.Prompts)
 		}
-	}
-}
-
-func TestMCPDailyAgendaPrompt(t *testing.T) {
-	session := setupMCP(t)
-
-	var list map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
-
-	callTool(t, session, "add_task", map[string]any{
-		"list_id": list["id"],
-		"title":   "Buy groceries",
-	})
-
-	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
-		Name: "crush_daily_agenda",
-	})
-	if err != nil {
-		t.Fatalf("GetPrompt crush_daily_agenda: %v", err)
-	}
-	if len(res.Messages) != 1 {
-		t.Fatalf("want 1 message, got %d", len(res.Messages))
-	}
-	if res.Messages[0].Role != "user" {
-		t.Fatalf("role = %q, want user", res.Messages[0].Role)
-	}
-	tc, ok := res.Messages[0].Content.(*mcp.TextContent)
-	if !ok {
-		t.Fatalf("content type = %T, want *mcp.TextContent", res.Messages[0].Content)
-	}
-	if !strings.Contains(tc.Text, "Home") || !strings.Contains(tc.Text, "Buy groceries") {
-		t.Fatalf("daily agenda text missing list/task: %s", tc.Text)
-	}
-	if !strings.Contains(tc.Text, "claim_work") {
-		t.Fatalf("daily agenda text missing tool guidance: %s", tc.Text)
 	}
 }
 
@@ -1317,10 +1402,10 @@ func TestMCPBreakdownPrompt(t *testing.T) {
 }
 
 // TestMCPForeignListWriteRefused guards §4.D / §5 assertion 2: every
-// structural write tool (add_task, rename_task, set_notes, move_task,
-// delete_task, rename_list, delete_list) errors on a list owned by another
-// agent — not just one of them. The server here acts as "pi"; the list is
-// created as "claude".
+// structural write tool (add_task, edit_task, delete_task) errors on a list
+// owned by another agent — not just one of them. The server here acts as
+// "pi"; the list is created as "claude". (rename_list/delete_list are no
+// longer MCP tools — docs/plan/mcp-tool-consolidation.md §4.4.)
 func TestMCPForeignListWriteRefused(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
@@ -1350,21 +1435,19 @@ func TestMCPForeignListWriteRefused(t *testing.T) {
 		t.Fatalf("seed task on claude's list: %v", err)
 	}
 
-	// One table for all seven structural tools: a new gated tool is added as
-	// a row here, not as an eighth hand-written case (hardening §5.I, H14).
+	// One table for every gated structural tool: a new gated tool is added as
+	// a row here, not as a hand-written case (hardening §5.I, H14).
 	for _, tc := range []struct {
 		name string
 		tool string
 		args map[string]any
 	}{
 		{"add_task", "add_task", map[string]any{"list_id": list["id"], "title": "intrude"}},
-		{"rename_task", "rename_task", map[string]any{"id": taskID, "title": "hijack"}},
-		{"set_notes", "set_notes", map[string]any{"id": taskID, "notes": "tamper"}},
-		// move_task to the foreign list is refused before any write.
-		{"move_task", "move_task", map[string]any{"id": taskID, "parent": ""}},
+		{"edit_task rename", "edit_task", map[string]any{"id": taskID, "title": "hijack"}},
+		{"edit_task notes", "edit_task", map[string]any{"id": taskID, "notes": "tamper"}},
+		// edit_task moving to root on a foreign list is refused before any write.
+		{"edit_task move", "edit_task", map[string]any{"id": taskID, "to_root": true}},
 		{"delete_task", "delete_task", map[string]any{"id": taskID, "force": true}},
-		{"rename_list", "rename_list", map[string]any{"id": list["id"], "name": "claude: Hijacked"}},
-		{"delete_list", "delete_list", map[string]any{"id": list["id"], "force": true}},
 	} {
 		msg := callToolErr(t, session, tc.tool, tc.args)
 		if !strings.Contains(msg, "owned by claude") {
@@ -1398,12 +1481,11 @@ func TestMCPOwnerCanWriteEverything(t *testing.T) {
 		"list_id": list["id"], "title": "real work",
 	}), &task)
 
-	callTool(t, session, "rename_task", map[string]any{"id": task["id"], "title": "renamed"})
-	callTool(t, session, "set_notes", map[string]any{"id": task["id"], "notes": "annotated"})
-	callTool(t, session, "rename_list", map[string]any{"id": list["id"], "name": "claude: Renamed"})
+	callTool(t, session, "edit_task", map[string]any{"id": task["id"], "title": "renamed"})
+	callTool(t, session, "edit_task", map[string]any{"id": task["id"], "notes": "annotated"})
 
-	// move_task within the owner's own list (to root) succeeds.
-	callTool(t, session, "move_task", map[string]any{"id": task["id"]})
+	// edit_task moving to root within the owner's own list succeeds.
+	callTool(t, session, "edit_task", map[string]any{"id": task["id"], "to_root": true})
 
 	// delete_task requires force and succeeds for the owner.
 	callTool(t, session, "delete_task", map[string]any{"id": task["id"], "force": true})
@@ -1413,11 +1495,6 @@ func TestMCPOwnerCanWriteEverything(t *testing.T) {
 	}), &rows)
 	if len(rows) != 0 {
 		t.Fatalf("owner delete_task left rows = %+v", rows)
-	}
-
-	callTool(t, session, "delete_list", map[string]any{"id": list["id"], "force": true})
-	if got := callTool(t, session, "list_lists", nil); got != "[]" {
-		t.Fatalf("list_lists = %q, want [] after owner deletes the list", got)
 	}
 }
 
@@ -1450,8 +1527,8 @@ func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
 	}
 
 	// pi (foreign) may still flip status/progress.
-	callTool(t, session, "set_progress", map[string]any{"id": taskID, "mode": "simple"})
-	callTool(t, session, "complete_task", map[string]any{"id": taskID})
+	callTool(t, session, "set_progress", map[string]any{"ids": []string{taskID}, "mode": "simple"})
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{taskID}})
 
 	var rows []struct {
 		ID     string `json:"id"`
@@ -1505,23 +1582,23 @@ func TestMCPUntaggedListForeignToEveryAgent(t *testing.T) {
 	if !strings.Contains(msg, "no one (untagged)") {
 		t.Fatalf("add_task untagged-list error = %q, want it to say untagged", msg)
 	}
-	msg = callToolErr(t, session, "rename_list", map[string]any{
-		"id": listID, "name": "Renamed",
+	msg = callToolErr(t, session, "edit_task", map[string]any{
+		"id": taskID, "title": "Renamed",
 	})
 	if !strings.Contains(msg, "no one (untagged)") {
-		t.Fatalf("rename_list untagged-list error = %q, want it to say untagged", msg)
+		t.Fatalf("edit_task untagged-list error = %q, want it to say untagged", msg)
 	}
-	msg = callToolErr(t, session, "delete_list", map[string]any{
-		"id": listID, "force": true,
+	msg = callToolErr(t, session, "delete_task", map[string]any{
+		"id": taskID, "force": true,
 	})
 	if !strings.Contains(msg, "no one (untagged)") {
-		t.Fatalf("delete_list untagged-list error = %q, want it to say untagged", msg)
+		t.Fatalf("delete_task untagged-list error = %q, want it to say untagged", msg)
 	}
 
 	// Yet status/progress writes succeed on the untagged list's task — the
 	// read + status/progress-only rule holds for *every* identity.
-	callTool(t, session, "set_progress", map[string]any{"id": taskID, "mode": "simple"})
-	callTool(t, session, "complete_task", map[string]any{"id": taskID})
+	callTool(t, session, "set_progress", map[string]any{"ids": []string{taskID}, "mode": "simple"})
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{taskID}})
 
 	var rows []struct {
 		ID     string `json:"id"`
@@ -1550,7 +1627,7 @@ func TestMCPAddListDefaultsToIdentity(t *testing.T) {
 		ID        string `json:"id"`
 		CreatedBy string `json:"created_by"`
 	}
-	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
+	mustUnmarshal(t, listsJSON(t, session), &lists)
 	if len(lists) != 1 || lists[0].ID != created["id"] || lists[0].CreatedBy != "pi" {
 		t.Fatalf("list_lists = %+v, want created_by=pi for the new list", lists)
 	}
@@ -1592,7 +1669,7 @@ func TestMCPListListsIncludesCreatedBy(t *testing.T) {
 		ID        string `json:"id"`
 		CreatedBy string `json:"created_by"`
 	}
-	mustUnmarshal(t, callTool(t, session, "list_lists", nil), &lists)
+	mustUnmarshal(t, listsJSON(t, session), &lists)
 	for _, l := range lists {
 		byID[l.ID] = l.CreatedBy
 	}
@@ -1639,7 +1716,7 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	}), &task)
 
 	// add_task auto-claims under "agent"; release it so "pi" can claim below.
-	callTool(t, session, "release_work", map[string]any{
+	releaseWork(t, session, map[string]any{
 		"entity_type": "task",
 		"entity_id":   task["id"],
 		"agent_id":    "agent",
@@ -1662,7 +1739,7 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	var work []struct {
 		AgentID string `json:"agent_id"`
 	}
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	if len(work) != 2 {
 		t.Fatalf("expected 2 claims before cleanup, got %d", len(work))
 	}
@@ -1684,7 +1761,7 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	}
 
 	// list_work is now empty — the TUI has no spinners to show.
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	if len(work) != 0 {
 		t.Fatalf("expected 0 claims after session-end cleanup, got %d", len(work))
 	}
@@ -1792,7 +1869,7 @@ func TestListChangesReturnsOnlyChanged(t *testing.T) {
 
 	cutoff := time.Now().Unix()
 	time.Sleep(1100 * time.Millisecond)
-	callTool(t, session, "rename_task", map[string]any{"id": a["id"], "title": "a2"})
+	callTool(t, session, "edit_task", map[string]any{"id": a["id"], "title": "a2"})
 
 	var rows []map[string]any
 	mustUnmarshal(t, callTool(t, session, "list_changes", map[string]any{
@@ -1875,8 +1952,19 @@ func TestShowTasksBatch(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "B",
 	}), &b)
+	// Add a comment to A so we can assert the merged show_task includes it.
+	cid, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "add_comment",
+		Arguments: map[string]any{"task_id": a["id"], "note": "hi"},
+	})
+	if err != nil {
+		t.Fatalf("add_comment: %v", err)
+	}
+	var cres struct{ ID string `json:"id"` }
+	mustUnmarshal(t, textContent(t, cid), &cres)
+
 	var got []map[string]any
-	mustUnmarshal(t, callTool(t, session, "show_tasks",
+	mustUnmarshal(t, callTool(t, session, "show_task",
 		map[string]any{"ids": []string{a["id"], b["id"], "does-not-exist"}}), &got)
 	if len(got) != 3 {
 		t.Fatalf("want 3 rows, got %d", len(got))
@@ -1886,6 +1974,15 @@ func TestShowTasksBatch(t *testing.T) {
 	}
 	if got[1]["title"] != "B" {
 		t.Errorf("row 1: %#v", got[1])
+	}
+	// The merged tool must include comments (the old singular show_task did;
+	// the old batch show_tasks omitted them — §4.1 pins the fix).
+	comments, ok := got[0]["comments"].([]any)
+	if !ok || len(comments) != 1 {
+		t.Fatalf("row 0 comments = %#v, want 1 comment", got[0]["comments"])
+	}
+	if cm, _ := comments[0].(map[string]any); cm["id"] != cres.ID {
+		t.Errorf("row 0 comment id = %#v, want %q", cm["id"], cres.ID)
 	}
 	if _, hasErr := got[2]["error"]; !hasErr {
 		t.Errorf("row 2 must be an error row, got %#v", got[2])
@@ -1898,7 +1995,7 @@ func TestShowTasksCap(t *testing.T) {
 	for i := range ids {
 		ids[i] = "x"
 	}
-	msg := callToolErr(t, session, "show_tasks", map[string]any{"ids": ids})
+	msg := callToolErr(t, session, "show_task", map[string]any{"ids": ids})
 	if !strings.Contains(msg, "capped at 50") {
 		t.Errorf("expected cap error, got %q", msg)
 	}
@@ -1932,7 +2029,7 @@ func TestMCPAddCommentRoundTrip(t *testing.T) {
 		t.Fatal("add_comment returned empty id")
 	}
 
-	var details struct {
+	var detailsArr []struct {
 		ID       string `json:"id"`
 		Comments []struct {
 			ID     string `json:"id"`
@@ -1941,8 +2038,12 @@ func TestMCPAddCommentRoundTrip(t *testing.T) {
 		} `json:"comments"`
 	}
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
-		"task_id": task["id"],
-	}), &details)
+		"ids": []string{task["id"]},
+	}), &detailsArr)
+	if len(detailsArr) != 1 {
+		t.Fatalf("show_task returned %d rows, want 1", len(detailsArr))
+	}
+	details := detailsArr[0]
 	if len(details.Comments) != 1 {
 		t.Fatalf("show_task comments = %d, want 1", len(details.Comments))
 	}
@@ -2024,7 +2125,7 @@ func TestMCPAddCommentRefusedOnMissingTask(t *testing.T) {
 func hasClaim(t *testing.T, session *mcp.ClientSession, taskID, agent string) bool {
 	t.Helper()
 	var work []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	for _, w := range work {
 		if w["entity_id"] == taskID && w["agent_id"] == agent {
 			return true
@@ -2042,7 +2143,7 @@ func TestAddCommentAutoClaims(t *testing.T) {
 		"list_id": list["id"], "title": "work",
 	}), &task)
 	// add_task now auto-claims too, so release first to prove add_comment claims.
-	callTool(t, session, "release_work", map[string]any{
+	releaseWork(t, session, map[string]any{
 		"entity_type": "task", "entity_id": task["id"], "agent_id": "pi",
 	})
 	callTool(t, session, "add_comment", map[string]any{
@@ -2066,7 +2167,7 @@ func TestAddTaskAutoClaims(t *testing.T) {
 	}
 }
 
-func TestRenameNotesMoveAutoClaim(t *testing.T) {
+func TestEditTaskAutoClaims(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2076,29 +2177,215 @@ func TestRenameNotesMoveAutoClaim(t *testing.T) {
 			"list_id": list["id"], "title": title,
 		}), &tk)
 		// Clear the add_task auto-claim so each sub-case proves its own write claims.
-		callTool(t, session, "release_work", map[string]any{
+		releaseWork(t, session, map[string]any{
 			"entity_type": "task", "entity_id": tk["id"], "agent_id": "pi",
 		})
 		return tk["id"]
 	}
 
 	rename := newTask("a")
-	callTool(t, session, "rename_task", map[string]any{"id": rename, "title": "a2"})
+	callTool(t, session, "edit_task", map[string]any{"id": rename, "title": "a2"})
 	if !hasClaim(t, session, rename, "pi") {
-		t.Errorf("rename_task should auto-claim")
+		t.Errorf("edit_task title should auto-claim")
 	}
 
 	notes := newTask("b")
-	callTool(t, session, "set_notes", map[string]any{"id": notes, "notes": "n"})
+	callTool(t, session, "edit_task", map[string]any{"id": notes, "notes": "n"})
 	if !hasClaim(t, session, notes, "pi") {
-		t.Errorf("set_notes should auto-claim")
+		t.Errorf("edit_task notes should auto-claim")
 	}
 
 	parent := newTask("p")
 	child := newTask("c")
-	callTool(t, session, "move_task", map[string]any{"id": child, "parent": parent})
+	callTool(t, session, "edit_task", map[string]any{"id": child, "parent": parent})
 	if !hasClaim(t, session, child, "pi") {
-		t.Errorf("move_task should auto-claim the moved task")
+		t.Errorf("edit_task parent should auto-claim the moved task")
+	}
+}
+
+// TestEditTaskTitleOnlyLeavesNotes verifies a title-only edit does not touch
+// the notes body (§4.3: omitted fields are left unchanged).
+func TestEditTaskTitleOnlyLeavesNotes(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "orig", "notes": "keep me",
+	}), &task)
+	callTool(t, session, "edit_task", map[string]any{"id": task["id"], "title": "renamed"})
+	var detailArr []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &detailArr)
+	d := detailArr[0]
+	if d["title"] != "renamed" {
+		t.Errorf("title = %v, want renamed", d["title"])
+	}
+	if d["notes"] != "keep me" {
+		t.Errorf("notes = %v, want keep me (unchanged)", d["notes"])
+	}
+}
+
+// TestEditTaskNotesClear verifies notes='' clears the notes body.
+func TestEditTaskNotesClear(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "t", "notes": "erase me",
+	}), &task)
+	callTool(t, session, "edit_task", map[string]any{"id": task["id"], "notes": ""})
+	var detailArr []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &detailArr)
+	if detailArr[0]["notes"] != "" {
+		t.Errorf("notes = %v, want empty", detailArr[0]["notes"])
+	}
+}
+
+// TestEditTaskReparentAndForeignParent checks the happy re-parent path and the
+// refusal when the target parent lives on a foreign list (§4.3 target-list rule).
+func TestEditTaskReparentAndForeignParent(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var parent, child map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "p",
+	}), &parent)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "c",
+	}), &child)
+
+	// Happy path: re-parent within the owner's own list.
+	callTool(t, session, "edit_task", map[string]any{"id": child["id"], "parent": parent["id"]})
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]}), &rows)
+	var childRow map[string]any
+	for _, r := range rows {
+		if r["id"] == child["id"] {
+			childRow = r
+		}
+	}
+	if childRow == nil || childRow["parent_id"] != parent["id"] {
+		t.Errorf("after re-parent: childRow = %#v, want parent_id=%v", childRow, parent["id"])
+	}
+
+	// Foreign parent: seed a task on a claude-owned list, then try to re-parent
+	// the pi-owned child under it — must be refused with the owner name.
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	foreignListID := store.NewID()
+	foreignTaskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO List (id, name, created_by, position, created_at)
+		 VALUES (?, ?, 'claude', 0, ?)`,
+		foreignListID, "claude: Backlog", now,
+	); err != nil {
+		t.Fatalf("seed foreign list: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, 'foreign', '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		foreignTaskID, foreignListID, now, now,
+	); err != nil {
+		t.Fatalf("seed foreign task: %v", err)
+	}
+	msg := callToolErr(t, session, "edit_task", map[string]any{"id": child["id"], "parent": foreignTaskID})
+	if !strings.Contains(msg, "owned by claude") {
+		t.Errorf("foreign-parent edit error = %q, want it to name the owner", msg)
+	}
+	// Child must not have moved.
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]}), &rows)
+	for _, r := range rows {
+		if r["id"] == child["id"] && r["parent_id"] != parent["id"] {
+			t.Errorf("child moved after refused re-parent: parent_id = %v", r["parent_id"])
+		}
+	}
+}
+
+// TestEditTaskToRoot moves a task to its list root.
+func TestEditTaskToRoot(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var parent, child map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "p"}), &parent)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "c", "parent": parent["id"]}), &child)
+	callTool(t, session, "edit_task", map[string]any{"id": child["id"], "to_root": true})
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]}), &rows)
+	var childRow map[string]any
+	for _, r := range rows {
+		if r["id"] == child["id"] {
+			childRow = r
+		}
+	}
+	if childRow == nil || childRow["parent_id"] != nil {
+		t.Errorf("after to_root: childRow = %#v, want parent_id=nil (root)", childRow)
+	}
+}
+
+// TestEditTaskParentAndToRoot errors when both are supplied.
+func TestEditTaskParentAndToRoot(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var a, b map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "a"}), &a)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "b"}), &b)
+	msg := callToolErr(t, session, "edit_task", map[string]any{"id": a["id"], "parent": b["id"], "to_root": true})
+	if !strings.Contains(msg, "parent or to_root, not both") {
+		t.Errorf("both-parent-and-to_root error = %q, want the mutual-exclusion message", msg)
+	}
+}
+
+// TestEditTaskNoField errors when no field is supplied.
+func TestEditTaskNoField(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "t"}), &task)
+	msg := callToolErr(t, session, "edit_task", map[string]any{"id": task["id"]})
+	if !strings.Contains(msg, "at least one of title, notes, parent, to_root") {
+		t.Errorf("no-field error = %q, want the needs-a-field message", msg)
+	}
+}
+
+// TestEditTaskForeignListRefusesContent guards §6: title/notes edits on a task
+// the server does not own are refused (mirrors the old rename_task/set_notes
+// refusal, now under edit_task).
+func TestEditTaskForeignListRefusesContent(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	foreignListID := store.NewID()
+	foreignTaskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO List (id, name, created_by, position, created_at)
+		 VALUES (?, ?, 'claude', 0, ?)`,
+		foreignListID, "claude: Backlog", now,
+	); err != nil {
+		t.Fatalf("seed foreign list: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, 'real work', '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		foreignTaskID, foreignListID, now, now,
+	); err != nil {
+		t.Fatalf("seed foreign task: %v", err)
+	}
+	msg := callToolErr(t, session, "edit_task", map[string]any{"id": foreignTaskID, "title": "hijack"})
+	if !strings.Contains(msg, "owned by claude") {
+		t.Errorf("foreign-list title edit error = %q, want it to name the owner", msg)
 	}
 }
 
@@ -2116,7 +2403,17 @@ func TestDeleteTaskDoesNotClaim(t *testing.T) {
 	}
 }
 
-func TestUpdateTasksComplete(t *testing.T) {
+// assertOKRows asserts that every row in a batch result is {id,ok:true}.
+func assertOKRows(t *testing.T, res []map[string]any) {
+	t.Helper()
+	for _, r := range res {
+		if r["ok"] != true {
+			t.Errorf("row not ok: %#v", r)
+		}
+	}
+}
+
+func TestCompleteTaskBatchOK(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2129,17 +2426,13 @@ func TestUpdateTasksComplete(t *testing.T) {
 		ids = append(ids, tk["id"])
 	}
 	var res []map[string]any
-	mustUnmarshal(t, callTool(t, session, "update_tasks", map[string]any{
-		"ids": ids, "op": "complete",
+	mustUnmarshal(t, callTool(t, session, "complete_task", map[string]any{
+		"ids": ids,
 	}), &res)
 	if len(res) != 3 {
 		t.Fatalf("want 3 result rows, got %d", len(res))
 	}
-	for _, r := range res {
-		if r["ok"] != true {
-			t.Errorf("row not ok: %#v", r)
-		}
-	}
+	assertOKRows(t, res)
 	// All three now complete.
 	var rows []map[string]any
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
@@ -2150,7 +2443,7 @@ func TestUpdateTasksComplete(t *testing.T) {
 	}
 }
 
-func TestUpdateTasksSetProgressPercentage(t *testing.T) {
+func TestSetProgressBatchPercentage(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2158,23 +2451,23 @@ func TestUpdateTasksSetProgressPercentage(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "a"}), &a)
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "b"}), &b)
 	var res []map[string]any
-	mustUnmarshal(t, callTool(t, session, "update_tasks", map[string]any{
-		"ids": []string{a["id"], b["id"]}, "op": "set_progress", "mode": "percentage", "percent": 50,
+	mustUnmarshal(t, callTool(t, session, "set_progress", map[string]any{
+		"ids": []string{a["id"], b["id"]}, "mode": "percentage", "percent": 50,
 	}), &res)
-	for _, r := range res {
-		if r["ok"] != true {
-			t.Errorf("row not ok: %#v", r)
-		}
+	assertOKRows(t, res)
+	var detailArr []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{a["id"]}}), &detailArr)
+	if len(detailArr) != 1 {
+		t.Fatalf("show_task returned %d rows, want 1", len(detailArr))
 	}
-	var detail map[string]any
-	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"task_id": a["id"]}), &detail)
+	detail := detailArr[0]
 	prog := detail["progress"].(map[string]any)
 	if int(prog["percent"].(float64)) != 50 {
 		t.Errorf("want 50%%, got %v", prog["percent"])
 	}
 }
 
-func TestUpdateTasksPartialFailure(t *testing.T) {
+func TestBatchStatusPartialFailure(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2182,9 +2475,11 @@ func TestUpdateTasksPartialFailure(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "g",
 	}), &good)
+	// complete_task returns per-id rows (not a tool error), so a bad id is a
+	// row with an error, not a call failure.
 	var res []map[string]any
-	mustUnmarshal(t, callTool(t, session, "update_tasks", map[string]any{
-		"ids": []string{good["id"], "does-not-exist"}, "op": "complete",
+	mustUnmarshal(t, callTool(t, session, "complete_task", map[string]any{
+		"ids": []string{good["id"], "does-not-exist"},
 	}), &res)
 	if len(res) != 2 {
 		t.Fatalf("want 2 rows, got %d", len(res))
@@ -2205,43 +2500,19 @@ func TestUpdateTasksPartialFailure(t *testing.T) {
 	}
 }
 
-func TestUpdateTasksRejectsBadOp(t *testing.T) {
-	session := setupMCPAs(t, "pi")
-	var list map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
-	var tk map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
-		"list_id": list["id"], "title": "a",
-	}), &tk)
-	for _, op := range []string{"delete", "rename"} {
-		msg := callToolErr(t, session, "update_tasks", map[string]any{"ids": []string{tk["id"]}, "op": op})
-		if !strings.Contains(msg, "unknown op") {
-			t.Errorf("op %q should be rejected with 'unknown op', got %q", op, msg)
-		}
-	}
-	// Task must be untouched (still pending).
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
-		"list_id": list["id"], "status": "pending",
-	}), &rows)
-	if len(rows) != 1 {
-		t.Errorf("rejected op must not mutate anything")
-	}
-}
-
-func TestUpdateTasksCap(t *testing.T) {
-	session := setupMCPAs(t, "pi")
+func TestBatchStatusCap(t *testing.T) {
+	session := setupMCPAs(t, "noagent")
 	ids := make([]string, 51)
 	for i := range ids {
 		ids[i] = "x"
 	}
-	msg := callToolErr(t, session, "update_tasks", map[string]any{"ids": ids, "op": "complete"})
+	msg := callToolErr(t, session, "complete_task", map[string]any{"ids": ids})
 	if !strings.Contains(msg, "capped at 50") {
 		t.Errorf("expected cap error, got %q", msg)
 	}
 }
 
-func TestUpdateTasksPercentRequired(t *testing.T) {
+func TestSetProgressPercentRequired(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2249,15 +2520,15 @@ func TestUpdateTasksPercentRequired(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "a",
 	}), &tk)
-	msg := callToolErr(t, session, "update_tasks", map[string]any{
-		"ids": []string{tk["id"]}, "op": "set_progress", "mode": "percentage",
+	msg := callToolErr(t, session, "set_progress", map[string]any{
+		"ids": []string{tk["id"]}, "mode": "percentage",
 	})
 	if !strings.Contains(msg, "requires percent") {
 		t.Errorf("percentage without percent should error, got %q", msg)
 	}
 }
 
-func TestUpdateTasksAutoClaims(t *testing.T) {
+func TestBatchStatusAutoClaims(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2265,9 +2536,9 @@ func TestUpdateTasksAutoClaims(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "a",
 	}), &tk)
-	callTool(t, session, "update_tasks", map[string]any{"ids": []string{tk["id"]}, "op": "complete"})
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{tk["id"]}})
 	var work []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_work", nil), &work)
+	mustUnmarshal(t, workJSON(t, session), &work)
 	found := false
 	for _, w := range work {
 		if w["entity_id"] == tk["id"] && w["agent_id"] == "pi" {
@@ -2275,7 +2546,32 @@ func TestUpdateTasksAutoClaims(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("update_tasks should auto-claim each touched task; work=%#v", work)
+		t.Errorf("complete_task should auto-claim each touched task; work=%#v", work)
+	}
+}
+
+func TestReopenTaskBatchOK(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var tk map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "a",
+	}), &tk)
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{tk["id"]}})
+	var res []map[string]any
+	mustUnmarshal(t, callTool(t, session, "reopen_task", map[string]any{
+		"ids": []string{tk["id"]},
+	}), &res)
+	if len(res) != 1 || res[0]["ok"] != true {
+		t.Fatalf("reopen_task batch row not ok: %#v", res)
+	}
+	var rows []map[string]any
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": list["id"], "status": "pending",
+	}), &rows)
+	if len(rows) != 1 {
+		t.Errorf("want 1 pending task after reopen, got %d", len(rows))
 	}
 }
 

@@ -111,64 +111,36 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "chore-crusher",
 		Version: constants.Version(),
-	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. For tracking your OWN work, use a list named "` + identity + `: ..." (create with chore_crusher_add_list, or call chore_crusher_my_list to get/create it). Do NOT use the host's built-in todo tool — Chore Crusher is the todo store. Act under the tag CRUSH_AGENT (default "agent"; here it is "` + identity + `"). Every list has an owner tag, reported as created_by by chore_crusher_list_lists; a list is yours only when its created_by equals your tag. The server ENFORCES this — it is not just a convention: structure/content edits (chore_crusher_rename_list, chore_crusher_delete_list, chore_crusher_add_task, chore_crusher_rename_task, chore_crusher_delete_task, chore_crusher_set_notes, chore_crusher_move_task) on a list you do not own are refused with "list <id> is owned by <owner> — you may read it and update task status/progress only". An untagged list (created_by empty — typically one the human made in the CLI or TUI) belongs to nobody and is foreign to every agent, so those edits are refused there too. On any list, owned or not, you may read everything and change status and progress (chore_crusher_complete_task, chore_crusher_reopen_task, chore_crusher_toggle_task, chore_crusher_set_progress) and chore_crusher_claim_work / chore_crusher_release_work. chore_crusher_add_list and chore_crusher_my_list always create a list owned by you.
+	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
 
-Tools are exposed to MCP hosts as chore_crusher_<name> (shown verbatim below). Every id-bearing parameter accepts a short unambiguous prefix of the full id. Lists are addressed by id prefix, never by name.
+IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you.
 
-QUICK REFERENCE (tool: parameters)
-- chore_crusher_list_lists()                      every list with pending/complete counts
-- chore_crusher_list_tasks(list_id, status, include)       one list's tasks as a depth-annotated tree; status = all|pending|in_progress|complete (default all); include is an optional set of extra per-row fields to inline; supported values: 'notes' (inline the notes body, truncated at 2000 chars with notes_truncated=true). Prefer include=['notes'] to N show_task calls.
-- chore_crusher_list_changes(list_id, since, include)   tasks changed after 'since' (unix seconds) — created, status/progress, renamed, re-noted, re-parented, newly commented; checks between tasks instead of re-reading the list. Same row shape as list_tasks; include=['notes'] inlines bodies. Deletions are not reported.
-- chore_crusher_show_task(task_id)                one task's details plus its children
-- chore_crusher_show_tasks(ids)                   up to 50 tasks' details in one call; returns an array in the same order as ids; entries that cannot be resolved are returned as {id,error}
-- chore_crusher_add_comment(task_id, note)        append a comment (author = your identity); refused if the list has comments disabled
-- chore_crusher_search_tasks(query, list_id)      fuzzy search across titles and notes (title matches rank first); list_id narrows to one list
-- chore_crusher_set_progress(id, mode, percent)   mode = simple|subtasks|percentage; percent required only for percentage
-- chore_crusher_update_tasks(ids, op, mode, percent)   apply one status/progress op to up to 50 tasks in one call; op = complete|reopen|toggle|set_progress
-- chore_crusher_complete_task(id)                 complete, cascades to descendants and auto-completes ancestors once all their children are done
-- chore_crusher_reopen_task(id)                   reopen to pending; does NOT cascade to children
-- chore_crusher_toggle_task(id)                   toggle complete <-> pending
-- chore_crusher_add_task(list_id, title, parent, notes)   add a task, optionally nested and annotated
-- chore_crusher_rename_task(id, title)            rename a task
-- chore_crusher_set_notes(id, notes)              replace a task's notes (whole text; empty clears)
-- chore_crusher_move_task(id, parent)             re-parent; omit parent to move to the list root
-- chore_crusher_delete_task(id, force=true) / chore_crusher_delete_list(id, force=true)   deletes require force=true
-- chore_crusher_add_list(name, created_by)       created_by is optional and defaults to your own tag
-- chore_crusher_rename_list(id, name)            rename a list you own
-- chore_crusher_my_list()                       one-call session opener: returns {mine: {id,name,pending,complete}, foreign_lists: [{id,name,pending,complete,created_by}]}
-- chore_crusher_claim_work(entity_type, entity_id, agent_id, kind)   entity_type = task|list, kind = working|inspecting
-- chore_crusher_release_work(entity_type, entity_id, agent_id)       release a claim; no-op if not claimed
-- chore_crusher_list_work()                       active agent claims (the TUI spinners)
+IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
-BEHAVIOUR & GOTCHAS
-- chore_crusher_set_progress(mode="subtasks") derives from the task's subtree; on a shared task prefer mode="percentage".
-- A percentage of 100 does NOT auto-complete. To finish a parent, complete its final child (which auto-completes it) or call chore_crusher_complete_task on the parent.
-- chore_crusher_set_progress on an already-complete task errors ("reopen it first"): set progress before completing the last child.
-- chore_crusher_claim_work is a presence heartbeat: status/progress writes by the claiming agent refresh it; a live claim by another agent on that entity blocks writes — take another task or work your own list.
-- chore_crusher_claim_work's agent_id defaults to your identity: omit it, or set it equal to your tag, or your writes will not refresh the spinner.
-- Reclaim after an idle pause of ~2 minutes; chore_crusher_release_work when you finish.
-- chore_crusher_add_comment attributes the comment to your identity (CRUSH_AGENT) — author is not accepted as a parameter. Anyone may comment on any task regardless of ownership, unless the list has comments_disabled; show_task returns comments oldest-first.
-- Keep the board live: flip a task to in_progress with set_progress when you start it and advance the percentage as you go — do not wait until it is done. A stale board is worse than none.
-- Scale the percentage to the task: percentage for multi-step work (percent ~ fraction done), subtasks when it has children, simple only for atomic tasks.
+TOOLS (chore_crusher_<name>):
+- my_list() — session opener: {mine, foreign_lists} with pending/complete counts
+- list_tasks(list_id, status?, include?) — one list's task tree; status=all|pending|in_progress|complete; include=['notes'] inlines note bodies
+- list_changes(list_id, since, include?) — tasks changed after unix 'since'; call between tasks instead of re-reading the list
+- show_task(ids) — full details + children + comments for 1..50 tasks
+- search_tasks(query, list_id?) — fuzzy over titles and notes
+- add_task(list_id, title, parent?, notes?)
+- edit_task(id, title?, notes?, parent?, to_root?) — change any field; notes replaces the whole body; parent re-parents; to_root moves to the list root
+- delete_task(id, force=true)
+- set_progress(ids, mode, percent?) — mode=simple|subtasks|percentage; percent only for percentage; flips the task to in_progress
+- complete_task(ids) — cascades to descendants, auto-completes ancestors
+- reopen_task(ids) — back to pending; does not cascade
+- add_comment(task_id, note) — attributed to your tag
+- add_list(name, created_by?) — owned by you
+- claim_work(entity_type, entity_id, kind?, release?) — light/stop the TUI spinner; writes auto-claim for you, so you only need this to reserve a task BEFORE writing
 
-NEW: FEWER ROUND-TRIPS (agent-optimised paths)
-- Every task row from chore_crusher_list_tasks and chore_crusher_show_task.children now includes has_notes and notes_len. If has_notes is false there is nothing to fetch — skip show_task.
-- chore_crusher_list_tasks with include=['notes'] inlines the notes body (capped at 2000 chars per row; notes_truncated=true when trimmed). Use it instead of fan-out show_task calls.
-- chore_crusher_show_tasks(ids) batches up to 50 task detail fetches in one call when include=notes isn't an option (e.g. cross-list workflow).
-- chore_crusher_my_list now returns foreign_lists too, merging my_list + list_lists into one call.
-- Status/progress writes auto-claim the task under your identity, so claim_work is only needed when you want a claim BEFORE you start writing (e.g. to reserve it while you think).
-- For a one-call opener that also inlines every foreign list's top pending tasks and notes, read the resource crush:///inbox or use the prompt crush_inbox.
+KEEP THE BOARD LIVE (do this yourself, unasked):
+- Start a task = set_progress on it (flips it to in_progress and lights the spinner). Advance the percentage as you go, not only at the end — the human watches the TUI live.
+- On a list you do not own: read the whole list plus the task's notes and comments first; leave add_comment at decision points; never edit its content.
+- Finish = complete_task. A percentage of 100 does NOT auto-complete.
 
-WORKING LOOP (get your tasks from Chore Crusher and update their status as you work — automatically, without being asked)
-- Get your tasks from Chore Crusher at the start of every session and refresh them as you go; this store IS your todo list, so read from it rather than working from memory.
-- As you work each task, keep its status current in Chore Crusher: set it in_progress when you start, advance its progress while you work, and complete_task when it is truly done. Do this on your own — the human should never have to tell you to update Chore Crusher.
-- Open a session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.
-- Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).
-- Starting a task = set_progress on it: that flips it to in_progress and auto-claims it (the spinner shows), so you do not need a separate claim_work unless reserving it before you write.
-- Set a percentage scaled to the task: mode='percentage' with percent ~= fraction of steps done for multi-step work; mode='subtasks' when it has children; mode='simple' only for atomic tasks. A flat "in progress" with no percentage is not enough.
-- Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave add_comment notes at decision points on tasks you do not own.
-- After finishing: re-read the task's comments, then complete_task.
-- Before the next task: check what changed since you last looked (list_changes(list_id, since)) — priorities or comments may have moved.`})
+For the full working loop and a one-read session opener, use the crush_inbox prompt or read the crush:///inbox resource.
+
+GOTCHAS: set_progress on a complete task errors — reopen first. set_progress(mode=subtasks) derives from children — on a shared task use percentage. Your own auto-created "` + identity + `: ..." Inbox is deleted at session end if it is empty or all-complete, so don't rely on it as long-term storage.`})
 
 	addListTools(server, s, identity)
 	addTaskTools(server, s, identity)
@@ -204,39 +176,6 @@ func Run(ctx context.Context) error {
 // addListTools registers the list-oriented MCP tools.
 func addListTools(server *mcp.Server, s *store.Store, identity string) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "list_lists",
-		Description: "List every task list with pending and complete counts. Example: list_lists().",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		lists, err := s.ListLists()
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		type row struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			Pending   int    `json:"pending"`
-			Complete  int    `json:"complete"`
-			CreatedBy string `json:"created_by"`
-			CreatedAt int64  `json:"created_at"`
-			Position  int    `json:"position"`
-		}
-		out := make([]row, len(lists))
-		for i, l := range lists {
-			out[i] = row{
-				ID:        l.List.ID,
-				Name:      l.List.Name,
-				Pending:   l.PendingCount,
-				Complete:  l.CompleteCount,
-				CreatedBy: l.CreatedBy,
-				CreatedAt: l.List.CreatedAt,
-				Position:  l.List.Position,
-			}
-		}
-		return jsonResult(out)
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_list",
 		Description: "Create a new task list and return its id. Example: add_list(name='Shopping'). Owned by created_by (an agent tag like 'pi'), which defaults to this server's identity; only the owner may add/edit/delete tasks and rename/delete the list — other agents may read it and update task status/progress only. Warning: setting created_by to a tag other than your own provisions a list you cannot write — the server refuses structural edits on it — so only do that for a list you intend another agent to own.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
@@ -254,49 +193,6 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 			return errorResult(err), nil, nil
 		}
 		return jsonResult(map[string]string{"id": id})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "rename_list",
-		Description: "Rename an existing task list. Example: rename_list(id='01ABC...', name='Groceries'). id is a full id or unambiguous prefix.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID   string `json:"id" jsonschema:"list id or unambiguous prefix"`
-		Name string `json:"name" jsonschema:"new name"`
-	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.ResolveID("list", in.ID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := requireWritable(s, identity, id); err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := s.RenameList(id, in.Name); err != nil {
-			return errorResult(err), nil, nil
-		}
-		return jsonResult(map[string]bool{"ok": true})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "delete_list",
-		Description: "Delete a task list and every task in it. Requires force=true. Example: delete_list(id='01ABC...', force=true).",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID    string `json:"id" jsonschema:"list id or unambiguous prefix"`
-		Force bool   `json:"force" jsonschema:"must be true to confirm deletion"`
-	}) (*mcp.CallToolResult, any, error) {
-		if !in.Force {
-			return errorResult(fmt.Errorf("deleting a list requires force=true")), nil, nil
-		}
-		id, err := s.ResolveID("list", in.ID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := requireWritable(s, identity, id); err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := s.DeleteList(id); err != nil {
-			return errorResult(err), nil, nil
-		}
-		return jsonResult(map[string]bool{"ok": true})
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -489,80 +385,15 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "show_task",
-		Description: "Show one task's details and its children as depth-annotated rows. Example: show_task(task_id='01ABC...').",
+		Description: "Show full details (notes, children, comments) for 1..50 tasks. Example: show_task(ids=['01ABC','01DEF']). Returns an array in the same order as ids; an id that cannot be resolved comes back as {id,error}.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		TaskID string `json:"task_id" jsonschema:"task id or unambiguous prefix"`
-	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.ResolveID("task", in.TaskID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		t, err := s.GetTask(id)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		prog, err := taskProgressJSON(s, id)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		all, err := s.ListTasks(t.ListID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		l, err := s.GetList(t.ListID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		children, err := descendantRows(s, all, id, l.CreatedBy)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		comments, err := s.ListComments(id)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		commentJSONs := make([]commentJSON, 0, len(comments))
-		for _, c := range comments {
-			commentJSONs = append(commentJSONs, commentJSON{
-				ID:        c.ID,
-				Author:    c.Author,
-				Note:      c.Note,
-				CreatedAt: c.CreatedAt,
-			})
-		}
-
-		return jsonResult(taskDetailsJSON{
-			ID:          t.ID,
-			ListID:      t.ListID,
-			ListOwner:   l.CreatedBy,
-			Title:       t.Title,
-			Notes:       t.Notes,
-			Status:      string(t.Status),
-			Progress:    prog,
-			CreatedAt:   t.CreatedAt,
-			UpdatedAt:   t.UpdatedAt,
-			CompletedAt: t.CompletedAt,
-			Children:    children,
-			Comments:    commentJSONs,
-		})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "show_tasks",
-		Description: "Show details (including notes and children) for up to 50 tasks in one call. Example: show_tasks(ids=['01ABC...','01DEF...']). Returns an array in the same order as ids; entries whose id could not be resolved are returned as {id,error}.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		IDs []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; max 50"`
+		IDs []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
 	}) (*mcp.CallToolResult, any, error) {
 		if len(in.IDs) == 0 {
-			return errorResult(fmt.Errorf("show_tasks requires at least one id")), nil, nil
+			return errorResult(fmt.Errorf("show_task requires at least one id")), nil, nil
 		}
 		if len(in.IDs) > 50 {
-			return errorResult(fmt.Errorf("show_tasks capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
+			return errorResult(fmt.Errorf("show_task capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
 		}
 		type errRow struct {
 			ID    string `json:"id"`
@@ -600,10 +431,25 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				out = append(out, errRow{ID: raw, Error: err.Error()})
 				continue
 			}
+			comments, err := s.ListComments(id)
+			if err != nil {
+				out = append(out, errRow{ID: raw, Error: err.Error()})
+				continue
+			}
+			commentJSONs := make([]commentJSON, 0, len(comments))
+			for _, c := range comments {
+				commentJSONs = append(commentJSONs, commentJSON{
+					ID:        c.ID,
+				Author:    c.Author,
+				Note:      c.Note,
+				CreatedAt: c.CreatedAt,
+			})
+			}
 			out = append(out, taskDetailsJSON{
 				ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
 				Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
 				UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt, Children: children,
+				Comments: commentJSONs,
 			})
 		}
 		return jsonResult(out)
@@ -639,18 +485,21 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "complete_task",
-		Description: "Mark a task complete; cascades to all descendants. Example: complete_task(id='01ABC...').",
-	}, taskMutator(s, identity, func(id string) error { return s.Complete(id) }))
+		Description: "Mark 1..50 tasks complete; each cascades to all descendants. Example: complete_task(ids=['01ABC...','01DEF...']). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		IDs []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
+	}) (*mcp.CallToolResult, any, error) {
+		return batchApply(s, identity, in.IDs, func(id string) error { return s.Complete(id) })
+	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "reopen_task",
-		Description: "Reopen a task to pending; does not cascade to children. Example: reopen_task(id='01ABC...').",
-	}, taskMutator(s, identity, func(id string) error { return s.Reopen(id) }))
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "toggle_task",
-		Description: "Toggle a task between complete and pending. Example: toggle_task(id='01ABC...').",
-	}, taskMutator(s, identity, func(id string) error { return s.Toggle(id) }))
+		Description: "Reopen 1..50 tasks to pending; does not cascade to children. Example: reopen_task(ids=['01ABC...','01DEF...']). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		IDs []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
+	}) (*mcp.CallToolResult, any, error) {
+		return batchApply(s, identity, in.IDs, func(id string) error { return s.Reopen(id) })
+	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_task",
@@ -676,42 +525,72 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "rename_task",
-		Description: "Rename a task. Example: rename_task(id='01ABC...', title='New name').",
+		Name:        "edit_task",
+		Description: "Edit a task's fields in one call. Any omitted field is left unchanged. title renames it; notes REPLACES the whole notes body (pass '' to clear); parent re-parents it under that task; to_root=true moves it to the list root. Example: edit_task(id='01ABC', title='New name', notes='updated'). Structural edit — refused on a list you do not own.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID    string `json:"id" jsonschema:"task id or unambiguous prefix"`
-		Title string `json:"title" jsonschema:"new title"`
+		ID     string  `json:"id" jsonschema:"task id or unambiguous prefix"`
+		Title  *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
+		Notes  *string `json:"notes,omitempty" jsonschema:"replacement notes (whole body; '' clears); omit to leave unchanged"`
+		Parent *string `json:"parent,omitempty" jsonschema:"new parent task id or prefix; omit to leave unchanged"`
+		ToRoot bool    `json:"to_root,omitempty" jsonschema:"true moves the task to the list root"`
 	}) (*mcp.CallToolResult, any, error) {
+		if in.Title == nil && in.Notes == nil && in.Parent == nil && !in.ToRoot {
+			return errorResult(fmt.Errorf("edit_task needs at least one of title, notes, parent, to_root")), nil, nil
+		}
+		if in.Parent != nil && in.ToRoot {
+			return errorResult(fmt.Errorf("pass either parent or to_root, not both")), nil, nil
+		}
 		id, err := s.ResolveID("task", in.ID)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		if err := requireWritableTask(s, identity, id); err != nil {
-			return errorResult(err), nil, nil
+		// Title/notes edits touch the task's own content, so gate on its list.
+		if in.Title != nil || in.Notes != nil {
+			if err := requireWritableTask(s, identity, id); err != nil {
+				return errorResult(err), nil, nil
+			}
 		}
-		if err := s.RenameTask(id, in.Title); err != nil {
-			return errorResult(err), nil, nil
+		// Re-parenting needs the TARGET list writable: the parent's list for a
+		// cross-list move, or the task's own list when moving to root. This
+		// preserves move_task's rule (docs/plan/list-ownership-enforcement.md
+		// §4.D, §7) — a task must never be half-moved into a list the
+		// requester does not own.
+		var parentID *string
+		if in.Parent != nil || in.ToRoot {
+			if in.Parent != nil && strings.TrimSpace(*in.Parent) != "" {
+				pid, err := s.ResolveID("task", *in.Parent)
+				if err != nil {
+					return errorResult(err), nil, nil
+				}
+				parentID = &pid
+				p, err := s.GetTask(pid)
+				if err != nil {
+					return errorResult(err), nil, nil
+				}
+				if err := requireWritable(s, identity, p.ListID); err != nil {
+					return errorResult(err), nil, nil
+				}
+			} else { // to_root
+				if err := requireWritableTask(s, identity, id); err != nil {
+					return errorResult(err), nil, nil
+				}
+			}
 		}
-		autoClaim(s, "task", id, identity)
-		return jsonResult(map[string]bool{"ok": true})
-	})
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "set_notes",
-		Description: "Replace a task's notes (whole text, not append); empty string clears them. Example: set_notes(id='01ABC...', notes='...').",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID    string `json:"id" jsonschema:"task id or unambiguous prefix"`
-		Notes string `json:"notes" jsonschema:"replacement notes"`
-	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.ResolveID("task", in.ID)
-		if err != nil {
-			return errorResult(err), nil, nil
+		if in.Title != nil {
+			if err := s.RenameTask(id, *in.Title); err != nil {
+				return errorResult(err), nil, nil
+			}
 		}
-		if err := requireWritableTask(s, identity, id); err != nil {
-			return errorResult(err), nil, nil
+		if in.Notes != nil {
+			if err := s.SetNotes(id, *in.Notes); err != nil {
+				return errorResult(err), nil, nil
+			}
 		}
-		if err := s.SetNotes(id, in.Notes); err != nil {
-			return errorResult(err), nil, nil
+		if in.Parent != nil || in.ToRoot {
+			if err := s.Reparent(id, parentID); err != nil {
+				return errorResult(err), nil, nil
+			}
 		}
 		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]bool{"ok": true})
@@ -719,144 +598,35 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set_progress",
-		Description: "Set a task's progress mode: simple, subtasks, or percentage. Example: set_progress(id='01ABC...', mode='percentage', percent=50). percent is required only when mode='percentage'.",
+		Description: "Set a task's progress mode (simple, subtasks, or percentage) for 1..50 tasks in one call. Example: set_progress(ids=['01ABC...'], mode='percentage', percent=50). percent is required only when mode='percentage'. Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID      string `json:"id" jsonschema:"task id or unambiguous prefix"`
-		Mode    string `json:"mode" jsonschema:"simple, percentage, or subtasks"`
-		Percent *int   `json:"percent,omitempty" jsonschema:"percent 0-100, required when mode=percentage"`
-	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.ResolveID("task", in.ID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := s.SetProgress(id, store.ProgressKind(in.Mode), in.Percent); err != nil {
-			return errorResult(err), nil, nil
-		}
-		// Presence heartbeat: auto-claim this task under the writing agent's
-		// identity so a prior claim_work is not required before setting progress.
-		autoClaim(s, "task", id, identity)
-		return jsonResult(map[string]bool{"ok": true})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name: "update_tasks",
-		Description: "Apply one status/progress change to up to 50 tasks in one " +
-			"call, instead of N separate writes. op is one of: complete, reopen, " +
-			"toggle, set_progress. For set_progress pass mode (simple|subtasks|" +
-			"percentage) and, for percentage, percent (0-100). Returns one result " +
-			"per id in input order: {id, ok:true} or {id, error}; a bad id does not " +
-			"stop the rest. Destructive/structural edits (delete, rename, notes, " +
-			"move) are not batchable — use their single-task tools. " +
-			"Example: update_tasks(ids=['01A','01B'], op='complete').",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		IDs     []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; max 50"`
-		Op      string   `json:"op" jsonschema:"complete, reopen, toggle, or set_progress"`
-		Mode    string   `json:"mode,omitempty" jsonschema:"for set_progress: simple, subtasks, or percentage"`
-		Percent *int     `json:"percent,omitempty" jsonschema:"for set_progress percentage mode, 0-100"`
+		IDs     []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
+		Mode    string   `json:"mode" jsonschema:"simple, percentage, or subtasks"`
+		Percent *int     `json:"percent,omitempty" jsonschema:"percent 0-100, required when mode=percentage"`
 	}) (*mcp.CallToolResult, any, error) {
 		if len(in.IDs) == 0 {
-			return errorResult(fmt.Errorf("update_tasks requires at least one id")), nil, nil
+			return errorResult(fmt.Errorf("set_progress requires at least one id")), nil, nil
 		}
 		if len(in.IDs) > 50 {
-			return errorResult(fmt.Errorf("update_tasks capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
+			return errorResult(fmt.Errorf("set_progress capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
 		}
-
-		// Build the per-id operation once, validating op + args up front so a
-		// bad request fails before any write.
-		var fn func(id string) error
-		switch in.Op {
-		case "complete":
-			fn = func(id string) error { return s.Complete(id) }
-		case "reopen":
-			fn = func(id string) error { return s.Reopen(id) }
-		case "toggle":
-			fn = func(id string) error { return s.Toggle(id) }
-		case "set_progress":
-			switch in.Mode {
-			case "simple", "subtasks":
-				if in.Percent != nil {
-					return errorResult(fmt.Errorf("percent is only valid with mode=percentage")), nil, nil
-				}
-			case "percentage":
-				if in.Percent == nil {
-					return errorResult(fmt.Errorf("mode=percentage requires percent")), nil, nil
-				}
-			default:
-				return errorResult(fmt.Errorf("invalid mode %q for set_progress: want simple, subtasks, or percentage", in.Mode)), nil, nil
+		// Validate mode/percent once up front so a bad request fails before any
+		// write (mirrors the old update_tasks behaviour).
+		switch in.Mode {
+		case "simple", "subtasks":
+			if in.Percent != nil {
+				return errorResult(fmt.Errorf("percent is only valid with mode=percentage")), nil, nil
 			}
-			kind := store.ProgressKind(in.Mode)
-			percent := in.Percent
-			fn = func(id string) error { return s.SetProgress(id, kind, percent) }
+		case "percentage":
+			if in.Percent == nil {
+				return errorResult(fmt.Errorf("mode=percentage requires percent")), nil, nil
+			}
 		default:
-			return errorResult(fmt.Errorf("unknown op %q: want complete, reopen, toggle, or set_progress", in.Op)), nil, nil
+			return errorResult(fmt.Errorf("invalid mode %q: want simple, subtasks, or percentage", in.Mode)), nil, nil
 		}
-
-		type resultRow struct {
-			ID    string `json:"id"`
-			OK    bool   `json:"ok,omitempty"`
-			Error string `json:"error,omitempty"`
-		}
-		out := make([]resultRow, 0, len(in.IDs))
-		for _, raw := range in.IDs {
-			id, err := s.ResolveID("task", raw)
-			if err != nil {
-				out = append(out, resultRow{ID: raw, Error: err.Error()})
-				continue
-			}
-			if err := fn(id); err != nil {
-				out = append(out, resultRow{ID: raw, Error: err.Error()})
-				continue
-			}
-			autoClaim(s, "task", id, identity)
-			out = append(out, resultRow{ID: id, OK: true})
-		}
-		return jsonResult(out)
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "move_task",
-		Description: "Re-parent a task, or move it to the list root by omitting parent. Example: move_task(id='01ABC...', parent='01DEF...').",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID     string `json:"id" jsonschema:"task id or unambiguous prefix"`
-		Parent string `json:"parent,omitempty" jsonschema:"new parent task id or prefix; omit for root"`
-	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.ResolveID("task", in.ID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		// Decide the target list (the parent's list for a cross-list move, or
-		// the task's own list when moving to root) and require it be writable
-		// before any write — the store must not half-move a task into a list
-		// the requester does not own (docs/plan/list-ownership-enforcement.md
-		// §4.D, §7).
-		var parentID *string
-		var targetList string
-		if strings.TrimSpace(in.Parent) != "" {
-			pid, err := s.ResolveID("task", in.Parent)
-			if err != nil {
-				return errorResult(err), nil, nil
-			}
-			parentID = &pid
-			p, err := s.GetTask(*parentID)
-			if err != nil {
-				return errorResult(err), nil, nil
-			}
-			targetList = p.ListID
-		} else {
-			t, err := s.GetTask(id)
-			if err != nil {
-				return errorResult(err), nil, nil
-			}
-			targetList = t.ListID
-		}
-		if err := requireWritable(s, identity, targetList); err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := s.Reparent(id, parentID); err != nil {
-			return errorResult(err), nil, nil
-		}
-		autoClaim(s, "task", id, identity)
-		return jsonResult(map[string]bool{"ok": true})
+		kind := store.ProgressKind(in.Mode)
+		percent := in.Percent
+		return batchApply(s, identity, in.IDs, func(id string) error { return s.SetProgress(id, kind, percent) })
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -911,6 +681,39 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 }
 
+// batchApply runs fn over up to 50 task ids, auto-claiming each successful
+// write under identity, and returns one result row per id in input order. A
+// bad id does not stop the rest. It reproduces the resolve → op → autoClaim
+// loop the old update_tasks used for each status/progress op.
+func batchApply(s *store.Store, identity string, ids []string, fn func(id string) error) (*mcp.CallToolResult, any, error) {
+	if len(ids) == 0 {
+		return errorResult(fmt.Errorf("requires at least one id")), nil, nil
+	}
+	if len(ids) > 50 {
+		return errorResult(fmt.Errorf("capped at 50 ids per call, got %d", len(ids))), nil, nil
+	}
+	type row struct {
+		ID    string `json:"id"`
+		OK    bool   `json:"ok,omitempty"`
+		Error string `json:"error,omitempty"`
+	}
+	out := make([]row, 0, len(ids))
+	for _, raw := range ids {
+		id, err := s.ResolveID("task", raw)
+		if err != nil {
+			out = append(out, row{ID: raw, Error: err.Error()})
+			continue
+		}
+		if err := fn(id); err != nil {
+			out = append(out, row{ID: raw, Error: err.Error()})
+			continue
+		}
+		autoClaim(s, "task", id, identity)
+		out = append(out, row{ID: id, OK: true})
+	}
+	return jsonResult(out)
+}
+
 // autoClaim renews the writing agent's live claim on entityID, or opens
 // one if none exists. Best-effort: any error is swallowed because the
 // write already committed and presence tracking is not a write guarantee
@@ -922,30 +725,6 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 func autoClaim(s *store.Store, entityType, entityID, agentID string) {
 	if err := s.TouchWork(entityType, entityID, agentID); err == nil {
 		_, _ = s.ClaimWork(entityType, entityID, agentID, store.ActivityWorking)
-	}
-}
-
-// taskMutator builds a tool handler around a store call that takes a resolved
-// task id and returns only an error.
-func taskMutator(s *store.Store, identity string, fn func(string) error) func(context.Context, *mcp.CallToolRequest, struct {
-	ID string `json:"id" jsonschema:"task id or unambiguous prefix"`
-}) (*mcp.CallToolResult, any, error) {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID string `json:"id" jsonschema:"task id or unambiguous prefix"`
-	}) (*mcp.CallToolResult, any, error) {
-		id, err := s.ResolveID("task", in.ID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := fn(id); err != nil {
-			return errorResult(err), nil, nil
-		}
-		// Best-effort presence heartbeat: the write committed, so refresh the
-		// writing agent's live claim on this task if it holds one. A touch
-		// failure is not a write failure (docs/plan/agent-presence-heartbeat.md
-		// §7), so it is deliberately swallowed.
-		autoClaim(s, "task", id, identity)
-		return jsonResult(map[string]bool{"ok": true})
 	}
 }
 
@@ -1137,26 +916,31 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
-// addWorkTools registers the agent-presence tools: claim_work,
-// release_work, list_work (docs/plan/mcp-server-enhancement.md §3.8).
+// addWorkTools registers the agent-presence tool claim_work
+// (docs/plan/mcp-server-enhancement.md §3.8). It absorbs the former
+// release_work via release=true; the former list_work is served by the
+// crush://work resource (docs/plan/mcp-tool-consolidation.md §4.5).
 // identity is the server's CRUSH_AGENT tag: an omitted agent_id defaults to
 // it, so a claim made without one matches the write-heartbeat in
 // TouchWork (docs/plan/mcp-agent-todo-hardening.md §4.2).
 func addWorkTools(server *mcp.Server, s *store.Store, identity string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "claim_work",
-		Description: "Claim a task or list as being worked on by an agent. The TUI " +
-			"shows a live spinner on the row while the claim is active. Re-claiming " +
-			"by the same agent refreshes the timer (heartbeat). A different agent " +
-			"holding the entity returns an error. entity_type is \"task\" or \"list\". " +
-			"agent_id defaults to the server's own identity (CRUSH_AGENT); omit it " +
-			"unless you need a different label — a claim under another agent_id is " +
-			"not refreshed by your writes.",
+		Description: "Show or stop the TUI spinner for an agent on a task or list. " +
+			"entity_type is \"task\" or \"list\". kind is \"working\" (default) or " +
+			"\"inspecting\". release=true stops the spinner (no-op if not claimed). " +
+			"Re-claiming by the same agent refreshes the timer (heartbeat); a " +
+			"different agent holding the entity returns an error. agent_id defaults " +
+			"to this server's identity (CRUSH_AGENT) — omit it unless you need a " +
+			"different label, since a claim under another agent_id is not refreshed " +
+			"by your writes. NOTE: any task write already auto-claims for you, so " +
+			"you only need this to reserve a task BEFORE you start writing.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		EntityType string `json:"entity_type"`        // "task" or "list"
 		EntityID   string `json:"entity_id"`          // task or list id, or unambiguous prefix
 		AgentID    string `json:"agent_id,omitempty"` // short label; default: this server's identity
 		Kind       string `json:"kind,omitempty"`     // "working" or "inspecting"; default "working"
+		Release    bool   `json:"release,omitempty"`  // true stops the spinner instead of starting it
 	}) (*mcp.CallToolResult, any, error) {
 		if in.EntityType != "task" && in.EntityType != "list" {
 			return errorResult(fmt.Errorf("entity_type must be \"task\" or \"list\", got %q", in.EntityType)), nil, nil
@@ -1174,68 +958,17 @@ func addWorkTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		if in.Release {
+			if err := s.ReleaseWork(in.EntityType, id, in.AgentID); err != nil {
+				return errorResult(err), nil, nil
+			}
+			return jsonResult(map[string]bool{"ok": true})
+		}
 		activityID, err := s.ClaimWork(in.EntityType, id, in.AgentID, store.ActivityKind(in.Kind))
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 		return jsonResult(map[string]string{"id": activityID})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name: "release_work",
-		Description: "Release an agent's claim on a task or list. The TUI spinner " +
-			"stops. A no-op if the entity is not claimed.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		EntityType string `json:"entity_type"`        // "task" or "list"
-		EntityID   string `json:"entity_id"`          // task or list id, or unambiguous prefix
-		AgentID    string `json:"agent_id,omitempty"` // default: this server's identity
-	}) (*mcp.CallToolResult, any, error) {
-		if in.EntityType != "task" && in.EntityType != "list" {
-			return errorResult(fmt.Errorf("entity_type must be \"task\" or \"list\", got %q", in.EntityType)), nil, nil
-		}
-		if in.AgentID == "" {
-			in.AgentID = identity
-		}
-		id, err := s.ResolveID(in.EntityType, in.EntityID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := s.ReleaseWork(in.EntityType, id, in.AgentID); err != nil {
-			return errorResult(err), nil, nil
-		}
-		return jsonResult(map[string]bool{"ok": true})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "list_work",
-		Description: "List active agent claims (tasks/lists an agent is working on). Shows the live spinner state the TUI renders.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		work, err := s.ListWork()
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		out := make([]struct {
-			ID         string `json:"id"`
-			EntityType string `json:"entity_type"`
-			EntityID   string `json:"entity_id"`
-			AgentID    string `json:"agent_id"`
-			Kind       string `json:"kind"`
-			AcquiredAt int64  `json:"acquired_at"`
-		}, len(work))
-		for i, w := range work {
-			out[i] = struct {
-				ID         string `json:"id"`
-				EntityType string `json:"entity_type"`
-				EntityID   string `json:"entity_id"`
-				AgentID    string `json:"agent_id"`
-				Kind       string `json:"kind"`
-				AcquiredAt int64  `json:"acquired_at"`
-			}{
-				ID: w.ID, EntityType: w.EntityType, EntityID: w.EntityID,
-				AgentID: w.AgentID, Kind: string(w.Kind), AcquiredAt: w.AcquiredAt,
-			}
-		}
-		return jsonResult(out)
 	})
 }
 
@@ -1535,80 +1268,29 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 // state, so an agent that reads prompts/list can pick one and get a
 // ready-made message (docs/plan/mcp-server-enhancement.md §4.2).
 func addPrompts(server *mcp.Server, s *store.Store) {
+	// crush_inbox is the canonical one-shot opener (registered below). The old
+	// crush_daily_agenda prompt overlapped it and embedded a second, heavier
+	// copy of app state, so it was dropped (docs/plan/mcp-tool-consolidation.md
+	// §8) — one opener prompt is enough.
 	server.AddPrompt(&mcp.Prompt{
-		Name:        "crush_daily_agenda",
-		Description: "Get a ready-made agent message containing the current lists and tasks, so you can triage today's work without assembling context first.",
+		Name:        "crush_inbox",
+		Description: "One-shot start-of-session triage: read the crush:///inbox resource and pick the next task. Carries the full working loop so the agent does not need the heavy blob every session.",
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		lists, err := s.ListLists()
-		if err != nil {
-			return nil, err
-		}
-
-		type taskRow struct {
-			ID     string `json:"id"`
-			Title  string `json:"title"`
-			Status string `json:"status"`
-			Depth  int    `json:"depth"`
-		}
-		type listBlock struct {
-			ID       string    `json:"id"`
-			Name     string    `json:"name"`
-			Pending  int       `json:"pending"`
-			Complete int       `json:"complete"`
-			Tasks    []taskRow `json:"tasks"`
-		}
-
-		blocks := make([]listBlock, 0, len(lists))
-		for _, l := range lists {
-			block := listBlock{
-				ID: l.List.ID, Name: l.List.Name,
-				Pending: l.PendingCount, Complete: l.CompleteCount,
-			}
-			tasks, err := s.ListTasks(l.List.ID)
-			if err != nil {
-				return nil, err
-			}
-			// Only pending/in_progress rows matter for triage; complete rows
-			// are counted in Done above and would only pad the context.
-			for _, r := range apptypes.Flatten(apptypes.FromStoreTasks(tasks)) {
-				if r.Task.Status == apptypes.StatusComplete {
-					continue
-				}
-				block.Tasks = append(block.Tasks, taskRow{
-					ID: r.Task.ID, Title: r.Task.Title,
-					Status: string(r.Task.Status), Depth: r.Depth,
-				})
-			}
-			blocks = append(blocks, block)
-		}
-
-		b, err := json.Marshal(blocks)
-		if err != nil {
-			return nil, err
-		}
-
-		msg := "You are Chore Crusher's autonomous agent. Current state:\n" +
-			string(b) + "\n\n" +
-			"Your job: triage today's work. Create what's missing, break down what's " +
-			"too big, start the next pending task (claim_work + set_progress), and " +
-			"complete what's done. Call the MCP tools directly — do not narrate."
-
+		msg := "Read the resource crush:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. This store IS your todo list — keep its status current as you work, on your own, without being asked. Do NOT use the host's built-in todo tool.\n\n" +
+			"WORKING LOOP (run it automatically, without being told):\n" +
+			"1. Open the session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.\n" +
+			"2. Get your tasks from Chore Crusher at the start of every session and refresh them as you go; read from it rather than working from memory.\n" +
+			"3. Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).\n" +
+			"4. Starting a task = set_progress on it: that flips it to in_progress and auto-claims it (the spinner shows), so you do not need a separate claim_work unless reserving it before you write.\n" +
+			"5. Set a percentage scaled to the task: mode='percentage' with percent ~= fraction of steps done for multi-step work; mode='subtasks' when it has children; mode='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +
+			"6. Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave add_comment notes at decision points on tasks you do not own.\n" +
+			"7. After finishing: re-read the task's comments, then complete_task.\n" +
+			"8. Before the next task: check what changed since you last looked (list_changes(list_id, since)) — priorities or comments may have moved.\n\n" +
+			"Pick one pending task (prefer a foreign list), claim it with claim_work, and start working. Do not fan out to show_task for tasks whose has_notes is false."
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{{
 				Role:    "user",
 				Content: &mcp.TextContent{Text: msg},
-			}},
-		}, nil
-	})
-
-	server.AddPrompt(&mcp.Prompt{
-		Name:        "crush_inbox",
-		Description: "One-shot start-of-session triage: read the crush:///inbox resource and pick the next task. Fewer round-trips than my_list + list_tasks + show_task fan-out.",
-	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		return &mcp.GetPromptResult{
-			Messages: []*mcp.PromptMessage{{
-				Role:    "user",
-				Content: &mcp.TextContent{Text: "Read the resource crush:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. Pick one pending task from a foreign list, claim it with claim_work, and start working. Do not fan out to show_task for tasks whose has_notes is false."},
 			}},
 		}, nil
 	})

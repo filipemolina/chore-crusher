@@ -152,23 +152,28 @@ can discover without reading source. Two jobs, one board:
 
 ### Surface
 
-- **24 tools** — every CLI operation (`list_tasks`, `complete_task`,
-  `set_progress`, `move_task`, `…`) returning the same `--json` shapes, plus
-  `my_list`, `show_tasks` (batch details for up to 50 tasks),
-  `list_changes` (incrementally check whether a list moved since your last
-  call, scoped per list via `updated_at`), the `update_tasks` batch writer,
-  and the presence trio: `claim_work` marks a task or list as being worked
-  on, `release_work` drops the claim, `list_work` lists what is claimed.
+- **14 tools** — the agent-facing surface, mirroring the CLI but talking
+  directly to `src/store` and returning the same `--json` shapes. The session
+  opener `my_list` returns your list plus every foreign list with
+  pending/complete counts; `show_task(ids)` returns full details (including
+  comments) for 1–50 tasks in one call; `list_changes` incrementally checks
+  whether a list moved since your last call (scoped per list via
+  `updated_at`); the batch status tools `set_progress(ids)`,
+  `complete_task(ids)`, and `reopen_task(ids)` collapse N writes into one;
+  `edit_task` merges rename + notes + move into a single call; and
+  `claim_work` carries the presence trio (working/inspecting, plus
+  `release=true` to stop the spinner). All names are server-prefixed
+  (`chore_crusher_<name>`).
 - **7 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
   `crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
   `crush:///tasks/{id}`, `crush:///search/{query}`, `crush:///inbox` (one-shot
   start-of-session context: your list + every foreign list with top pending
   tasks and notes), and `crush://work` (the live claim set).
-- **3 prompts** — canned workflows with current state already filled in:
-  `crush_daily_agenda` (triage today's lists and tasks),
+- **2 prompts** — canned workflows with current state already filled in:
   `crush_inbox` (one-shot opener: read `crush:///inbox` and pick the next
   task — fewer round-trips than `my_list` + `list_tasks` + `show_task`
-  fan-out), and `crush_breakdown` (decompose a task into subtasks).
+  fan-out; carries the full working loop), and `crush_breakdown` (decompose a
+  task into subtasks).
 
 Destructive tools require `force=true`, and every response — success or error
 — is one JSON shape, mirroring the CLI contract.

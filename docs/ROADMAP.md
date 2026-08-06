@@ -136,7 +136,7 @@ everything above it):
 
 The 2026-08-05 triage above planned only one of the "MCP Servers" parent's
 subtasks (agent-scratch-list-cleanup). The remaining pending subtasks now have
-plans. Three of them (`list_changes`, `update_tasks`, `batch-reads`) add MCP tools; `update_tasks` and the batch reads already shipped past the S4 ~20 ceiling (signed off during MCP_COMFORT_PLAN); `list_changes` adds the 24th tool and was signed off separately (see `docs/plan/mcp-list-changes-since.md`).
+plans. Three of them (`list_changes`, `update_tasks`, `batch-reads`) add MCP tools; `update_tasks` and the batch reads already shipped past the S4 ~20 ceiling (signed off during MCP_COMFORT_PLAN); `list_changes` was the 24th tool and was signed off separately (see `docs/plan/mcp-list-changes-since.md`). The consolidation plan (`mcp-tool-consolidation.md`) then *reduced* the surface to 14, back under the ceiling.
 
 | Plan | Chore Crusher subtask | Covers | Status |
 | --- | --- | --- | --- |
@@ -144,6 +144,7 @@ plans. Three of them (`list_changes`, `update_tasks`, `batch-reads`) add MCP too
 | [`docs/plan/mcp-list-changes-since.md`](plan/mcp-list-changes-since.md) | "Create an endpoint that returns the changes on the list" | New `list_changes(list_id, since)` tool via `Task.updated_at`; bump `updated_at` on comment so new comments count as changes. | ✅ Shipped |
 | [`docs/plan/mcp-presence-on-all-writes.md`](plan/mcp-presence-on-all-writes.md) | "MCP triggers Agent animation" | Extend the existing `autoClaim` (status/progress only today) to `add_comment`/`add_task`/`rename_task`/`set_notes`/`move_task`. Server-managed presence; no new tools. | 🔲 Planned |
 | [`docs/plan/mcp-batch-writes.md`](plan/mcp-batch-writes.md) | "Add batch endpoints" (write half) | New `update_tasks(ids, op)` for batch status/progress with partial results. Batch **reads** already shipped by `mcp-agent-fewer-roundtrips`. | ✅ Complete |
+| [`docs/plan/mcp-tool-consolidation.md`](plan/mcp-tool-consolidation.md) | "Reduce the number of tools" | Collapse the 24-tool surface to 14: batch `ids` on `show_task`/`set_progress`/`complete_task`/`reopen_task`, merge `rename_task`+`set_notes`+`move_task` into `edit_task`, fold `release_work` into `claim_work`, drop `list_lists`/`show_tasks`/`toggle_task`/`update_tasks`/`rename_list`/`delete_list`/`list_work`, slim the `Instructions` blob, and move the working loop into the `crush_inbox` prompt. | ✅ Shipped |
 
 "Setup the MCP Server" and "A loading animation on a task being worked on" (the
 two complete subtasks) are already shipped.
