@@ -6,9 +6,6 @@ var WORDMARK = "▌ Chore Crusher"
 // APP_NAME is the lowercase, command-friendly name of the app.
 var APP_NAME = "chore-crusher"
 
-// SLOGAN is the empty-state quip used when there is truly nothing to do.
-var SLOGAN = "Nothing to crush here."
-
 // DEFAULT_LIST_NAME is the name of the list the TUI creates for itself when
 // the store has none — first run, or every list deleted. It is a name, not a
 // placeholder: "New List" described the list's age rather than its contents,
