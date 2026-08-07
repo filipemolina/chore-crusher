@@ -615,3 +615,40 @@ func TestNotesGutterHasNoRedundantGap(t *testing.T) {
 		t.Errorf("notes gutter must render \"┃  1\" (two spaces, the gutter's own padding), got:\n%s", view)
 	}
 }
+
+// TestNotesCursorLineIsAccented pins the theming fix for the notes field
+// (bug: accent color on the notes field — "filled lines are darker, empty
+// lines are lighter [and] the current line is not accented"). Before this
+// fix, LineNumber/CursorLineNumber/EndOfBuffer were left at bubbles'
+// hardcoded default-dark-theme greys, unrelated to the active Theme, and
+// CursorLine had no distinguishing background at all. This asserts the
+// current line's number renders in the Theme's Accent color on
+// BackgroundElevated — the same "selected = elevated" tier this modal's own
+// highlighted comment card already uses — and that a non-cursor line's
+// number renders in the dimmer TextDim, not the same tier as the cursor
+// line.
+func TestNotesCursorLineIsAccented(t *testing.T) {
+	m, s, taskID := loaded(t, "line one\nline two\nline three")
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+
+	view := m.View().Content
+
+	accentProbe := lipgloss.NewStyle().
+		Foreground(appstyles.Active.Accent).
+		Background(appstyles.Active.BackgroundElevated).
+		Render("x")
+	accentSGR := accentProbe[:strings.Index(accentProbe, "x")]
+	if !strings.Contains(view, accentSGR) {
+		t.Errorf("notes gutter never renders the cursor line's number in Accent-on-BackgroundElevated:\n%s", ansi.Strip(view))
+	}
+
+	dimProbe := lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextDim).
+		Background(appstyles.Active.ModalBg).
+		Render("x")
+	dimSGR := dimProbe[:strings.Index(dimProbe, "x")]
+	if !strings.Contains(view, dimSGR) {
+		t.Errorf("notes gutter never renders a non-cursor line's number in TextDim-on-ModalBg:\n%s", ansi.Strip(view))
+	}
+}

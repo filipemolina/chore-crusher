@@ -117,19 +117,45 @@ func modalTitleRow(width int, left, right string) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, spacer, trunc)
 }
 
-// applyTextareaStyles seals the textarea onto the modal background. Rebuilt every
-// render so a theme switch while the modal is closed cannot leave a stale
-// background behind.
+// applyTextareaStyles seals the textarea onto the modal background and
+// themes its line-number gutter and cursor line. Rebuilt every render so a
+// theme switch while the modal is closed cannot leave a stale background
+// behind.
+//
+// textarea.DefaultDarkStyles() left uncustomized fields (LineNumber,
+// CursorLineNumber, EndOfBuffer) at bubbles' own hardcoded ANSI-256 greys,
+// unrelated to the active Theme — their brightness relative to Text
+// (explicitly set to TextPrimary below) was whatever that fixed palette
+// happened to produce, which is why filler (empty) lines could read
+// brighter than real text (bug: accent color on the notes field). Every
+// tier here now comes from the active Theme: EndOfBuffer/LineNumber use
+// TextDim so empty lines read quieter than filled ones, and the cursor
+// line gets BackgroundElevated — the same "selected = elevated" tier the
+// highlighted comment card below it in this same modal already uses
+// (renderCommentCard) — plus its line number in Accent, so the current
+// line is unmistakably marked rather than blending into the rest.
 func (m *Model) applyTextareaStyles(bg color.Color) {
 	styles := textarea.DefaultDarkStyles()
 	base := lipgloss.NewStyle().Background(bg)
 	text := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
+	dim := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
+
+	cursorBg := appstyles.Active.BackgroundElevated
+	cursorText := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(cursorBg)
+	cursorLineNumber := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Background(cursorBg)
+
 	styles.Focused.Base = base
 	styles.Blurred.Base = base
 	styles.Focused.Text = text
 	styles.Blurred.Text = text
-	styles.Focused.CursorLine = lipgloss.NewStyle().Background(bg)
-	styles.Blurred.CursorLine = lipgloss.NewStyle().Background(bg)
+	styles.Focused.CursorLine = cursorText
+	styles.Blurred.CursorLine = cursorText
+	styles.Focused.LineNumber = dim
+	styles.Blurred.LineNumber = dim
+	styles.Focused.CursorLineNumber = cursorLineNumber
+	styles.Blurred.CursorLineNumber = cursorLineNumber
+	styles.Focused.EndOfBuffer = dim
+	styles.Blurred.EndOfBuffer = dim
 	m.notes.SetStyles(styles)
 }
 
