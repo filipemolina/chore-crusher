@@ -100,3 +100,35 @@ func TestRenderListRowShowsSpinnerWhenTaskClaimed(t *testing.T) {
 		t.Errorf("list-claim must win over task-claim, got: %q", bothRendered)
 	}
 }
+
+// TestRenderListRowShowsCollaborativeMarker pins the "Tag a list as
+// collaborative" visual contract (docs/DESIGN.md §12, "List is
+// collaborative"): a collaborative row appends " · shared" to its count
+// line, and a non-collaborative row renders no such marker.
+func TestRenderListRowShowsCollaborativeMarker(t *testing.T) {
+	shared := apptypes.ListSummary{
+		List:          apptypes.List{ID: "L1", Name: "Team backlog", Collaborative: true},
+		PendingCount:  2,
+		CompleteCount: 1,
+	}
+	private := apptypes.ListSummary{
+		List:          apptypes.List{ID: "L2", Name: "Personal", Collaborative: false},
+		PendingCount:  1,
+		CompleteCount: 0,
+	}
+
+	d := listDelegate{}
+	var buf strings.Builder
+	d.Render(&buf, list.New([]list.Item{shared}, d, 30, 10), 0, shared)
+	sharedRendered := ansi.Strip(buf.String())
+	if !strings.Contains(sharedRendered, "2 pending · 1 done · shared") {
+		t.Errorf("collaborative row must append ' · shared' to the count line, got: %q", sharedRendered)
+	}
+
+	buf.Reset()
+	d.Render(&buf, list.New([]list.Item{private}, d, 30, 10), 0, private)
+	privateRendered := ansi.Strip(buf.String())
+	if strings.Contains(privateRendered, "shared") {
+		t.Errorf("non-collaborative row must not render the shared marker, got: %q", privateRendered)
+	}
+}

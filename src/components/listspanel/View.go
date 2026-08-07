@@ -65,6 +65,14 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 
 	countLine := strconv.Itoa(l.PendingCount) + " pending · " + strconv.Itoa(l.CompleteCount) + " done"
+	// A collaborative list accepts structural edits from any agent, not just
+	// its own created_by owner (docs/DESIGN.md §9, "Tag a list as
+	// collaborative") — an existing text tier (TextDim, the same one the
+	// count line itself uses), not a new glyph, so no §12 glyph entry is
+	// needed for it.
+	if l.List.Collaborative {
+		countLine += " · shared"
+	}
 
 	// If this list is claimed by an agent, append the spinner + agent id,
 	// colored per the row's selection: Accent when selected, TextDim otherwise

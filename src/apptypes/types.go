@@ -52,10 +52,11 @@ type Task struct {
 
 // List is a list the components render, mirroring store.List.
 type List struct {
-	ID        string
-	Name      string
-	CreatedAt int64
-	Position  int
+	ID            string
+	Name          string
+	CreatedAt     int64
+	Position      int
+	Collaborative bool
 }
 
 // ListSummary is a List plus its task counts, mirroring store.ListSummary.
@@ -102,10 +103,11 @@ func FromStoreTasks(ts []store.Task) []Task {
 // FromStoreList converts one store.List into the component-facing shape.
 func FromStoreList(l store.List) List {
 	return List{
-		ID:        l.ID,
-		Name:      l.Name,
-		CreatedAt: l.CreatedAt,
-		Position:  l.Position,
+		ID:            l.ID,
+		Name:          l.Name,
+		CreatedAt:     l.CreatedAt,
+		Position:      l.Position,
+		Collaborative: l.Collaborative,
 	}
 }
 

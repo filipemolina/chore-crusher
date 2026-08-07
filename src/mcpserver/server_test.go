@@ -1646,6 +1646,58 @@ func TestMCPUntaggedListForeignToEveryAgent(t *testing.T) {
 	}
 }
 
+// TestMCPCollaborativeListAllowsStructuralEdits pins the "Tag a list as
+// collaborative" feature's whole point: an explicit opt-in flag lets a
+// foreign (here, untagged — the realistic human-list shape) list accept
+// structural writes from any agent, where TestMCPUntaggedListForeignToEveryAgent
+// just proved the same list refuses them with the flag off. There is no MCP
+// tool to set the flag (human-only, from the TUI's list-rename modal), so
+// this seeds it directly, the same way the untagged-list test seeds
+// created_by="".
+func TestMCPCollaborativeListAllowsStructuralEdits(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	listID := store.NewID()
+	taskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO List (id, name, created_at, position, created_by, collaborative) VALUES (?, ?, ?, 0, "", 1)`,
+		listID, "Shared backlog", now,
+	); err != nil {
+		t.Fatalf("seed collaborative list: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, 'file this', '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		taskID, listID, now, now,
+	); err != nil {
+		t.Fatalf("seed task on collaborative list: %v", err)
+	}
+
+	// pi does not own this list (created_by=""), but collaborative=1 lets
+	// every structural tool through anyway.
+	var added map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": listID, "title": "new work",
+	}), &added)
+	callTool(t, session, "edit_task", map[string]any{"id": taskID, "title": "renamed"})
+	callTool(t, session, "edit_task", map[string]any{"id": taskID, "notes": "annotated"})
+	callTool(t, session, "delete_task", map[string]any{"id": taskID, "force": true})
+
+	var rows []struct{ Title string }
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+		"list_id": listID,
+	}), &rows)
+	if len(rows) != 1 || rows[0].Title != "new work" {
+		t.Fatalf("collaborative-list structural writes did not take: rows = %+v", rows)
+	}
+}
+
 // TestMCPAddListDefaultsToIdentity guards §5 assertion 5 (default owner):
 // add_list with no created_by yields a list_lists entry whose created_by is
 // the server identity.

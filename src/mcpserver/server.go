@@ -113,7 +113,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		Version: constants.Version(),
 	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
 
-IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
+IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists (or crush:///lists) before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
 
 IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
@@ -198,7 +198,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "my_list",
-		Description: "Get or create your own list (named after the CRUSH_AGENT tag) for tracking your own work, plus a summary of every other (foreign) list, so you can start a session in one call. Example: my_list(). Returns {mine: {id,name,pending,complete}, foreign_lists: [{id,name,pending,complete,created_by}]}.",
+		Description: "Get or create your own list (named after the CRUSH_AGENT tag) for tracking your own work, plus a summary of every other (foreign) list, so you can start a session in one call. Example: my_list(). Returns {mine: {id,name,pending,complete}, foreign_lists: [{id,name,pending,complete,created_by,collaborative}]}. collaborative=true means structural edits (add_task, edit_task, delete_task) are allowed on that list despite not owning it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		id, err := s.GetOrCreateAgentList(identity)
 		if err != nil {
@@ -215,11 +215,12 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 			Complete int    `json:"complete"`
 		}
 		type foreign struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			Pending   int    `json:"pending"`
-			Complete  int    `json:"complete"`
-			CreatedBy string `json:"created_by"`
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			Pending       int    `json:"pending"`
+			Complete      int    `json:"complete"`
+			CreatedBy     string `json:"created_by"`
+			Collaborative bool   `json:"collaborative"`
 		}
 		var m mine
 		others := make([]foreign, 0)
@@ -231,6 +232,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 			others = append(others, foreign{
 				ID: l.ID, Name: l.Name,
 				Pending: l.PendingCount, Complete: l.CompleteCount, CreatedBy: l.CreatedBy,
+				Collaborative: l.Collaborative,
 			})
 		}
 		return jsonResult(map[string]any{
@@ -749,19 +751,22 @@ func autoClaim(s *store.Store, entityType, entityID, agentID string) {
 }
 
 // requireWritable rejects a structural write to a list the requester does
-// not own (docs/plan/list-ownership-enforcement.md §3.8). An untagged list
-// (CreatedBy "") is owned by nobody and is therefore foreign to every agent:
-// a human manages it via the CLI/TUI, which are deliberately unenforced. The
-// check runs after ResolveID, so listID is the suffix-free id; the error
-// names that id so the agent knows which list refused it. Step D wires this
-// into the structural tools; it is defined here (Step C) so the identity
-// read and the helper land together.
+// not own (docs/plan/list-ownership-enforcement.md §3.8), UNLESS the list's
+// Collaborative flag is set — an explicit human opt-in that lets any agent
+// make structural edits regardless of created_by (docs/DESIGN.md §9, "Tag a
+// list as collaborative"). An untagged, non-collaborative list is owned by
+// nobody and is therefore foreign to every agent: a human manages it via the
+// CLI/TUI, which are deliberately unenforced. The check runs after
+// ResolveID, so listID is the suffix-free id; the error names that id so the
+// agent knows which list refused it. Step D wires this into the structural
+// tools; it is defined here (Step C) so the identity read and the helper
+// land together.
 func requireWritable(s *store.Store, identity, listID string) error {
 	l, err := s.GetList(listID)
 	if err != nil {
 		return err
 	}
-	if l.CreatedBy == identity {
+	if l.CreatedBy == identity || l.Collaborative {
 		return nil
 	}
 	owner := l.CreatedBy
@@ -1075,12 +1080,13 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 			return nil, err
 		}
 		type block struct {
-			ID        string        `json:"id"`
-			Name      string        `json:"name"`
-			Pending   int           `json:"pending"`
-			Complete  int           `json:"complete"`
-			CreatedBy string        `json:"created_by,omitempty"`
-			Tasks     []taskRowJSON `json:"tasks"`
+			ID            string        `json:"id"`
+			Name          string        `json:"name"`
+			Pending       int           `json:"pending"`
+			Complete      int           `json:"complete"`
+			CreatedBy     string        `json:"created_by,omitempty"`
+			Collaborative bool          `json:"collaborative,omitempty"`
+			Tasks         []taskRowJSON `json:"tasks"`
 		}
 		var mine block
 		foreign := make([]block, 0)
@@ -1100,7 +1106,7 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 			b := block{
 				ID: l.List.ID, Name: l.List.Name,
 				Pending: l.PendingCount, Complete: l.CompleteCount,
-				CreatedBy: l.CreatedBy, Tasks: rows,
+				CreatedBy: l.CreatedBy, Collaborative: l.Collaborative, Tasks: rows,
 			}
 			if l.CreatedBy == identity {
 				b.CreatedBy = ""
@@ -1127,24 +1133,26 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 			return nil, err
 		}
 		type row struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			Pending   int    `json:"pending"`
-			Complete  int    `json:"complete"`
-			CreatedBy string `json:"created_by"`
-			CreatedAt int64  `json:"created_at"`
-			Position  int    `json:"position"`
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			Pending       int    `json:"pending"`
+			Complete      int    `json:"complete"`
+			CreatedBy     string `json:"created_by"`
+			Collaborative bool   `json:"collaborative"`
+			CreatedAt     int64  `json:"created_at"`
+			Position      int    `json:"position"`
 		}
 		out := make([]row, len(lists))
 		for i, l := range lists {
 			out[i] = row{
-				ID:        l.List.ID,
-				Name:      l.List.Name,
-				Pending:   l.PendingCount,
-				Complete:  l.CompleteCount,
-				CreatedBy: l.CreatedBy,
-				CreatedAt: l.List.CreatedAt,
-				Position:  l.List.Position,
+				ID:            l.List.ID,
+				Name:          l.List.Name,
+				Pending:       l.PendingCount,
+				Complete:      l.CompleteCount,
+				CreatedBy:     l.CreatedBy,
+				Collaborative: l.Collaborative,
+				CreatedAt:     l.List.CreatedAt,
+				Position:      l.List.Position,
 			}
 		}
 		return marshalResource(req.Params.URI, out)
@@ -1172,15 +1180,17 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 		for _, l := range lists {
 			if l.List.ID == resolved {
 				return marshalResource(req.Params.URI, struct {
-					ID        string `json:"id"`
-					Name      string `json:"name"`
-					Pending   int    `json:"pending"`
-					Complete  int    `json:"complete"`
-					CreatedBy string `json:"created_by"`
-					CreatedAt int64  `json:"created_at"`
+					ID            string `json:"id"`
+					Name          string `json:"name"`
+					Pending       int    `json:"pending"`
+					Complete      int    `json:"complete"`
+					CreatedBy     string `json:"created_by"`
+					Collaborative bool   `json:"collaborative"`
+					CreatedAt     int64  `json:"created_at"`
 				}{
 					ID: l.List.ID, Name: l.List.Name, Pending: l.PendingCount,
-					Complete: l.CompleteCount, CreatedBy: l.CreatedBy, CreatedAt: l.List.CreatedAt,
+					Complete: l.CompleteCount, CreatedBy: l.CreatedBy, Collaborative: l.Collaborative,
+					CreatedAt: l.List.CreatedAt,
 				})
 			}
 		}

@@ -400,3 +400,75 @@ func TestBackfillIsIdempotent(t *testing.T) {
 		t.Fatalf("backfill overwrote a manually-set owner: CreatedBy = %q, want %q", l.CreatedBy, "claude")
 	}
 }
+
+// TestCollaborativeDefaultsFalse pins the migration's default: every list,
+// new or pre-existing, starts non-collaborative until a human opts it in.
+// newTestStore always opens through the full migration chain, so this also
+// stands in for "the migration applies and defaults existing rows to false."
+func TestCollaborativeDefaultsFalse(t *testing.T) {
+	s := newTestStore(t)
+	id := mustList(t, s, "Groceries")
+
+	l, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if l.Collaborative {
+		t.Error("Collaborative = true, want false by default")
+	}
+
+	summaries, err := s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].Collaborative {
+		t.Errorf("ListLists = %+v, want one summary with Collaborative=false", summaries)
+	}
+}
+
+// TestSetCollaborativeRoundTrips pins the write path through both read
+// shapes — GetList and ListLists must agree.
+func TestSetCollaborativeRoundTrips(t *testing.T) {
+	s := newTestStore(t)
+	id := mustList(t, s, "Shared backlog")
+
+	if err := s.SetCollaborative(id, true); err != nil {
+		t.Fatalf("SetCollaborative(true): %v", err)
+	}
+	l, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if !l.Collaborative {
+		t.Error("Collaborative = false after SetCollaborative(true)")
+	}
+	summaries, err := s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(summaries) != 1 || !summaries[0].Collaborative {
+		t.Errorf("ListLists = %+v, want Collaborative=true", summaries)
+	}
+
+	if err := s.SetCollaborative(id, false); err != nil {
+		t.Fatalf("SetCollaborative(false): %v", err)
+	}
+	l, err = s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if l.Collaborative {
+		t.Error("Collaborative = true after SetCollaborative(false)")
+	}
+}
+
+// TestSetCollaborativeRequiresExisting mirrors TestDeleteListRequiresExisting.
+func TestSetCollaborativeRequiresExisting(t *testing.T) {
+	s := newTestStore(t)
+
+	if err := s.SetCollaborative("no-such-id", true); err == nil {
+		t.Fatal("SetCollaborative on a missing id did not error")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("SetCollaborative error = %q, want a not-found error", err)
+	}
+}

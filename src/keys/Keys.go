@@ -98,6 +98,17 @@ type ListsPanelKeys struct {
 	Delete   key.Binding
 }
 
+// ListNameModalKeys act inside the list name modal's Rename mode only: enter
+// and esc (submit/cancel) are the generic Overlay.Submit/Overlay.Cancel
+// bindings every overlay answers to; these two are specific to the
+// collaborative toggle Rename mode adds (docs/DESIGN.md §9, "Tag a list as
+// collaborative") and have no meaning in New-list mode, which is a bare text
+// input.
+type ListNameModalKeys struct {
+	NextField           key.Binding
+	ToggleCollaborative key.Binding
+}
+
 // DetailsKeys act inside the Details modal: saving, cycling between the
 // title/notes/progress/comments zones, cycling progress modes, entering
 // percentages, copying the task id, and the comment thread's own actions
@@ -177,6 +188,11 @@ var Lists = ListsPanelKeys{
 	New:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
 	Rename: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
 	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+}
+
+var ListNameModal = ListNameModalKeys{
+	NextField:           key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
+	ToggleCollaborative: key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle collaborative")),
 }
 
 // ListKeyMap is the keymap the lists panel installs on its inner bubbles
@@ -443,6 +459,11 @@ func Catalog(ctx Context) []Scope {
 			Title:   "Lists",
 			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete),
 			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively.",
+		},
+		{
+			Title:   "Renaming a list",
+			Entries: entries(Overlay.Submit, Overlay.Cancel, ListNameModal.NextField, ListNameModal.ToggleCollaborative),
+			Note:    "tab and space only apply in Rename mode, where the modal also carries the collaborative toggle (any agent may restructure the list); New-list mode is a bare text input.",
 		},
 		{
 			Title:   "Details",

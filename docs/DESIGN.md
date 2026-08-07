@@ -909,7 +909,8 @@ absent; an agent that must detect deletions diffs id sets against its last
 from the `CRUSH_AGENT` environment variable (default `"agent"`); the *human*
 sets it per server in the MCP client config, so one stdio session is one
 identity and no tool lets an agent change it. A list is writable by that
-session only when `created_by` equals the identity. The structural tools — `add_task`, `edit_task`, `delete_task` — resolve
+session when `created_by` equals the identity, **or** when the list's
+`collaborative` flag is set (below). The structural tools — `add_task`, `edit_task`, `delete_task` — resolve
 their id first (the §9 prefix rule still applies), then refuse a foreign list
 with one error shape: `list <id> is owned by <owner> — you may read it and
 update task status/progress only`. `edit_task`'s re-parent checks the list it
@@ -940,6 +941,22 @@ tag `Note` — an accepted false-positive class (hardening plan §4.10). The
 inverse is deliberately *not* done: `GetOrCreateAgentList` and
 `my_list` match `created_by` only, never the name, so an untagged
 `pi: ...` list is never silently adopted.
+
+**`collaborative` is an explicit, list-level, opt-in override of the owner
+check above** — not "untagged means collaborative" (that would silently open
+every existing human list at once), and not per-task (list-level is the unit
+the ownership model already uses everywhere; a per-task flag would multiply
+the states an agent has to reason about). It defaults to `false` for every
+existing and new list, human-set only — the same shape `comments_disabled`
+uses (`src/store/migrations/0005_list_collaborative.sql`,
+`store.SetCollaborative`), and, like ownership itself, unenforced on the
+CLI/TUI side: a human may always restructure their own list regardless of
+this flag. A human sets it from the TUI's list-rename modal (`R` in the
+Lists panel); the Lists panel marks a collaborative row so it reads
+differently from one an agent cannot restructure (§12). `my_list`'s
+`foreign_lists`, `crush:///lists`, and `crush:///lists/{id}` all carry
+`collaborative` next to `created_by`, so an agent can tell before it tries
+rather than discovering it from a refusal.
 
 Enforcement lives in `src/mcpserver` alone (the `requireWritable` helper) —
 the store stays a dumb data layer and the CLI and TUI stay unenforced, which
@@ -1351,6 +1368,7 @@ one is needed, it's added here first.
 | Add-input level: parent-of-selection | `^` | §4. |
 | Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered in the row's right-aligned block immediately before the status; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3) — never rendered as `(0%)` in that case. |
 | Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg` (§3.5 of `mcp-server-enhancement.md`); draws `Accent` when the row is focused/selected, `TextDim` otherwise. Appended to the right-aligned block after the status label when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
+| List is collaborative | ` · shared` | Appended to a lists-panel row's count line (`N pending · M done`) when `List.Collaborative` is true — plain text in the same `TextDim` tier the count line already renders in, not a new glyph, so it needs no dedicated symbol here. `src/components/listspanel/View.go`'s `listDelegate.Render`. The rename modal's collaborative toggle (below) reuses the task row's own `◻`/`◼` checkbox glyphs for the same flag, rather than inventing a `[ ]`/`[x]` of its own. |
 
 **Task rows are full-width cards** (docs/plan/task-row-cards-and-status.md):
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the

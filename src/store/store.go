@@ -66,6 +66,12 @@ type List struct {
 	Position         int
 	CreatedBy        string
 	CommentsDisabled bool
+	// Collaborative is an explicit opt-in that lets any agent make
+	// structural edits (add_task, edit_task, delete_task) on this list, not
+	// just the CreatedBy owner (src/mcpserver's requireWritable). Defaults
+	// to false; an untagged list stays foreign to every agent until a human
+	// sets this.
+	Collaborative bool
 }
 
 // ListSummary is a List plus its task counts, as returned by ListLists.

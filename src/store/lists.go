@@ -42,9 +42,9 @@ func (s *Store) CreateList(name, createdBy string) (string, error) {
 func (s *Store) GetList(id string) (List, error) {
 	var l List
 	if err := s.db.QueryRow(
-		`SELECT id, name, created_at, position, created_by, comments_disabled FROM List WHERE id = ?`,
+		`SELECT id, name, created_at, position, created_by, comments_disabled, collaborative FROM List WHERE id = ?`,
 		id,
-	).Scan(&l.ID, &l.Name, &l.CreatedAt, &l.Position, &l.CreatedBy, &l.CommentsDisabled); err != nil {
+	).Scan(&l.ID, &l.Name, &l.CreatedAt, &l.Position, &l.CreatedBy, &l.CommentsDisabled, &l.Collaborative); err != nil {
 		if isNoRows(err) {
 			return List{}, fmt.Errorf("list %q not found", id)
 		}
@@ -57,7 +57,7 @@ func (s *Store) GetList(id string) (List, error) {
 // complete task counts. One GROUP BY query — never an N+1 per list.
 func (s *Store) ListLists() ([]ListSummary, error) {
 	rows, err := s.db.Query(`
-		SELECT l.id, l.name, l.created_at, l.position, l.created_by, l.comments_disabled,
+		SELECT l.id, l.name, l.created_at, l.position, l.created_by, l.comments_disabled, l.collaborative,
 		       COUNT(t.id),
 		       COALESCE(SUM(CASE WHEN t.status = 'complete' THEN 1 ELSE 0 END), 0)
 		FROM List l
@@ -73,7 +73,7 @@ func (s *Store) ListLists() ([]ListSummary, error) {
 	for rows.Next() {
 		var ls ListSummary
 		var total, done int
-		if err := rows.Scan(&ls.ID, &ls.Name, &ls.CreatedAt, &ls.Position, &ls.CreatedBy, &ls.CommentsDisabled, &total, &done); err != nil {
+		if err := rows.Scan(&ls.ID, &ls.Name, &ls.CreatedAt, &ls.Position, &ls.CreatedBy, &ls.CommentsDisabled, &ls.Collaborative, &total, &done); err != nil {
 			return nil, err
 		}
 		ls.CompleteCount = done
@@ -110,6 +110,24 @@ func (s *Store) RenameList(id, name string) error {
 // --force flag and the TUI's confirm modal are the callers' jobs.
 func (s *Store) DeleteList(id string) error {
 	res, err := s.db.Exec(`DELETE FROM List WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res, "list", id)
+}
+
+// SetCollaborative toggles the list-level collaborative flag: an explicit
+// opt-in that lets any agent make structural edits on the list, not just its
+// created_by owner. Modeled on SetCommentsDisabled.
+func (s *Store) SetCollaborative(id string, collaborative bool) error {
+	flag := 0
+	if collaborative {
+		flag = 1
+	}
+	res, err := s.db.Exec(
+		`UPDATE List SET collaborative = ? WHERE id = ?`,
+		flag, id,
+	)
 	if err != nil {
 		return err
 	}
