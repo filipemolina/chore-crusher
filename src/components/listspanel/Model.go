@@ -70,7 +70,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				items[i] = l
 			}
 			prevSelected := m.SelectedListID()
-			m.list.SetItems(items)
+			// SetItems resets filteredItems and, while a filter is active, returns
+			// a command that re-runs the filter against the new items. That command
+			// must be returned (not discarded) so the narrowed view survives the
+			// refresh — otherwise the poll's periodic RefreshListsMsg wipes the
+			// filter results and the panel snaps back to unfiltered mid-typing
+			// (bug: the lists filter blanks/discards the query on refresh).
+			cmd = m.list.SetItems(items)
 			if len(items) > 0 && m.SelectedListID() != prevSelected && prevSelected != "" {
 				// The refresh moved the highlight — the selected list was
 				// deleted ahead of the cursor. bubbles' SetItems clamps a
@@ -79,11 +85,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// AppModel's active list in step, leaving highlight and
 				// active list out of sync until the next keypress. Re-broadcast
 				// the new selection so they stay together.
-				return m, m.selectList()
+				cmd = tea.Batch(cmd, m.selectList())
+				return m, cmd
 			}
 			if len(items) > 0 && m.list.Index() < 0 {
 				m.list.Select(0)
-				return m, m.selectList()
+				cmd = tea.Batch(cmd, m.selectList())
+				return m, cmd
 			}
 		}
 
