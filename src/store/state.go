@@ -11,7 +11,10 @@ import (
 // at every depth, all in one transaction — a "complete parent, pending child"
 // state must never exist (docs/DESIGN.md §3). It then walks the task's
 // ancestors: any subtasks-mode ancestor whose direct children are all complete
-// is promoted too, and that promotion propagates upward.
+// is promoted too, and that promotion propagates upward. Completing a task
+// also clears its assignment — and the assignment of every task the cascade
+// or an ancestor promotion completes (docs/plan/mcp-assignment-and-priorities.md
+// decision 5).
 func (s *Store) Complete(taskID string) error {
 	now := time.Now().Unix()
 
@@ -211,11 +214,13 @@ func recomputeAncestors(tx *sql.Tx, taskID string, now int64) error {
 	}
 }
 
-// setComplete writes the complete state onto one task.
+// setComplete writes the complete state onto one task, clearing its
+// assignment: a complete task has no owner (plan decision 5).
 func setComplete(q querier, id string, now int64) error {
 	_, err := q.Exec(
 		`UPDATE Task SET status = 'complete', progress_kind = 'none', progress_pct = NULL,
-		                completed_at = ?, updated_at = ? WHERE id = ?`,
+		                completed_at = ?, updated_at = ?, assignee = '', assigned_at = NULL
+		 WHERE id = ?`,
 		now, now, id,
 	)
 	return err
@@ -230,7 +235,7 @@ func completeDescendants(q querier, id string, now int64) error {
 			SELECT t.id FROM Task t JOIN descendants d ON t.parent_id = d.id
 		)
 		UPDATE Task SET status = 'complete', progress_kind = 'none', progress_pct = NULL,
-		                completed_at = ?, updated_at = ?
+		                completed_at = ?, updated_at = ?, assignee = '', assigned_at = NULL
 		WHERE id IN (SELECT id FROM descendants)`,
 		id, now, now,
 	)
