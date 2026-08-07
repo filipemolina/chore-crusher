@@ -368,6 +368,14 @@ screen; it never spells its own wording, taking every hint from the binding in
 `src/keys` so the modal and the help overlay cannot describe a key two ways.
 A key is advertised only in the zone where it is actually live.
 
+That line is always exactly one row. The modal's content column is fixed-width,
+so a hint line too long to fit would wrap and grow the modal by a row; whole
+hints shed from the tail instead, the same way the footer bar sheds (§5). Each
+zone therefore lists its hints in priority order — the ways out of the zone
+(`tab`, `esc`), then how to commit (`ctrl+s`), then the input methods for the
+value the zone edits, then the extras — so what a narrow terminal drops is what
+a user stuck in that zone would need last.
+
 The task **title** is an editable single-line `textinput`, first in the tab
 cycle; a save writes it through `store.RenameTask`, and a title cleared to
 whitespace is refused in place (the store forbids an empty title) rather than

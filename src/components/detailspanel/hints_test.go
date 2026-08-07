@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
@@ -210,5 +211,50 @@ func TestEnterAtDiscardPromptIsInert(t *testing.T) {
 	m, cmd = updateModel(m, tea.KeyPressMsg{Text: "y", Code: 'y'})
 	if _, ok := runCmd(cmd).(cmds.CloseDetailsSideMsg); !ok {
 		t.Errorf("y must still discard and close, got %T", runCmd(cmd))
+	}
+}
+
+// The hint line is always exactly one line. The modal's content column is
+// fixed-width, so a line too long to fit would wrap and grow the modal by a
+// row; whole hints shed from the tail instead, the way the footer bar does.
+func TestHintLineNeverWraps(t *testing.T) {
+	for _, width := range []int{40, 50, 60, 80, 100, 120, 160} {
+		for _, zone := range []int{focusTitle, focusNotes, focusProgress, focusComments} {
+			m, s, taskID := loaded(t, "")
+			m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+			m, _ = updateModel(m, cmds.SetDetailsLayout(width, 40)())
+			m = zoneFor(t, m, zone)
+			m.progressKind = apptypes.ProgressPercentage
+			m, _ = updateModel(m, cmds.SetDetailsLayout(width, 40)())
+
+			footer := m.renderFooter()
+			if h := lipgloss.Height(footer); h != 1 {
+				t.Errorf("width %d zone %d: hint line is %d rows, want 1:\n%s", width, zone, h, ansi.Strip(footer))
+			}
+			if got := lipgloss.Width(footer); got > m.innerWidth() {
+				t.Errorf("width %d zone %d: hint line is %d cols, exceeds inner width %d", width, zone, got, m.innerWidth())
+			}
+		}
+	}
+}
+
+// Shedding takes the extras, never the keys the zone is fundamentally for.
+func TestHintSheddingKeepsTheCoreKeys(t *testing.T) {
+	m, s, taskID := loaded(t, "")
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(56, 40)())
+	m = zoneFor(t, m, focusProgress)
+	m.progressKind = apptypes.ProgressPercentage
+	m, _ = updateModel(m, cmds.SetDetailsLayout(56, 40)())
+
+	footer := ansi.Strip(m.renderFooter())
+	// The ways out of the zone and the way to commit survive; the extras go.
+	for _, keep := range []string{"next field", "cancel"} {
+		if !strings.Contains(footer, keep) {
+			t.Errorf("a narrow modal must keep %q: %q", keep, footer)
+		}
+	}
+	if strings.Contains(footer, "copy task id") {
+		t.Errorf("a narrow modal should have shed the copy extra first: %q", footer)
 	}
 }

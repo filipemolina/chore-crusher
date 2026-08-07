@@ -461,9 +461,30 @@ func (m *Model) cardChrome(bg, barFg color.Color, content string, innerW int) st
 func (m *Model) renderFooter() string {
 	if m.confirmingDiscard {
 		question := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render("Discard changes?")
-		return question + "  " + chrome.RenderKeyHints(m.zoneHints(), appstyles.Active.TextMuted)
+		return question + "  " + m.fitHints(m.zoneHints(), lipgloss.Width(question)+2)
 	}
-	return chrome.RenderKeyHints(m.zoneHints(), appstyles.Active.TextMuted)
+	return m.fitHints(m.zoneHints(), 0)
+}
+
+// fitHints renders hints on exactly one line, shedding whole hints from the
+// tail until the line fits the modal's inner width (less used, e.g. by the
+// discard prompt's question). The modal's content column is fixed-width, so a
+// hint line too long to fit would otherwise wrap and grow the modal by a row —
+// the footer bar sheds for the same reason. Each zone lists its core keys
+// first (save, next field, cancel) so shedding takes the extras.
+func (m *Model) fitHints(hints []chrome.KeyHint, used int) string {
+	line := chrome.RenderKeyHints(hints, appstyles.Active.TextMuted)
+	// Before the first layout message there is no box to fit, so nothing sheds
+	// — View() renders nothing at that point anyway.
+	if m.innerWidth() <= 0 {
+		return line
+	}
+	avail := max(0, m.innerWidth()-used)
+	for len(hints) > 1 && lipgloss.Width(line) > avail {
+		hints = hints[:len(hints)-1]
+		line = chrome.RenderKeyHints(hints, appstyles.Active.TextMuted)
+	}
+	return line
 }
 
 // zoneHints is the set of keys live in the current zone, in the order they are
@@ -485,14 +506,19 @@ func (m *Model) zoneHints() []chrome.KeyHint {
 			chrome.HintFor(keys.Details.CopyTaskID),
 		}
 	case m.focus == focusProgress:
+		// Ways out of the zone come first, then how to commit, then the input
+		// methods for the value, then mode cycling, then the copy extra. A
+		// narrow modal sheds from the tail, so what goes first is what a user
+		// stuck in this zone would need last.
 		hints := []chrome.KeyHint{
 			chrome.HintFor(keys.Details.NextField),
-			chrome.HintFor(keys.Details.CycleMode),
-			chrome.HintFor(keys.Details.CycleModeBack),
+			chrome.HintFor(keys.Overlay.Cancel),
+			chrome.HintFor(keys.Details.Save),
 		}
 		// The percentage value is the only editable one, so its input methods
 		// are advertised only in that mode — typing digits and ↑/↓ do nothing
-		// in the other two.
+		// in the other two. In that mode they outrank mode cycling: not
+		// knowing the field takes typing is the bug this line exists to fix.
 		if m.progressKind == apptypes.ProgressPercentage {
 			hints = append(hints,
 				chrome.HintFor(keys.Details.PercentType),
@@ -500,25 +526,25 @@ func (m *Model) zoneHints() []chrome.KeyHint {
 			)
 		}
 		return append(hints,
-			chrome.HintFor(keys.Details.Save),
+			chrome.HintFor(keys.Details.CycleMode),
+			chrome.HintFor(keys.Details.CycleModeBack),
 			chrome.HintFor(keys.Details.CopyTaskID),
-			chrome.HintFor(keys.Overlay.Cancel),
 		)
 	case m.focus == focusComments:
 		return []chrome.KeyHint{
 			chrome.HintFor(keys.Details.NextField),
-			chrome.HintFor(keys.Overlay.Navigation),
+			chrome.HintFor(keys.Overlay.Cancel),
 			chrome.HintFor(keys.Details.CommentNew),
+			chrome.HintFor(keys.Overlay.Navigation),
 			chrome.HintFor(keys.Details.CopyCommentID),
 			chrome.HintFor(keys.Details.CopyTaskID),
-			chrome.HintFor(keys.Overlay.Cancel),
 		}
 	default: // focusTitle, focusNotes
 		return []chrome.KeyHint{
 			chrome.HintFor(keys.Details.NextField),
+			chrome.HintFor(keys.Overlay.Cancel),
 			chrome.HintFor(keys.Details.Save),
 			chrome.HintFor(keys.Details.CopyTaskID),
-			chrome.HintFor(keys.Overlay.Cancel),
 		}
 	}
 }
