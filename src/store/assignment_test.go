@@ -97,6 +97,52 @@ func TestAssignTaskSubtreeReservation(t *testing.T) {
 	}
 }
 
+// TestSubtreeConflictIsDistinguishable pins the difference the MCP layer has
+// to render (plan §4): a conflict on the task itself is fixable with
+// force=true, a conflict via the subtree is NOT — force overrides a holder,
+// never decision 4's invariant. Both wrap ErrAssigned; only the subtree case
+// wraps ErrSubtreeAssigned, and step 9 must key its hint off that. Without
+// the distinction the error tells an agent to "pass force=true to take it"
+// in the one case where force cannot.
+func TestSubtreeConflictIsDistinguishable(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	root, child, _ := threeLevelTree(t, s, lid)
+
+	if err := s.AssignTask(child, "alpha", false); err != nil {
+		t.Fatalf("AssignTask(child, alpha): %v", err)
+	}
+
+	// Direct conflict on the row: force is the documented way out.
+	direct := s.AssignTask(child, "beta", false)
+	if !errors.Is(direct, ErrAssigned) {
+		t.Fatalf("direct conflict = %v, want ErrAssigned", direct)
+	}
+	if errors.Is(direct, ErrSubtreeAssigned) {
+		t.Fatalf("direct conflict must not report as a subtree conflict: %v", direct)
+	}
+	if err := s.AssignTask(child, "beta", true); err != nil {
+		t.Fatalf("force on a direct conflict must succeed, got %v", err)
+	}
+
+	// Subtree conflict: force is not a way out, so it must be marked.
+	viaSubtree := s.AssignTask(root, "gamma", false)
+	if !errors.Is(viaSubtree, ErrSubtreeAssigned) {
+		t.Fatalf("subtree conflict = %v, want ErrSubtreeAssigned", viaSubtree)
+	}
+	if err := s.AssignTask(root, "gamma", true); !errors.Is(err, ErrSubtreeAssigned) {
+		t.Fatalf("force on a subtree conflict = %v, want it still refused", err)
+	}
+
+	// The escape hatch the hint must point at: release the blocker, then grab.
+	if err := s.UnassignTask(child, "gamma", true); err != nil {
+		t.Fatalf("force UnassignTask(child): %v", err)
+	}
+	if err := s.AssignTask(root, "gamma", false); err != nil {
+		t.Fatalf("AssignTask(root) after releasing the blocker: %v", err)
+	}
+}
+
 func TestUnassignTask(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")
@@ -197,6 +243,43 @@ func TestCompleteClearsAssignment(t *testing.T) {
 		if got.Assignee != "" || got.AssignedAt != nil {
 			t.Fatalf("task %s still assigned to %q after Complete", id, got.Assignee)
 		}
+	}
+}
+
+// TestCompleteClearsAssignmentOnPromotedAncestor covers the third path into
+// setComplete: not the task, not the cascade, but a subtasks-mode ancestor
+// promoted because its last child finished. A promoted ancestor is complete,
+// and a complete task has no owner (decision 5) — otherwise finishing the
+// last subtask silently leaves the parent in the abandoned state the TUI's
+// stale tier is meant to flag (assigned, complete, nobody working).
+func TestCompleteClearsAssignmentOnPromotedAncestor(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	parent := mustTask(t, s, lid, "parent", nil)
+	only := mustTask(t, s, lid, "only child", &parent)
+	if err := s.SetProgress(parent, ProgressSubtasks, nil); err != nil {
+		t.Fatalf("SetProgress(parent, subtasks): %v", err)
+	}
+	if err := s.AssignTask(parent, "alpha", false); err != nil {
+		t.Fatalf("AssignTask(parent): %v", err)
+	}
+
+	// Completing the only child promotes the parent — a different code path
+	// from Complete(parent), which would clear it via the cascade.
+	if err := s.Complete(only); err != nil {
+		t.Fatalf("Complete(only): %v", err)
+	}
+
+	got, err := s.GetTask(parent)
+	if err != nil {
+		t.Fatalf("GetTask(parent): %v", err)
+	}
+	if got.Status != StatusComplete {
+		t.Fatalf("parent status = %q, want complete (promotion did not fire)", got.Status)
+	}
+	if got.Assignee != "" || got.AssignedAt != nil {
+		t.Fatalf("promoted ancestor still assigned to %q (assigned_at=%v)", got.Assignee, got.AssignedAt)
 	}
 }
 
