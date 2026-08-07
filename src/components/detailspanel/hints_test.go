@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
 	"github.com/filipemolina/chore-crusher/src/keys"
 )
@@ -30,11 +31,17 @@ func zoneFor(t *testing.T, m *Model, zone int) *Model {
 func TestEveryDetailsBindingIsAdvertisedInSomeZone(t *testing.T) {
 	m, _, _ := loaded(t, "")
 
-	// Collect the hint text from every zone, plus the compose card.
+	// Collect the hint text from every zone, every progress mode, plus the
+	// compose card — some hints are mode-specific, not just zone-specific.
 	var all []chrome.KeyHint
 	for _, zone := range []int{focusTitle, focusNotes, focusProgress, focusComments} {
 		m = zoneFor(t, m, zone)
-		all = append(all, m.zoneHints()...)
+		for _, kind := range []apptypes.ProgressKind{
+			apptypes.ProgressSimple, apptypes.ProgressSubtasks, apptypes.ProgressPercentage,
+		} {
+			m.progressKind = kind
+			all = append(all, m.zoneHints()...)
+		}
 	}
 	m.composing = true
 	all = append(all, m.zoneHints()...)
@@ -48,6 +55,8 @@ func TestEveryDetailsBindingIsAdvertisedInSomeZone(t *testing.T) {
 		{"NextField", keys.Details.NextField},
 		{"CycleMode", keys.Details.CycleMode},
 		{"CycleModeBack", keys.Details.CycleModeBack},
+		{"PercentNudge", keys.Details.PercentNudge},
+		{"PercentType", keys.Details.PercentType},
 		{"CopyTaskID", keys.Details.CopyTaskID},
 		{"CommentNew", keys.Details.CommentNew},
 		{"CommentSubmit", keys.Details.CommentSubmit},
@@ -78,7 +87,8 @@ func TestModalHintWordingComesFromTheBindings(t *testing.T) {
 	known := map[chrome.KeyHint]bool{}
 	for _, b := range []key.Binding{
 		keys.Details.Save, keys.Details.NextField, keys.Details.CycleMode,
-		keys.Details.CycleModeBack, keys.Details.CopyTaskID, keys.Details.CommentNew,
+		keys.Details.CycleModeBack, keys.Details.PercentNudge, keys.Details.PercentType,
+		keys.Details.CopyTaskID, keys.Details.CommentNew,
 		keys.Details.CommentSubmit, keys.Details.CopyCommentID,
 		keys.Overlay.Cancel, keys.Overlay.Navigation, keys.Overlay.Submit,
 	} {
@@ -87,9 +97,14 @@ func TestModalHintWordingComesFromTheBindings(t *testing.T) {
 
 	for _, zone := range []int{focusTitle, focusNotes, focusProgress, focusComments} {
 		m = zoneFor(t, m, zone)
-		for _, h := range m.zoneHints() {
-			if !known[h] {
-				t.Errorf("zone %d advertises %q %q, which no src/keys binding declares", zone, h.Key, h.Desc)
+		for _, kind := range []apptypes.ProgressKind{
+			apptypes.ProgressSimple, apptypes.ProgressSubtasks, apptypes.ProgressPercentage,
+		} {
+			m.progressKind = kind
+			for _, h := range m.zoneHints() {
+				if !known[h] {
+					t.Errorf("zone %d advertises %q %q, which no src/keys binding declares", zone, h.Key, h.Desc)
+				}
 			}
 		}
 	}

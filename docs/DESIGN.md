@@ -332,7 +332,14 @@ closes the modal, returns focus to the task tree, and refreshes its rows;
 progress selector, and the comment thread (every zone is always in the cycle —
 the comment thread is reachable even while empty, since `c` adds the first
 comment from there); **`←`/`→`** (or `h`/`l`) cycle through the three progress
-modes (`simple`/`subtasks`/`percentage`) while the progress selector is focused;
+modes (`simple`/`subtasks`/`percentage`) while the progress selector is focused —
+the modal shows those modes under plain-language labels ("in progress (flag)",
+"from subtasks", "percentage"), never their stored names, which stay the CLI and
+MCP vocabulary (§9); in `percentage` mode **digits** type the value directly and
+**`↑`/`↓`** step it by 5, clamped to 0–100 (typed input reports an out-of-range
+error instead of clamping — the user can see what they typed, unlike a held
+arrow key), and both affordances are advertised in the modal's hint line only
+while that mode is selected, since neither does anything in the other two;
 **`↑`/`↓`** move the comment highlight and **`y`** copies the highlighted
 comment's id to the system clipboard while the comment thread is focused;
 **`ctrl+y`** copies the open task's id from any zone (a TUI has no reliable text
@@ -1037,6 +1044,15 @@ two surfaces are on screen having made different choices. One function,
 decision is made; each surface calls it rather than branching on focus itself.
 The selected task row still uses `ModalBg` as its separate active-register
 signal, and the input caret identifies the active control inside Tasks.
+
+The same lift marks the spot the keyboard is acting on *inside* a surface,
+not just the surface itself: the notes textarea's cursor line and the Details
+modal's percentage value both sit on `BackgroundElevated` while their zone has
+focus. A value the user can edit therefore looks lit and reads in
+`TextPrimary`, where a value they cannot — a `subtasks`-derived percentage, or
+`(no children)` — stays a muted parenthetical annotation. That contrast is the
+whole signal that a field takes input; there is no caret glyph, and a component
+must not invent one.
 
 ### Two shared frames: `chrome.PanelFrame`
 

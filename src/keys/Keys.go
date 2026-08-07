@@ -92,6 +92,8 @@ type DetailsKeys struct {
 	NextField     key.Binding
 	CycleMode     key.Binding
 	CycleModeBack key.Binding
+	PercentNudge  key.Binding
+	PercentType   key.Binding
 	CopyTaskID    key.Binding
 	CommentNew    key.Binding
 	CommentSubmit key.Binding
@@ -195,6 +197,14 @@ var Details = DetailsKeys{
 	NextField:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
 	CycleMode:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next mode")),
 	CycleModeBack: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev mode")),
+	// Percentage-mode progress only: ↑/↓ step the value by 5, clamped to
+	// 0–100. Live only while the Progress field has focus and the mode is
+	// percentage, so the modal advertises it only there.
+	PercentNudge: key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "±5")),
+	// Help-only, like Overlay.Navigation: digits type straight into the
+	// percentage field, so there is no one keystroke to bind — but without a
+	// hint nothing on screen says the field takes typing at all.
+	PercentType: key.NewBinding(key.WithHelp("0-9", "type a number")),
 	// ctrl+y copies the open task's id; it is bound to no input widget, so it
 	// works from every zone including a focused text field.
 	CopyTaskID: key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "copy task id")),
@@ -391,7 +401,7 @@ func Catalog(ctx Context) []Scope {
 
 	scopes = append(scopes, Scope{
 		Title:   "Details",
-		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
+		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
 	})
 
 	return scopes

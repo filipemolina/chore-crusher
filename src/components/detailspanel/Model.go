@@ -569,6 +569,10 @@ func (m *Model) handleProgressKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "left", "h":
 		m.cycleMode(-1)
 		return m, nil
+	case "up":
+		return m.nudgePercent(5)
+	case "down":
+		return m.nudgePercent(-5)
 	case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		if m.progressKind != apptypes.ProgressPercentage {
 			return m, nil
@@ -592,6 +596,24 @@ func (m *Model) handleProgressKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	return m, nil
+}
+
+// nudgePercent steps the percentage-mode value by delta, clamped to 0–100.
+// An unset value counts as 0, so the first ↑ on a fresh percentage task gives
+// 5 rather than doing nothing. Clamping (rather than refusing) is what makes
+// holding ↑ settle at 100 instead of erroring: the out-of-range message is for
+// typed input, where the user can see what they typed.
+func (m *Model) nudgePercent(delta int) (tea.Model, tea.Cmd) {
+	if m.progressKind != apptypes.ProgressPercentage {
+		return m, nil
+	}
+	current := 0
+	if m.percentInput != "" {
+		current, _ = strconv.Atoi(m.percentInput)
+	}
+	m.percentInput = strconv.Itoa(min(100, max(0, current+delta)))
+	m.errMsg = ""
 	return m, nil
 }
 

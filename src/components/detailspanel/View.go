@@ -3,7 +3,6 @@ package detailspanel
 import (
 	"fmt"
 	"image/color"
-	"strconv"
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
@@ -213,32 +212,48 @@ func (m *Model) renderProgressZone() string {
 		modeDisplay = modeStyle.Render(modeName)
 	}
 
+	// Derived and unavailable values are annotations — parenthesised and muted,
+	// because the user cannot edit them here. The percentage is the one value
+	// they can, so it renders as a field instead (renderPercentField).
+	annotate := func(s string) string {
+		return " " + lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render(s)
+	}
+
 	var valueDisplay string
 	switch m.progressKind {
 	case apptypes.ProgressSimple:
 		valueDisplay = ""
 	case apptypes.ProgressSubtasks:
 		if m.displayAsSimple {
-			valueDisplay = "(no children)"
+			valueDisplay = annotate("(no children)")
 		} else {
-			valueDisplay = fmt.Sprintf("(%d%%)", m.derivedPct)
+			valueDisplay = annotate(fmt.Sprintf("(%d%%)", m.derivedPct))
 		}
 	case apptypes.ProgressPercentage:
-		if m.focus == focusProgress && m.percentInput != "" {
-			valueDisplay = fmt.Sprintf("(%s%%)", m.percentInput)
-		} else if m.percentInput != "" {
-			val, _ := strconv.Atoi(m.percentInput)
-			valueDisplay = fmt.Sprintf("(%d%%)", val)
-		} else {
-			valueDisplay = "(—)"
-		}
-	}
-
-	if valueDisplay != "" {
-		valueDisplay = " " + lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render(valueDisplay)
+		valueDisplay = " " + m.renderPercentField()
 	}
 
 	return modeDisplay + valueDisplay
+}
+
+// renderPercentField renders the percentage as something that looks editable.
+// It used to render as a dim parenthetical — "(60%)", or "(—)" when unset —
+// which read as a status annotation, so nothing on screen suggested the field
+// took input at all. Now the value is TextPrimary, an unset value shows "0%"
+// rather than an em dash, and while the Progress field has focus the value
+// sits on BackgroundElevated: the same lift the notes textarea uses for its
+// cursor line, which is how this app shows focus (docs/DESIGN.md §12) rather
+// than inventing a caret glyph.
+func (m *Model) renderPercentField() string {
+	value := m.percentInput
+	if value == "" {
+		value = "0"
+	}
+	style := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
+	if m.focus == focusProgress {
+		style = style.Background(appstyles.Active.BackgroundElevated)
+	}
+	return style.Render(" " + value + "% ")
 }
 
 // renderStatusLine is the single reserved row below the progress zone: an error
@@ -461,14 +476,25 @@ func (m *Model) zoneHints() []chrome.KeyHint {
 			chrome.HintFor(keys.Details.CopyTaskID),
 		}
 	case m.focus == focusProgress:
-		return []chrome.KeyHint{
+		hints := []chrome.KeyHint{
 			chrome.HintFor(keys.Details.NextField),
 			chrome.HintFor(keys.Details.CycleMode),
 			chrome.HintFor(keys.Details.CycleModeBack),
+		}
+		// The percentage value is the only editable one, so its input methods
+		// are advertised only in that mode — typing digits and ↑/↓ do nothing
+		// in the other two.
+		if m.progressKind == apptypes.ProgressPercentage {
+			hints = append(hints,
+				chrome.HintFor(keys.Details.PercentType),
+				chrome.HintFor(keys.Details.PercentNudge),
+			)
+		}
+		return append(hints,
 			chrome.HintFor(keys.Details.Save),
 			chrome.HintFor(keys.Details.CopyTaskID),
 			chrome.HintFor(keys.Overlay.Cancel),
-		}
+		)
 	case m.focus == focusComments:
 		return []chrome.KeyHint{
 			chrome.HintFor(keys.Details.NextField),
