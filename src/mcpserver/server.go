@@ -66,9 +66,8 @@ type taskDetailsJSON struct {
 }
 
 // commentJSON mirrors store.Comment for the MCP surface (docs/plan/task-comments.md
-// §4). It appears in taskDetailsJSON (show_task / crush:///tasks/{id}) and as
-// each entry in show_tasks (§3.C). Author is the OS username (CLI/TUI path)
-// or the server identity (agent path).
+// §4). It appears in taskDetailsJSON (show_task). Author is the OS username
+// (CLI/TUI path) or the server identity (agent path).
 type commentJSON struct {
 	ID        string `json:"id"`
 	Author    string `json:"author"`
@@ -113,7 +112,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		Version: constants.Version(),
 	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
 
-IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists (or crush:///lists) before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
+IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
 
 IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
@@ -443,10 +442,10 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			for _, c := range comments {
 				commentJSONs = append(commentJSONs, commentJSON{
 					ID:        c.ID,
-				Author:    c.Author,
-				Note:      c.Note,
-				CreatedAt: c.CreatedAt,
-			})
+					Author:    c.Author,
+					Note:      c.Note,
+					CreatedAt: c.CreatedAt,
+				})
 			}
 			out = append(out, taskDetailsJSON{
 				ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
@@ -1061,14 +1060,23 @@ func addWorkResource(server *mcp.Server, s *store.Store) {
 	})
 }
 
-// addResources registers read-only resources and resource templates so
-// any MCP host that auto-reads resources surfaces them (docs/plan/
-// mcp-server-enhancement.md §4.1).
+// addResources registers crush:///inbox, the one read-only resource that is
+// not a duplicate of a tool (docs/plan/mcp-server-enhancement.md §4.1).
+//
+// crush:///lists, crush:///lists/{id}, crush:///lists/{id}/tasks,
+// crush:///tasks/{id} and crush:///search/{query} used to live here and were
+// deleted (docs/plan/mcp-assignment-and-priorities.md §8): each was a
+// row-for-row duplicate of my_list / list_tasks / show_task / search_tasks,
+// and docs/DESIGN.md §9 pins resource rows as a superset of the CLI's --json
+// shapes — so every field added to a task had to be added in three places or
+// the surfaces drifted. Hosts do not auto-read resources, so they cost
+// maintenance and bought nothing at runtime. Do not re-add them; add the
+// field to the tool instead.
 func addResources(server *mcp.Server, s *store.Store, identity string) {
 	// Static: crush:///inbox — one-shot start-of-session context:
 	// your list plus every foreign list, each with up to 20 pending tasks
 	// and their notes inlined, so a session can open in one read instead
-	// of my_list + list_lists + list_tasks + show_task fan-out.
+	// of my_list + list_tasks + show_task fan-out.
 	server.AddResource(&mcp.Resource{
 		URI:         "crush:///inbox",
 		Name:        "Inbox",
@@ -1119,193 +1127,6 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 			"mine":          mine,
 			"foreign_lists": foreign,
 		})
-	})
-
-	// Static: crush:///lists — full list of lists + counts.
-	server.AddResource(&mcp.Resource{
-		URI:         "crush:///lists",
-		Name:        "Lists",
-		Description: "All task lists with pending and complete counts.",
-		MIMEType:    "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		lists, err := s.ListLists()
-		if err != nil {
-			return nil, err
-		}
-		type row struct {
-			ID            string `json:"id"`
-			Name          string `json:"name"`
-			Pending       int    `json:"pending"`
-			Complete      int    `json:"complete"`
-			CreatedBy     string `json:"created_by"`
-			Collaborative bool   `json:"collaborative"`
-			CreatedAt     int64  `json:"created_at"`
-			Position      int    `json:"position"`
-		}
-		out := make([]row, len(lists))
-		for i, l := range lists {
-			out[i] = row{
-				ID:            l.List.ID,
-				Name:          l.List.Name,
-				Pending:       l.PendingCount,
-				Complete:      l.CompleteCount,
-				CreatedBy:     l.CreatedBy,
-				Collaborative: l.Collaborative,
-				CreatedAt:     l.List.CreatedAt,
-				Position:      l.List.Position,
-			}
-		}
-		return marshalResource(req.Params.URI, out)
-	})
-
-	// Template: crush:///lists/{id} — one list's summary.
-	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "crush:///lists/{id}",
-		Name:        "List",
-		Description: "Summary of one list: name, pending/complete counts.",
-		MIMEType:    "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		id, err := templateID(req.Params.URI, "lists")
-		if err != nil {
-			return nil, err
-		}
-		resolved, err := s.ResolveID("list", id)
-		if err != nil {
-			return nil, mcp.ResourceNotFoundError(req.Params.URI)
-		}
-		lists, err := s.ListLists()
-		if err != nil {
-			return nil, err
-		}
-		for _, l := range lists {
-			if l.List.ID == resolved {
-				return marshalResource(req.Params.URI, struct {
-					ID            string `json:"id"`
-					Name          string `json:"name"`
-					Pending       int    `json:"pending"`
-					Complete      int    `json:"complete"`
-					CreatedBy     string `json:"created_by"`
-					Collaborative bool   `json:"collaborative"`
-					CreatedAt     int64  `json:"created_at"`
-				}{
-					ID: l.List.ID, Name: l.List.Name, Pending: l.PendingCount,
-					Complete: l.CompleteCount, CreatedBy: l.CreatedBy, Collaborative: l.Collaborative,
-					CreatedAt: l.List.CreatedAt,
-				})
-			}
-		}
-		return nil, mcp.ResourceNotFoundError(req.Params.URI)
-	})
-
-	// Template: crush:///lists/{id}/tasks — the list's task tree.
-	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "crush:///lists/{id}/tasks",
-		Name:        "List tasks",
-		Description: "Depth-annotated task tree for one list.",
-		MIMEType:    "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		id, err := templateID(req.Params.URI, "lists")
-		if err != nil {
-			return nil, err
-		}
-		resolved, err := s.ResolveID("list", id)
-		if err != nil {
-			return nil, mcp.ResourceNotFoundError(req.Params.URI)
-		}
-		l, err := s.GetList(resolved)
-		if err != nil {
-			return nil, err
-		}
-		tasks, err := s.ListTasks(resolved)
-		if err != nil {
-			return nil, err
-		}
-		rows, err := sectionRows(s, tasks, "all", l.CreatedBy)
-		if err != nil {
-			return nil, err
-		}
-		return marshalResource(req.Params.URI, rows)
-	})
-
-	// Template: crush:///tasks/{id} — one task's details.
-	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "crush:///tasks/{id}",
-		Name:        "Task",
-		Description: "Full details of one task including its children.",
-		MIMEType:    "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		id, err := templateID(req.Params.URI, "tasks")
-		if err != nil {
-			return nil, err
-		}
-		resolved, err := s.ResolveID("task", id)
-		if err != nil {
-			return nil, mcp.ResourceNotFoundError(req.Params.URI)
-		}
-		t, err := s.GetTask(resolved)
-		if err != nil {
-			return nil, err
-		}
-		prog, err := taskProgressJSON(s, resolved)
-		if err != nil {
-			return nil, err
-		}
-		all, err := s.ListTasks(t.ListID)
-		if err != nil {
-			return nil, err
-		}
-		l, err := s.GetList(t.ListID)
-		if err != nil {
-			return nil, err
-		}
-		children, err := descendantRows(s, all, resolved, l.CreatedBy)
-		if err != nil {
-			return nil, err
-		}
-		return marshalResource(req.Params.URI, taskDetailsJSON{
-			ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
-			Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
-			UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt, Children: children,
-		})
-	})
-
-	// Template: crush:///search/{query} — search results.
-	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "crush:///search/{query}",
-		Name:        "Search",
-		Description: "Fuzzy search across task titles and notes.",
-		MIMEType:    "application/json",
-	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		query, err := templateID(req.Params.URI, "search")
-		if err != nil {
-			return nil, err
-		}
-		tasks, err := s.SearchTasks(query, nil)
-		if err != nil {
-			return nil, err
-		}
-		lists, err := s.ListLists()
-		if err != nil {
-			return nil, err
-		}
-		listNames := make(map[string]string, len(lists))
-		listOwners := make(map[string]string, len(lists))
-		for _, l := range lists {
-			listNames[l.List.ID] = l.List.Name
-			listOwners[l.List.ID] = l.List.CreatedBy
-		}
-		out := make([]searchResultJSON, len(tasks))
-		for i, t := range tasks {
-			prog, err := taskProgressJSON(s, t.ID)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = searchResultJSON{
-				ID: t.ID, ListID: t.ListID, ListName: listNames[t.ListID],
-				ListOwner: listOwners[t.ListID], Title: t.Title, Status: string(t.Status), Progress: prog,
-			}
-		}
-		return marshalResource(req.Params.URI, out)
 	})
 }
 
@@ -1377,28 +1198,6 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 			}},
 		}, nil
 	})
-}
-
-// templateID extracts the last path segment from a crush:/// URI after
-// stripping the given prefix (e.g. "lists" from "crush:///lists/abc/tasks").
-// For crush:///lists/{id}/tasks it returns "abc". For crush:///tasks/{id}
-// it returns the task id segment.
-func templateID(uri, prefix string) (string, error) {
-	// Strip scheme: "crush:///lists/abc/tasks" -> "/lists/abc/tasks"
-	path := uri
-	if idx := strings.Index(path, "://"); idx >= 0 {
-		path = path[idx+3:]
-	}
-	// Split on / and skip leading empty segment.
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid resource URI %q: expected %s/{id}", uri, prefix)
-	}
-	// For crush:///lists/{id}/tasks: parts = ["lists", "id", "tasks"]
-	// For crush:///lists/{id}: parts = ["lists", "id"]
-	// For crush:///tasks/{id}: parts = ["tasks", "id"]
-	// For crush:///search/{query}: parts = ["search", "query"]
-	return parts[1], nil
 }
 
 // marshalResource marshals v and wraps it in a ReadResourceResult.

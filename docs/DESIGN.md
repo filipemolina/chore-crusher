@@ -845,11 +845,17 @@ over one store" rule from §1 and §10.
 
 **MCP rows are a superset of the CLI's `--json` shapes** (CONTRIBUTING rule
 6): `my_list` adds `position` and `created_by` to the `lists` rows it
-returns (`mine` + `foreign_lists`), and the read-only resources mirror the
-tools row-for-row (including `created_by` on `crush:///lists` and
-`crush:///lists/{id}`). Both surfaces read the same
-store rows (`ListLists`, `ListTasks`), so a field added to one appears in
-the other (hardening plan §4.5, §4.7); the server-side tests that pin the
+returns (`mine` + `foreign_lists`). **The read-only resources no longer
+mirror the tools.** Five resources that duplicated a tool row-for-row —
+`crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
+`crush:///tasks/{id}` and `crush:///search/{query}` — were deleted
+(`docs/plan/mcp-assignment-and-priorities.md` §8): keeping them meant every
+field added to a task had to be added in three places or the surfaces
+drifted, and MCP hosts do not auto-read resources, so they cost maintenance
+and bought nothing at runtime. Only `crush:///inbox` (a composed shape with
+no tool equivalent) and `crush://work` (presence) remain, and
+`TestMCPResourcesListed` pins that set at exactly two with zero templates.
+A new field belongs on the tool. The server-side tests that pin the
 MCP shapes live in `src/mcpserver/server_test.go`. The task read shapes —
 `show_task`/`crush show`, `list_tasks`/`crush tasks`, `search_tasks`/`crush
 search` — carry `list_owner` on every row (the parent list's `created_by`,
@@ -928,8 +934,8 @@ means owned by nobody, which makes the list foreign to *every* identity: an
 untagged list — the shape `crush lists add` and the TUI create — is read +
 status/progress only for all agents, and only a human can restructure it.
 `add_list` defaults `created_by` to the session identity and accepts an
-explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `my_list` and `crush:///lists`
-report `created_by` on every row. Ownership is adopted from the `<tag>: <name>`
+explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `my_list` reports `created_by`
+on every row. Ownership is adopted from the `<tag>: <name>`
 naming convention in two places (hardening plan §4.6–4.7): a rename into a
 tag adopts the owner **in the same write** (`store.RenameList` — the human's
 `crush lists rename Groceries "pi: Groceries"` handoff path takes effect
@@ -954,9 +960,8 @@ CLI/TUI side: a human may always restructure their own list regardless of
 this flag. A human sets it from the TUI's list-rename modal (`R` in the
 Lists panel); the Lists panel marks a collaborative row so it reads
 differently from one an agent cannot restructure (§12). `my_list`'s
-`foreign_lists`, `crush:///lists`, and `crush:///lists/{id}` all carry
-`collaborative` next to `created_by`, so an agent can tell before it tries
-rather than discovering it from a refusal.
+`foreign_lists` carries `collaborative` next to `created_by`, so an agent can
+tell before it tries rather than discovering it from a refusal.
 
 Enforcement lives in `src/mcpserver` alone (the `requireWritable` helper) —
 the store stays a dumb data layer and the CLI and TUI stay unenforced, which

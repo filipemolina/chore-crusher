@@ -141,9 +141,10 @@ func mustUnmarshal(t *testing.T, s string, v any) {
 	}
 }
 
-// readResourceText reads a resource and returns its single text body. The
-// crush:///lists and crush://work resources now backfill the removed
-// list_lists and list_work tools (docs/plan/mcp-tool-consolidation.md §4.4–4.5).
+// readResourceText reads a resource and returns its single text body. Only
+// crush:///inbox and crush://work remain (docs/plan/mcp-assignment-and-priorities.md
+// §8); crush://work still backfills the removed list_work tool
+// (docs/plan/mcp-tool-consolidation.md §4.5).
 func readResourceText(t *testing.T, session *mcp.ClientSession, uri string) string {
 	t.Helper()
 	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: uri})
@@ -156,11 +157,33 @@ func readResourceText(t *testing.T, session *mcp.ClientSession, uri string) stri
 	return res.Contents[0].Text
 }
 
-// listsJSON replaces the removed list_lists tool: the crush:///lists resource
-// serves the identical row shape.
-func listsJSON(t *testing.T, session *mcp.ClientSession) string {
+// listsJSON replaces the removed list_lists tool. It used to read the
+// crush:///lists resource; that resource was deleted as a duplicate of my_list
+// (docs/plan/mcp-assignment-and-priorities.md §8), so the helper now calls
+// my_list and flattens {mine, foreign_lists} back into the single row array
+// its callers assert against. identity fills in created_by for the agent's own
+// block, which my_list omits because it is the caller's own tag by
+// construction.
+func listsJSON(t *testing.T, session *mcp.ClientSession, identity string) string {
 	t.Helper()
-	return readResourceText(t, session, "crush:///lists")
+	var out struct {
+		Mine    map[string]any   `json:"mine"`
+		Foreign []map[string]any `json:"foreign_lists"`
+	}
+	mustUnmarshal(t, callTool(t, session, "my_list", nil), &out)
+
+	rows := make([]map[string]any, 0, len(out.Foreign)+1)
+	if id, _ := out.Mine["id"].(string); id != "" {
+		out.Mine["created_by"] = identity
+		rows = append(rows, out.Mine)
+	}
+	rows = append(rows, out.Foreign...)
+
+	b, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatalf("marshal lists rows: %v", err)
+	}
+	return string(b)
 }
 
 // workJSON replaces the removed list_work tool: the crush://work resource
@@ -254,7 +277,7 @@ func TestMCPMyList(t *testing.T) {
 
 	// list_lists sees exactly one list, matching my_list's id.
 	var lists []map[string]any
-	mustUnmarshal(t, listsJSON(t, session), &lists)
+	mustUnmarshal(t, listsJSON(t, session, "agent"), &lists)
 	if len(lists) != 1 || lists[0]["id"] != mine["id"] {
 		t.Fatalf("list_lists = %+v, want one list matching my_list", lists)
 	}
@@ -578,23 +601,10 @@ func TestMCPShowTaskIncludesChildren(t *testing.T) {
 		t.Fatalf("grandchild depth = %d, want 2", byID[grand["id"]])
 	}
 
-	// The crush:///tasks/{id} resource shares the same code path and must
-	// also return the children.
-	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
-		URI: "crush:///tasks/" + parent["id"],
-	})
-	if err != nil {
-		t.Fatalf("ReadResource crush:///tasks/%s: %v", parent["id"], err)
-	}
-	var resDetails struct {
-		Children []struct {
-			ID string `json:"id"`
-		} `json:"children"`
-	}
-	mustUnmarshal(t, res.Contents[0].Text, &resDetails)
-	if len(resDetails.Children) != 2 {
-		t.Fatalf("resource children = %+v, want 2", resDetails.Children)
-	}
+	// The crush:///tasks/{id} resource used to be asserted here as a second
+	// code path; it was deleted as a duplicate of show_task
+	// (docs/plan/mcp-assignment-and-priorities.md §8), and show_task's own
+	// children are already asserted above.
 }
 
 func TestMCPDeleteTaskRequiresForce(t *testing.T) {
@@ -1148,146 +1158,42 @@ func TestMCPWorkResource(t *testing.T) {
 	}
 }
 
-func TestMCPListsResource(t *testing.T) {
-	session := setupMCP(t)
-
-	var created map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &created)
-
-	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
-		URI: "crush:///lists",
-	})
-	if err != nil {
-		t.Fatalf("ReadResource crush:///lists: %v", err)
-	}
-
-	var lists []struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		CreatedBy string `json:"created_by"`
-	}
-	mustUnmarshal(t, res.Contents[0].Text, &lists)
-	if len(lists) != 1 || lists[0].Name != "Home" {
-		t.Fatalf("crush:///lists = %+v", lists)
-	}
-
-	// H5: the resource row must carry created_by — no CRUSH_AGENT is set
-	// here, so the default identity is "agent".
-	if lists[0].CreatedBy != "agent" {
-		t.Fatalf("crush:///lists created_by = %q, want the server identity (agent)", lists[0].CreatedBy)
-	}
-
-	// The single-list resource carries the same owner.
-	res, err = session.ReadResource(context.Background(), &mcp.ReadResourceParams{
-		URI: "crush:///lists/" + created["id"],
-	})
-	if err != nil {
-		t.Fatalf("ReadResource crush:///lists/{id}: %v", err)
-	}
-	var one struct {
-		ID        string `json:"id"`
-		CreatedBy string `json:"created_by"`
-	}
-	mustUnmarshal(t, res.Contents[0].Text, &one)
-	if one.ID != created["id"] || one.CreatedBy != "agent" {
-		t.Fatalf("crush:///lists/{id} = %+v, want id %q owned by agent", one, created["id"])
-	}
-}
-
-func TestMCPTaskResource(t *testing.T) {
-	session := setupMCP(t)
-
-	var list map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
-
-	var task map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
-		"list_id": list["id"],
-		"title":   "Write docs",
-	}), &task)
-
-	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
-		URI: "crush:///tasks/" + task["id"],
-	})
-	if err != nil {
-		t.Fatalf("ReadResource crush:///tasks/%s: %v", task["id"], err)
-	}
-
-	var details struct {
-		ID        string `json:"id"`
-		Title     string `json:"title"`
-		ListOwner string `json:"list_owner"`
-	}
-	mustUnmarshal(t, res.Contents[0].Text, &details)
-	if details.ID != task["id"] || details.Title != "Write docs" || details.ListOwner != "agent" {
-		t.Fatalf("crush:///tasks = %+v", details)
-	}
-}
-
-func TestMCPSearchResource(t *testing.T) {
-	session := setupMCP(t)
-
-	var list map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
-
-	callTool(t, session, "add_task", map[string]any{
-		"list_id": list["id"],
-		"title":   "Draft proposal",
-	})
-
-	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
-		URI: "crush:///search/proposal",
-	})
-	if err != nil {
-		t.Fatalf("ReadResource crush:///search/proposal: %v", err)
-	}
-
-	var results []struct {
-		Title     string `json:"title"`
-		ListOwner string `json:"list_owner"`
-	}
-	mustUnmarshal(t, res.Contents[0].Text, &results)
-	if len(results) != 1 || results[0].Title != "Draft proposal" || results[0].ListOwner != "agent" {
-		t.Fatalf("crush:///search/proposal = %+v", results)
-	}
-}
-
+// TestMCPResourcesListed pins the resource surface at exactly two entries and
+// zero templates. The five that used to live here — crush:///lists,
+// crush:///lists/{id}, crush:///lists/{id}/tasks, crush:///tasks/{id} and
+// crush:///search/{query} — were row-for-row duplicates of my_list /
+// list_tasks / show_task / search_tasks and were deleted
+// (docs/plan/mcp-assignment-and-priorities.md §8). This test is what stops
+// them coming back: a new field belongs on the tool, not on a second surface
+// that has to be kept in sync with it.
 func TestMCPResourcesListed(t *testing.T) {
 	session := setupMCP(t)
 
-	// The MCP server should advertise resources and resource templates.
 	res, err := session.ListResources(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("ListResources(): %v", err)
-	}
-	if len(res.Resources) == 0 {
-		t.Fatalf("expected at least one resource, got %d", len(res.Resources))
 	}
 	found := make(map[string]bool, len(res.Resources))
 	for _, r := range res.Resources {
 		found[r.URI] = true
 	}
-	for _, uri := range []string{"crush:///lists", "crush:///inbox"} {
+	want := map[string]bool{"crush:///inbox": true, "crush://work": true}
+	if len(found) != len(want) {
+		t.Fatalf("resources = %+v, want exactly %v", res.Resources, want)
+	}
+	for uri := range want {
 		if !found[uri] {
 			t.Fatalf("resource %q not in resources: %+v", uri, res.Resources)
 		}
 	}
 
+	// No resource templates at all: every template was a tool duplicate.
 	tres, err := session.ListResourceTemplates(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("ListResourceTemplates(): %v", err)
 	}
-	if len(tres.ResourceTemplates) == 0 {
-		t.Fatalf("expected at least one resource template, got %d", len(tres.ResourceTemplates))
-	}
-	templateFound := false
-	for _, rt := range tres.ResourceTemplates {
-		if rt.URITemplate == "crush:///tasks/{id}" {
-			templateFound = true
-			break
-		}
-	}
-	if !templateFound {
+	if len(tres.ResourceTemplates) != 0 {
+		t.Fatalf("resource templates = %+v, want none", tres.ResourceTemplates)
 	}
 }
 
@@ -1713,7 +1619,7 @@ func TestMCPAddListDefaultsToIdentity(t *testing.T) {
 		ID        string `json:"id"`
 		CreatedBy string `json:"created_by"`
 	}
-	mustUnmarshal(t, listsJSON(t, session), &lists)
+	mustUnmarshal(t, listsJSON(t, session, "pi"), &lists)
 	if len(lists) != 1 || lists[0].ID != created["id"] || lists[0].CreatedBy != "pi" {
 		t.Fatalf("list_lists = %+v, want created_by=pi for the new list", lists)
 	}
@@ -1755,7 +1661,7 @@ func TestMCPListListsIncludesCreatedBy(t *testing.T) {
 		ID        string `json:"id"`
 		CreatedBy string `json:"created_by"`
 	}
-	mustUnmarshal(t, listsJSON(t, session), &lists)
+	mustUnmarshal(t, listsJSON(t, session, "pi"), &lists)
 	for _, l := range lists {
 		byID[l.ID] = l.CreatedBy
 	}
@@ -2046,7 +1952,9 @@ func TestShowTasksBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add_comment: %v", err)
 	}
-	var cres struct{ ID string `json:"id"` }
+	var cres struct {
+		ID string `json:"id"`
+	}
 	mustUnmarshal(t, textContent(t, cid), &cres)
 
 	var got []map[string]any
@@ -2419,7 +2327,7 @@ func TestEditTaskTitleOnlyLeavesNotes(t *testing.T) {
 	}
 }
 
-// TestEditTaskNotesClear verifies notes='' clears the notes body.
+// TestEditTaskNotesClear verifies notes=” clears the notes body.
 func TestEditTaskNotesClear(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string

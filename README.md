@@ -167,11 +167,14 @@ can discover without reading source. Two jobs, one board:
   `claim_work` carries the presence trio (working/inspecting, plus
   `release=true` to stop the spinner). All names are server-prefixed
   (`chore_crusher_<name>`).
-- **7 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
-  `crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
-  `crush:///tasks/{id}`, `crush:///search/{query}`, `crush:///inbox` (one-shot
-  start-of-session context: your list + every foreign list with top pending
-  tasks and notes), and `crush://work` (the live claim set).
+- **2 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
+  `crush:///inbox` (one-shot start-of-session context: your list + every
+  foreign list with top pending tasks and notes) and `crush://work` (the live
+  claim set). Five others — `crush:///lists`, `crush:///lists/{id}`,
+  `crush:///lists/{id}/tasks`, `crush:///tasks/{id}` and
+  `crush:///search/{query}` — were removed as row-for-row duplicates of
+  `my_list` / `list_tasks` / `show_task` / `search_tasks`
+  (`docs/plan/mcp-assignment-and-priorities.md` §8).
 - **2 prompts** — canned workflows with current state already filled in:
   `crush_inbox` (one-shot opener: read `crush:///inbox` and pick the next
   task — fewer round-trips than `my_list` + `list_tasks` + `show_task`
