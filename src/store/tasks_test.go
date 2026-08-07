@@ -564,6 +564,11 @@ func openStoreAtMigration(t *testing.T, path string, upto int) *Store {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
+	// Mirror Open's single-connection pool. This helper bypasses Open, and a
+	// Store whose pool differs from every other Store in the process is not
+	// the thing under test (store.go: SetMaxOpenConns(1) serializes writes
+	// within the process).
+	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	t.Cleanup(func() { s.Close() })
 

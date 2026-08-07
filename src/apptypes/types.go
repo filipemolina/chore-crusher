@@ -44,9 +44,10 @@ const (
 // Task is a task the components render, mirroring store.Task's row shape.
 // ParentID is nil for a root-level task; ProgressPct is set only when
 // ProgressKind is ProgressPercentage; CompletedAt is set only when Status is
-// StatusComplete. Components never hold store.Task — FromStore converts at
-// the boundary, so the TUI layer cannot come to depend on store's SQL-flavored
-// reading of a row (docs/DESIGN.md §10).
+// StatusComplete; AssignedAt is set only when Assignee != ""; Priority
+// defaults to PriorityNone. Components never hold store.Task — FromStore
+// converts at the boundary, so the TUI layer cannot come to depend on store's
+// SQL-flavored reading of a row (docs/DESIGN.md §10).
 type Task struct {
 	ID           string
 	ListID       string
