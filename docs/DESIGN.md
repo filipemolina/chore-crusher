@@ -502,10 +502,27 @@ which defeats the reason the tree exists at all.
 
 A list with no tasks yet auto-shows the inline "new task" input as its only
 row, under the `Pending` header — the input creates a pending task, so it
-belongs to the section the task will land in. Once the user leaves it with
-esc, the standard recessed empty-state card takes its place ("No tasks yet.
-Press n to create one." — see §12 "Empty states"), and the input only comes
-back via `n` or by deleting every remaining task in the list. The `Complete`
+belongs to the section the task will land in — with one line of `TextDim`
+guidance beneath it: **"type a title and press enter"**.
+
+**That is the empty list's only appearance.** `esc` *parks* the input rather
+than closing it: the draft is discarded and the input is **blurred**, but the
+row stays exactly where it is, so the surface renders identically before and
+after esc. (An empty input draws its placeholder, not a cursor, so parked and
+live are indistinguishable on screen.) `n` makes it live again.
+
+Blurring is the part that matters beyond appearance: a live create input owns
+the keyboard, and the input on an empty list can no longer be closed, so
+without parking `q`, `L`, `t` and `/` would be dead forever on the first screen
+a new user sees. `KeepsEsc`, `OwnsKeyboard` and `IsCreating` all key off the
+*live* state, not off the row being rendered, which also keeps the footer from
+advertising `enter create` for an input that would ignore it.
+
+This replaced an earlier design in which esc swapped the input for a recessed
+"No tasks yet. Press n to create one." card. One condition drew two different
+screens, and the card explaining how to add a task appeared only *after* the
+user dismissed the thing it was telling them to open. The guidance now sits
+beside the input instead of in a card that replaces it. The `Complete`
 header is omitted entirely when empty; an empty `Complete` section with
 nothing under it is noise no reader needs.
 
@@ -1346,8 +1363,12 @@ that's a signal to reconsider the case, not to add a color.
 
 ### Empty states: one recessed-card pattern
 
-Every empty state (an empty Tasks surface after the inline input was
-dismissed; a lists panel with no lists yet) is the same shape: a box on the
+An empty *task list* is not one of these: it renders its inline input and the
+guidance beside it (§6), which is what gives that condition exactly one
+appearance. `EmptyStateCard` is for the states with nothing to type into —
+a filter that matched nothing, a lists panel with no lists yet.
+
+Every empty state that does use it is the same shape: a box on the
 `BackgroundRecessed` tier, rimmed with
 `BorderCard` (not `BorderDefault` — see §11's inherited reasoning: a border
 has to contrast with the surface it wraps, and `BorderDefault` moves *toward*

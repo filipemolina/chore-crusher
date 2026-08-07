@@ -88,11 +88,12 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	switch {
 	case !m.activeList:
 		return appstyles.FillBackground(bg, lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Render("Add a task to get started"))
-	case len(m.rows) == 0 && !m.creating:
-		// An empty list after an esc cancel: the standard recessed empty-state
-		// card. The input is no longer the empty state — single-press esc
-		// removes it (docs/plan/task-row-cards-and-status.md).
-		return appstyles.FillBackground(bg, chrome.EmptyStateCard("No tasks yet.\nPress n to create one.", width, height, bg))
+	// An empty list has no case of its own: it renders the create row and its
+	// guidance line through the ordinary plan below, which is what gives it
+	// exactly ONE appearance. It used to have a second — a recessed
+	// "No tasks yet. Press n to create one." card that took the input's place
+	// after esc, so the card telling the user how to add a task only appeared
+	// once they had dismissed the thing it was pointing at (docs/DESIGN.md §12).
 	case m.filterActive() && len(filterMatches(m.rows, m.filterQuery)) == 0:
 		// Filtered to nothing: the filter bar over a recessed "no match" card.
 		// There are no rows to scroll, so this renders directly rather than
@@ -295,6 +296,11 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 		plan = append(plan, sectionLine("Pending", 0))
 		plan = append(plan, chromeLine(""))
 		plan = append(plan, m.createLine(width, bg))
+		// The guidance goes BESIDE the input, not in a card that replaces it:
+		// a first-time user is told how to add a task at the moment the input
+		// is in front of them, rather than after dismissing it
+		// (docs/DESIGN.md §12).
+		plan = append(plan, chromeLine(m.renderCreateHint(width, bg)))
 		return plan
 	}
 
@@ -544,6 +550,23 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 		cardWidth-cardInset, statusFg(row.Task.Status), spinnerFg(isSelected))
 
 	return cardIndent + renderTaskCard(cardWidth, rowBg, barFgFor(row.Task.Status, isSelected), content)
+}
+
+// createHint is the guidance an empty list shows beside its input. It replaces
+// the "Press n to create one." card that used to appear only AFTER the input
+// was dismissed — pointing at a thing that was no longer on screen. Beside the
+// open input it says what to do with the input the user is already looking at.
+const createHint = "type a title and press enter"
+
+// renderCreateHint renders createHint on the line below the create row, in
+// TextDim, indented to start under the create card's glyph so it reads as
+// belonging to that row rather than to the panel edge (docs/DESIGN.md §12).
+func (m *Model) renderCreateHint(width int, bg color.Color) string {
+	const indent = "  " // the ▌ bar column plus its one-space gap
+	return lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextDim).
+		Background(bg).
+		Render(indent + chrome.Truncate(createHint, max(1, width-len(indent))))
 }
 
 // renderCreateRow renders the inline "new task" row as a card styled like a

@@ -70,13 +70,8 @@ type Model struct {
 	// card never splits a task from its children ("""") = append at end.
 	createBeforeID    string
 	createInput       textinput.Model
-	createLevelOffset int // -1 = parent, 0 = sibling, +1 = child
-	// createSuppressed remembers that the user esc-cancelled creating, so
-	// the next refresh of the same empty list does not silently re-open the
-	// input. Cleared when creating starts again (n) or the active list
-	// changes (docs/plan/task-row-cards-and-status.md).
-	createSuppressed bool
-	activeListID     string // id of the list the rows belong to; a change clears createSuppressed
+	createLevelOffset int    // -1 = parent, 0 = sibling, +1 = child
+	activeListID      string // id of the list the rows belong to
 
 	// Agent presence: the live claim set and the current spinner frame.
 	// work is keyed by entity_id for EntityType=="task" claims.
@@ -108,14 +103,25 @@ func New() tea.Model {
 // back in the rows, the panel keys mean what they always mean, and esc clears
 // the filter. See AppModel.keyboardOwned.
 func (m Model) OwnsKeyboard() bool {
-	return m.filterTyping || m.creating
+	return m.filterTyping || m.createLive()
+}
+
+// createLive reports whether the create row is not merely on screen but
+// actually taking keystrokes. On an empty list the row is the permanent empty
+// state (see applyRows), so `creating` alone would mean the tree owned the
+// keyboard forever there — q, L, t and / would never work on a brand new
+// list. esc parks the input instead: the row stays, blurred, and n makes it
+// live again.
+func (m Model) createLive() bool {
+	return m.creating && m.createInput.Focused()
 }
 
 // KeepsEsc reports whether the tree needs esc for itself: typing in the
-// filter, an applied filter, or inline creating all claim esc so the
-// ladder doesn't steal it before the tree can handle it.
+// filter, an applied filter, or a live create input all claim esc so the
+// ladder doesn't steal it before the tree can handle it. A parked create row
+// does not — there is nothing left for esc to do there.
 func (m Model) KeepsEsc() bool {
-	return m.focused && (m.filterTyping || m.filterApplied || m.creating)
+	return m.focused && (m.filterTyping || m.filterApplied || m.createLive())
 }
 
 // Rows returns the tree's current (unfiltered) rows. The model's tests read
@@ -146,21 +152,20 @@ func (m Model) IsEmpty() bool {
 // easier than retrofitting it once phase 4's real tree exists.
 func (m *Model) applyRows(rows []apptypes.Row) {
 	if len(rows) == 0 {
-		hadRows := len(m.rows) > 0
 		m.rows = nil
 		m.selectedID = ""
-		// Deleting every remaining task re-opens the empty list's input even
-		// after an esc cancel: createSuppressed means "a refresh must not
-		// undo my esc", not "never show the input on this list again" — the
-		// list becoming empty is one of the two ways the input comes back, n
-		// being the other (docs/plan/task-row-cards-and-status.md).
-		if hadRows {
-			m.createSuppressed = false
-		}
-		// An empty active list auto-shows the inline input unless the user
-		// just esc-cancelled it (createSuppressed): a refresh must not undo
-		// the user's cancel.
-		if m.activeList && !m.creating && !m.createSuppressed {
+		// An empty active list IS the inline input: it has exactly one
+		// appearance, whether or not esc has been pressed (docs/DESIGN.md
+		// §12 "Empty states"). There used to be a second one — a recessed
+		// "No tasks yet. Press n to create one." card that replaced the input
+		// after esc — so the same condition rendered two different screens,
+		// and the card explaining how to add a task only appeared once the
+		// user had dismissed the thing it was telling them to open.
+		//
+		// esc parks the input (blurs it, keeping the row) rather than
+		// removing it, so this re-open never fights the user for the
+		// keyboard: it restores nothing that esc took away.
+		if m.activeList && !m.creating {
 			m.startCreating("")
 		}
 		return
@@ -265,10 +270,7 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.activeListID != msg.ListID {
-			// A list switch ends any esc-suppression: the next empty list
-			// auto-shows its input again.
 			m.activeListID = msg.ListID
-			m.createSuppressed = false
 			// A list switch also closes any inline create input left open
 			// from the previous list — e.g. the auto-open on an empty list
 			// carrying over — and drops its draft. Clearing happens before
@@ -326,9 +328,11 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// While creating, every keystroke goes to the textinput except
-		// the creation-specific shortcuts.
-		if m.creating {
+		// While the create input is LIVE, every keystroke goes to the
+		// textinput except the creation-specific shortcuts. A parked row (esc
+		// on an empty list) is on screen but blurred, so keys fall through to
+		// the tree — n is what makes it live again.
+		if m.createLive() {
 			return m.handleCreatingKey(msg)
 		}
 
@@ -344,9 +348,9 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// n starts creating even when the tree is empty: esc can leave an
-		// empty list's surface bare, and n is the only way back in
-		// (docs/plan/task-row-cards-and-status.md).
+		// n starts creating even when the tree is empty: esc parks the empty
+		// list's input (blurs it, keeping the row), and n is what makes it
+		// live again (docs/DESIGN.md §6).
 		if key.Matches(msg, keys.Tree.New) {
 			m.StartCreating(m.selectedID)
 			return m, m.createInput.Focus()
@@ -418,7 +422,7 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.filterQuery = m.filterInput.Value()
 			return m, cmd
 		}
-		if m.creating {
+		if m.createLive() {
 			var cmd tea.Cmd
 			m.createInput, cmd = m.createInput.Update(msg)
 			return m, cmd
@@ -960,7 +964,6 @@ func (m *Model) StartCreating(beforeID string) {
 
 func (m *Model) startCreating(beforeID string) {
 	m.creating = true
-	m.createSuppressed = false
 
 	// When the selection is a complete task, place the create row after the
 	// last pending task (at that task's depth) rather than splicing it under
@@ -1002,16 +1005,24 @@ func (m *Model) lastPendingIDAtDepth(depth int) string {
 	return lastID
 }
 
-// CancelCreating exits inline creation mode and resets the input. It marks
-// the session as esc-suppressed so the next refresh of the same empty list
-// does not re-open the input under the user (docs/plan/task-row-cards-and-status.md).
+// CancelCreating exits inline creation mode and resets the input, removing the
+// create row (docs/plan/task-row-cards-and-status.md).
 func (m *Model) CancelCreating() {
 	m.creating = false
-	m.createSuppressed = true
 	m.createBeforeID = ""
 	m.createLevelOffset = 0
 	m.createInput.Blur()
 	m.createInput.Reset()
+}
+
+// ParkCreating discards the draft but leaves the create row on screen with its
+// input blurred. It is what esc does on an empty list, where the row is the
+// empty state and cannot be removed without inventing a second one — see
+// createLive for why blurring rather than closing is what matters.
+func (m *Model) ParkCreating() {
+	m.createLevelOffset = 0
+	m.createInput.Reset()
+	m.createInput.Blur()
 }
 
 // CreateDraft returns the current input value as a draft task, or false
@@ -1031,9 +1042,13 @@ func (m *Model) ResetCreateInput(nextBeforeID string) {
 	m.createLevelOffset = 0
 }
 
-// IsCreating reports whether the tree is in inline creation mode.
+// IsCreating reports whether the tree is in inline creation mode — the input
+// is on screen AND taking keystrokes. It drives the footer and help context,
+// which must advertise only keys that actually do something: an empty list's
+// parked row is still rendered, but enter/[/] do nothing to it, so it does not
+// count as creating. See createLive.
 func (m Model) IsCreating() bool {
-	return m.creating
+	return m.createLive()
 }
 
 // handleCreatingKey processes keystrokes while the inline input is active.
@@ -1050,10 +1065,21 @@ func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key.Matches(msg, keys.Overlay.Cancel) {
-		// Single press always cancels: discard any typed text and remove the
-		// create row, from every entry path (manual n or the empty list's
-		// auto-input). The refresh that follows must not re-open it — see
-		// createSuppressed (docs/plan/task-row-cards-and-status.md).
+		// Single press always discards any typed text. On a list with rows it
+		// also removes the create row (docs/plan/task-row-cards-and-status.md).
+		//
+		// On an EMPTY list the row is the empty state itself, so removing it
+		// would leave the surface bare and give the same condition two
+		// appearances. Park the input instead: reset it and blur it, keeping
+		// the row exactly as it renders untouched (an empty input draws its
+		// placeholder, not a cursor, so parked and live are identical on
+		// screen). Blurring is what releases the keyboard, so q, L, t and /
+		// work again — without it a brand new list would hold the keyboard
+		// forever, since nothing could ever close the input.
+		if len(m.rows) == 0 {
+			m.ParkCreating()
+			return m, nil
+		}
 		m.CancelCreating()
 		return m, nil
 	}

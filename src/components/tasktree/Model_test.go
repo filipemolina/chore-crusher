@@ -328,6 +328,26 @@ func TestOwnsKeyboardAndKeepsEscWhileCreating(t *testing.T) {
 	}
 }
 
+// An empty list tells a first-time user what to do at the moment they first
+// see the screen: the input, plus dim guidance beside it. The guidance used to
+// live in a card that only appeared once the input had been dismissed.
+func TestEmptyListRendersInputAndGuidance(t *testing.T) {
+	m := &Model{}
+	m.activeList = true
+	m.applyRows(nil)
+
+	rendered := ansi.Strip(m.ViewInPanel(60, 12, appstyles.Active.BackgroundPanel))
+	if !strings.Contains(rendered, "Add a task") {
+		t.Errorf("empty list does not render the create input:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, createHint) {
+		t.Errorf("empty list does not render the guidance %q beside the input:\n%s", createHint, rendered)
+	}
+	if strings.Contains(rendered, "No tasks yet") {
+		t.Errorf("the empty-list card is back; the input is the empty state:\n%s", rendered)
+	}
+}
+
 func TestRenderCreateRowShowsPlaceholder(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
@@ -444,12 +464,14 @@ func TestCreateRowGlyphForLevelOffset(t *testing.T) {
 	}
 }
 
-// TestEscCancelsDiscardsText verifies single-press esc: with text in the
-// input, one esc cancels creating outright and discards the text
-// (docs/plan/task-row-cards-and-status.md).
+// TestEscCancelsDiscardsText verifies single-press esc on a list that has
+// rows: one esc cancels creating outright and discards the text
+// (docs/plan/task-row-cards-and-status.md). An EMPTY list parks instead of
+// cancelling — see TestEscParksTheInputOnAnEmptyList.
 func TestEscCancelsDiscardsText(t *testing.T) {
 	m := &Model{}
-	m.StartCreating("")
+	m.applyRows([]apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "one"}}})
+	m.StartCreating("1")
 	m.createInput.SetValue("half typed")
 
 	if _, _ = m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc}); m.creating {
@@ -458,66 +480,97 @@ func TestEscCancelsDiscardsText(t *testing.T) {
 	if m.createInput.Value() != "" {
 		t.Errorf("esc should discard the typed text, got %q", m.createInput.Value())
 	}
-	if !m.createSuppressed {
-		t.Error("esc should mark the session suppressed so a refresh does not re-open it")
-	}
 }
 
 func TestEscCancelsManualEmpty(t *testing.T) {
 	m := &Model{}
-	m.StartCreating("") // manual, empty input
+	m.applyRows([]apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "one"}}})
+	m.StartCreating("1") // manual, empty input
 	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.creating {
 		t.Error("esc on empty manual input should cancel creating mode")
 	}
 }
 
-// TestEscCancelsOnAutoEmpty verifies esc cancels even the empty-list auto
-// input: the input is no longer the permanent empty state.
-func TestEscCancelsOnAutoEmpty(t *testing.T) {
+// An empty list has exactly ONE appearance. esc parks the input — discards the
+// draft and blurs it — but leaves the row on screen, so the surface renders
+// identically before and after esc. It used to swap the input for a recessed
+// "No tasks yet. Press n to create one." card, which meant the same condition
+// drew two different screens and the card explaining how to add a task only
+// appeared after the user dismissed the thing it was pointing at.
+func TestEscParksTheInputOnAnEmptyList(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
-	m.applyRows(nil) // auto, empty input
+	m.applyRows(nil) // the empty list auto-opens its input
+
+	before := ansi.Strip(m.ViewInPanel(60, 12, appstyles.Active.BackgroundPanel))
+
+	m.createInput.SetValue("half typed")
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+
+	if !m.creating {
+		t.Error("esc on an empty list must keep the create row: it IS the empty state")
+	}
 	if m.createInput.Value() != "" {
-		t.Fatalf("expected empty input, got %q", m.createInput.Value())
+		t.Errorf("esc should discard the draft, got %q", m.createInput.Value())
 	}
-	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if m.creating {
-		t.Error("esc on the empty-list input should cancel creating mode")
+	if after := ansi.Strip(m.ViewInPanel(60, 12, appstyles.Active.BackgroundPanel)); after != before {
+		t.Errorf("esc changed what an empty list looks like:\n--- before ---\n%s\n--- after ---\n%s", before, after)
+	}
+	// And a poll refresh of the same still-empty list changes nothing either.
+	m.applyRows(nil)
+	if after := ansi.Strip(m.ViewInPanel(60, 12, appstyles.Active.BackgroundPanel)); after != before {
+		t.Errorf("a refresh after esc changed the empty list:\n--- before ---\n%s\n--- after ---\n%s", before, after)
 	}
 }
 
-// TestNoAutoCreateAfterEscCancel pins the createSuppressed flag: after an
-// esc cancel on an empty list, the next refresh of the same list must not
-// silently re-open the input, and n brings it back.
-func TestNoAutoCreateAfterEscCancel(t *testing.T) {
+// Parking releases the keyboard. Without that, an empty list would own every
+// keystroke forever — the input can no longer be closed, so q, L, t and /
+// would be dead on the first screen a new user sees. n makes it live again.
+func TestParkedInputReleasesTheKeyboard(t *testing.T) {
+	m := &Model{}
+	m.focused = true
+	m.activeList = true
+	m.applyRows(nil)
+
+	if !m.OwnsKeyboard() {
+		t.Fatal("setup: a live create input should own the keyboard")
+	}
+	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.OwnsKeyboard() {
+		t.Error("a parked create input must not own the keyboard")
+	}
+	if m.KeepsEsc() {
+		t.Error("a parked create input has nothing left for esc to do")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	nm := next.(Model)
+	if !nm.createLive() {
+		t.Error("n must make the parked input live again")
+	}
+}
+
+// The empty-list input survives a poll refresh whether it is live or parked:
+// a refresh must neither remove the row nor steal the keyboard back.
+func TestRefreshKeepsTheEmptyListInputAsItWas(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
 	m.applyRows(nil)
 	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if m.creating {
-		t.Fatal("setup: esc should have cancelled creating")
-	}
 
-	// Same list refreshes (e.g. a poll tick): rows still empty.
 	m.applyRows(nil)
-	if m.creating {
-		t.Error("refresh after esc cancel must not re-open the input")
+	if !m.creating {
+		t.Error("a refresh must keep the empty list's create row")
 	}
-
-	// But n brings it back.
-	m.focused = true
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
-	if !next.(Model).IsCreating() {
-		t.Error("n after esc cancel should re-enter creating mode")
+	if m.createLive() {
+		t.Error("a refresh must not re-focus an input the user parked")
 	}
 }
 
-// TestDeleteAllReopensInputAfterEscCancel pins the second way the empty-list
-// input comes back: deleting every remaining task clears the esc suppression,
-// so the refresh that empties the list auto-shows the input again (n is the
-// other way — docs/plan/task-row-cards-and-status.md).
-func TestDeleteAllReopensInputAfterEscCancel(t *testing.T) {
+// Deleting the last task returns the list to its one empty-state appearance,
+// with the input live: the row that just vanished was where the keyboard was.
+func TestDeleteAllReopensTheInput(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
 	m.applyRows([]apptypes.Row{
@@ -526,40 +579,33 @@ func TestDeleteAllReopensInputAfterEscCancel(t *testing.T) {
 	})
 	m.StartCreating("2")
 	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if m.creating || !m.createSuppressed {
-		t.Fatal("setup: esc should have cancelled creating and suppressed")
+	if m.creating {
+		t.Fatal("setup: esc on a list with rows should have cancelled creating")
 	}
 
 	// The last remaining task is deleted: the refresh arrives with no rows.
 	m.applyRows(nil)
-	if m.createSuppressed {
-		t.Error("deleting all items must clear the esc suppression")
-	}
-	if !m.creating {
-		t.Error("an empty list whose last item was just deleted should re-open the input")
+	if !m.createLive() {
+		t.Error("an empty list whose last item was just deleted should open its input")
 	}
 }
 
-// TestCreateSuppressedClearsOnListChange verifies the suppression is per
-// list session, not global: switching to a different (empty) list re-enables
-// the auto-input.
-func TestCreateSuppressedClearsOnListChange(t *testing.T) {
+// Switching to a different empty list opens that list's input, live — the
+// park is a property of the session on one list, not a global mode.
+func TestListSwitchOpensTheNewEmptyListsInput(t *testing.T) {
 	m := &Model{}
 	next, _ := m.Update(cmds.RefreshTasksMsg{ListID: "list-a"})
 	nm := next.(Model)
 	m = &nm
 	m.handleCreatingKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if !m.createSuppressed {
-		t.Fatal("setup: esc should have suppressed")
+	if m.createLive() {
+		t.Fatal("setup: esc should have parked the input")
 	}
 
 	next, _ = m.Update(cmds.RefreshTasksMsg{ListID: "list-b"})
 	nm = next.(Model)
-	if nm.createSuppressed {
-		t.Error("a list switch must clear the suppression")
-	}
-	if !nm.IsCreating() {
-		t.Error("an empty list-b should auto-show its input")
+	if !nm.createLive() {
+		t.Error("an empty list-b should open its input, live")
 	}
 }
 
