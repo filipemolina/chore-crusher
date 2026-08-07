@@ -155,29 +155,33 @@ func (m *Model) applyTextareaStyles(bg color.Color) {
 	m.notes.SetStyles(styles)
 }
 
-// applyInputStyles seals the title and compose textinputs onto the modal
-// background so their text rows do not bleed the terminal default behind them,
-// matching the notes textarea. Rebuilt every render for the same theme-switch
-// reason as applyTextareaStyles.
+// applyInputStyles seals the title and compose textinputs onto whatever surface
+// they sit on, so their text rows do not bleed the terminal default behind
+// them, matching the notes textarea. Rebuilt every render for the same
+// theme-switch reason as applyTextareaStyles.
 //
-// A focused input also lifts to BackgroundElevated across its full width, the
-// app's one way of showing focus (docs/DESIGN.md §12). Before this the Title
-// field had no edge and no frame of its own, so the only thing marking it as
-// active was its section label going bold — easy to miss on a modal with four
-// zones. The widgets pick Focused vs Blurred from their own state, which
-// cycleFocus already drives.
+// The two inputs sit on different surfaces, so they are sealed separately. The
+// Title field sits directly on the modal and lifts to BackgroundElevated across
+// its full width while focused, the app's one way of showing focus
+// (docs/DESIGN.md §12) — before that it had no edge and no frame of its own, so
+// the only thing marking it as active was its section label going bold, easy to
+// miss on a modal with four zones. The widgets pick Focused vs Blurred from
+// their own state, which cycleFocus already drives.
 func (m *Model) applyInputStyles(bg color.Color) {
-	seal := func(in *textinput.Model) {
+	seal := func(in *textinput.Model, focusedBg, blurredBg color.Color) {
 		st := in.Styles()
-		lift := appstyles.Active.BackgroundElevated
-		st.Focused.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(lift)
-		st.Blurred.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
-		st.Focused.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(lift)
-		st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
+		st.Focused.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(focusedBg)
+		st.Blurred.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(blurredBg)
+		st.Focused.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(focusedBg)
+		st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(blurredBg)
 		in.SetStyles(st)
 	}
-	seal(&m.titleInput)
-	seal(&m.commentInput)
+	seal(&m.titleInput, appstyles.Active.BackgroundElevated, bg)
+	// The compose input only ever renders INSIDE the compose card, so it takes
+	// the card's tier in both states — it has no bare-modal row to seal onto.
+	// Sealing it onto the modal background cut a modal-coloured stripe through
+	// the middle of the card and made the card read as broken.
+	seal(&m.commentInput, composeCardBg(), composeCardBg())
 }
 
 // progressModeLabel is the user-facing name for a progress mode. The stored
@@ -416,12 +420,18 @@ func (m *Model) renderCommentCard(c apptypes.Comment, selected bool, innerW int)
 	return m.cardChrome(bg, barFg, content, innerW)
 }
 
+// composeCardBg is the tier the inline compose card paints on. Both the card
+// fill and the input sealed inside it need it, and they must not decide it
+// separately: when they did, the input painted its own row with the modal
+// background instead and the card looked broken.
+func composeCardBg() color.Color { return appstyles.Active.BackgroundElevated }
+
 // renderComposeCard renders the inline new-comment card: the author (the OS
 // user) and a single-line text input, styled like the selected comment card so
 // it reads as an active draft — the same "fake card while adding" shape the task
 // tree uses for inline creation.
 func (m *Model) renderComposeCard(innerW int) string {
-	bg := appstyles.Active.BackgroundElevated
+	bg := composeCardBg()
 	barFg := appstyles.Active.Accent
 
 	contentWidth := max(1, innerW-cardInset)

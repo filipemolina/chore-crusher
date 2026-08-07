@@ -1,6 +1,7 @@
 package detailspanel
 
 import (
+	"image/color"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -734,4 +735,66 @@ func TestNotesSizedToTheNoteOnOpen(t *testing.T) {
 	if rows <= minNotesRows {
 		t.Fatalf("a %d-line note rendered at %d rows, no taller than the minimum", strings.Count(longNote, "\n")+1, rows)
 	}
+}
+
+// The compose input renders inside the compose card, so every state it can be
+// in has to paint on the card's tier. Sealing it onto the modal background
+// instead cut a modal-coloured stripe through the middle of the card, which
+// read as the card being broken. The card fill and the input used to name
+// their tier independently and agreed only by coincidence; this pins them
+// together in both the empty (placeholder) and drafted states.
+func TestComposeInputPaintsOnTheCardBackground(t *testing.T) {
+	// Probe with the foreground/background pair the input actually renders,
+	// since lipgloss emits one combined SGR rather than a bare background.
+	sgrFor := func(fg, bg color.Color) string {
+		probe := lipgloss.NewStyle().Foreground(fg).Background(bg).Render("x")
+		return probe[:strings.Index(probe, "x")]
+	}
+	onModal := func(fg color.Color) string { return sgrFor(fg, appstyles.Active.ModalBg) }
+	onCard := func(fg color.Color) string { return sgrFor(fg, composeCardBg()) }
+
+	open := func(t *testing.T) *Model {
+		t.Helper()
+		m, _, _ := loaded(t, "a note")
+		m, _ = updateModel(m, cmds.SetDetailsLayout(60, 24)())
+		m = zoneFor(t, m, focusComments)
+		m, _ = updateModel(m, tea.KeyPressMsg{Text: "c", Code: 'c'})
+		if !m.Composing() {
+			t.Fatal("c did not open the compose card")
+		}
+		return m
+	}
+
+	t.Run("placeholder", func(t *testing.T) {
+		view := open(t).View().Content
+		if strings.Contains(view, onModal(appstyles.Active.TextDim)) {
+			t.Errorf("the compose placeholder paints on the modal background, not the card:\n%s", ansi.Strip(view))
+		}
+		if !strings.Contains(view, onCard(appstyles.Active.TextDim)) {
+			t.Errorf("the compose placeholder does not paint on the card background:\n%s", ansi.Strip(view))
+		}
+	})
+
+	t.Run("draft", func(t *testing.T) {
+		m := open(t)
+		m = typeRune(t, m, 'h')
+		m = typeRune(t, m, 'i')
+		view := m.View().Content
+		if !strings.Contains(view, onCard(appstyles.Active.TextPrimary)+"hi") {
+			t.Errorf("the compose draft does not paint on the card background:\n%s", ansi.Strip(view))
+		}
+	})
+
+	// The panel can lose the keyboard with the card still open — a theme
+	// picker over the modal, say. The card is still on screen, so the input
+	// still has to match it.
+	t.Run("blurred", func(t *testing.T) {
+		m := open(t)
+		m = typeRune(t, m, 'h')
+		m.commentInput.Blur()
+		view := m.View().Content
+		if strings.Contains(view, onModal(appstyles.Active.TextPrimary)+"h") {
+			t.Errorf("the blurred compose draft paints on the modal background:\n%s", ansi.Strip(view))
+		}
+	})
 }

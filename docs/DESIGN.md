@@ -394,7 +394,11 @@ closing on a write that would fail.
 Adding a comment is an **inline compose card**, opened with **`c`** from the
 comment thread — the same "fake card while adding" shape the task tree uses for
 inline task creation. The card renders at the foot of the thread styled like the
-selected comment card, showing the OS author and a single-line `textinput`;
+selected comment card, showing the OS author and a single-line `textinput`. That
+input paints on the **card's** tier (`BackgroundElevated`), never the modal's —
+it has no bare-modal row to sit on, and sealing it onto `ModalBg` cuts a
+modal-coloured stripe through the card that reads as the card being broken. Both
+sides take that tier from one place so they cannot drift apart.
 **`enter`** posts it and **`esc`** cancels (a terminal cannot reliably
 distinguish `ctrl+enter` from `enter`, so `enter` is the submit key — `ctrl+enter`
 is accepted as an alias). Comments are short status/handoff notes, so one line is
