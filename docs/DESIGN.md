@@ -39,11 +39,13 @@ It is **not**:
   file is the entire backend. If sync matters later, it is a sync of that
   file (or an export from it), not a second source of truth — see
   `docs/ROADMAP.md`'s post-alpha list for where that idea is parked and why.
-- A project-management tool. There is no assignee, no due date, no priority
-  field, no Gantt view in the plan below. Every one of those is a reasonable
-  future addition and none is in scope now — see §10 on why the schema is
-  shaped to add them without a migration disaster, without them being added
-  today.
+- A project-management tool. There IS an **assignee** and a **priority**
+  field (§2, §3) — but as *coordination* primitives for multiple agents,
+  not project-management creep: assignment answers "which agent owns this
+  task right now", and priority answers "which task should an agent pick
+  next". There is still no due date and no Gantt view, and neither is
+  planned. §8 explains why the schema is shaped to add columns without a
+  migration disaster, the way migration 0006 does for these two.
 - A Taskwarrior replacement. Taskwarrior's dependency graph and reporting DSL
   solve a different, harder problem for a different, more demanding user.
   This app's tree is a strict parent/child hierarchy, not an arbitrary DAG —
@@ -79,6 +81,17 @@ Task
   created_at     integer not null
   updated_at     integer not null
   completed_at   integer          -- null unless status='complete'
+  assignee       text not null default ''
+                 -- agent statement ("pi", "claude", …) holding this task;
+                 -- '' = no assignment. NOT presence: AgentActivity (0002)
+                 -- is a 120-second heartbeat; this column has no TTL and
+                 -- changes only on explicit assign/unassign/complete.
+  assigned_at    integer          -- unix seconds; null unless assignee != ''
+  priority       text not null default 'none'
+                 -- 'none' | 'low' | 'medium' | 'high'; stored and shown;
+                 -- does NOT re-sort the task tree (that is list ordering,
+                 -- which priority is forbidden to change).
+                 -- Migration: 0006 (docs/plan/mcp-assignment-and-priorities.md)
 ```
 
 Why ULIDs and not autoincrement integers: task and list ids are handed to the
@@ -171,7 +184,9 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (`claim_work`) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAllClaims` when the MCP session ends (client disconnect), so a dead agent's spinners vanish immediately rather than waiting for TTL (hardening plan H13).
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-acclaimed on any task write; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAllClaims` when the MCP session ends (client disconnect), so a dead agent's spinners vanish immediately rather than waiting for TTL (hardening plan H13).
+
+**Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) is durable — no TTL, no sweeper, no auto-expiry — and changes only when someone explicitly assigns, unassigns, or completes the task (§9 `assign_task` / `next_task`). It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. Neither field alone can tell you an agent died — **`assignee != ''` and no live presence claim (`assignee_live: false`) means the work is abandoned**, and that is the only signal the TUI's stale-assignment tier needs. A stale assignment is **never** auto-released: reads report enough for a human to decide, and the human releases it from the TUI, per task or per list. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget. Full model and rationale: `docs/plan/mcp-assignment-and-priorities.md` §3.
 
 **The store owns every transition.** None of the above should be duplicated
 in both `store` and `cli` (or `store` and `components`). `store.Complete`,
@@ -793,11 +808,15 @@ delete with no prompt at all.
 (§2); `store.DeleteComment` hard-deletes by id, with no soft-delete or
 tombstone. The CLI (`crush comment rm <comment-id> --force`) and the TUI
 (the Details modal's comments zone) are unenforced like every other
-human-facing delete — either may remove any comment. The MCP `delete_comment`
-tool is the one gated surface: it refuses unless the comment's `author`
+human-facing delete — either may remove any comment. The MCP `comment`
+tool is the one gated surface: its `delete=true` mode
+refuses unless the comment's `author`
 equals the calling session's identity, with the same error shape the list
 ownership gate (`requireWritable`) uses — `comment <id> is owned by <author>
-— you may only delete your own comments`. This is a narrower rule than list
+— you may only delete your own comments`. The `comment` tool also merges
+the old `add_comment`; deletion alone stays gated by
+`requireOwnComment`, and posting a comment is never blocked by assignment
+(`docs/plan/mcp-assignment-and-priorities.md` §4). This is a narrower rule than list
 ownership: it keys off the individual comment's author, not the list's
 `created_by`, so an agent can always delete its own comment even on a list
 it does not own.
@@ -825,6 +844,11 @@ crush toggle <task-id>                         complete <-> reopen, whichever ap
 crush progress <task-id> --mode simple
 crush progress <task-id> --mode percentage --percent <0-100>
 crush progress <task-id> --mode subtasks
+crush assign <task-id> [--force]               assign the task to the current agent; --force takes it from another agent
+crush unassign <task-id>                       release the current agent's assignment on the task
+crush unassign --list <list-id>                release the assignment on every task in the list
+crush priority <task-id> --level none|low|medium|high
+                                                   set a task's priority
 crush mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
 crush rm <task-id> --force                     delete a task and its descendants
 crush comment rm <comment-id> --force          delete a comment
@@ -842,6 +866,23 @@ that `--json` would emit on the command line, so an agent host can call
 operation. The server is a thin adapter over `src/store` in
 `src/mcpserver`, not a layer on `src/cli`, preserving the "two front ends
 over one store" rule from §1 and §10.
+
+**The MCP tool surface is exactly twelve tools**, pinned by
+`TestMCPToolSurface` in `src/mcpserver/server_test.go`: `my_list`,
+`list_tasks`, `show_task`, `search_tasks`, `add_task`, `edit_task`,
+`delete_task`, `set_status`, `assign_task`, `next_task`, `comment`,
+`add_list`. This count is deliberate and is not a minimum — it trades tool
+count against call count, and **call count wins** (§2 of the assignment
+plan): `set_status` absorbs `complete_task`/`reopen_task`/`set_progress`,
+`assign_task` replaces `claim_work`, `comment` merges
+`add_comment`/`delete_comment`, and `list_tasks` absorbs `list_changes` via
+its `since` parameter. Nothing is deleted that a caller still needs.
+
+The task read rows (`list_tasks`, `show_task`, `search_tasks`) carry an
+`assignee`, `assigned_at`, `assignee_live` and `priority` field on every
+row, so a task's ownership and importance are visible without a second
+round-trip; `assignee_live` is computed per call from `store.ListWork` and
+is `false` for the stale-assignment tier (§3).
 
 **MCP rows are a superset of the CLI's `--json` shapes** (CONTRIBUTING rule
 6): `my_list` adds `position` and `created_by` to the `lists` rows it
@@ -867,19 +908,27 @@ field).
 **MCP agent-optimised extensions.** The task read shapes gained
 `has_notes` and `notes_len` on every row: `has_notes` is `false` when the
 notes body is empty, so an agent can skip a `show_task` call entirely.
-`list_tasks` accepts an optional `include` parameter (`["notes"]`) that
-inlines the notes body per row, capped at 2000 characters with
-`notes_truncated=true` when trimmed — one call replaces N `show_task`
-follow-ups. `show_task(ids)` is the batch equivalent for cross-list
-workflows: up to 50 task ids return their full details (including comments)
-in one call, with unresolvable entries returned as `{id, error}`. The `progress` field is
+`list_tasks(list_id, status?, since?, include?)` filters **per task** (not
+per tree root): `status` defaults to `open` (= pending + in_progress) —
+plus `pending`, `in_progress`, `complete`, `all` — and a row kept only as
+ancestor context comes back with `context_only: true`. `since` (unix
+seconds) absorbs the old `list_changes` tool. `include` accepts `notes`,
+`comments`, or both; inlined bodies are **never cut mid-text**: a byte
+budget (`notesBudget`) caps the whole response, an over-budget row is
+dropped whole, and its id goes into the `elided` array of the return
+object `{"tasks": [...], "elided": [...], "budget_exceeded": false}`.
+The old `notes_truncated` flag is gone — mid-sentence truncation was the
+bug being fixed. `show_task(ids)` is the batch equivalent for cross-list
+workflows: up to 50 task ids return their **entire subtree** — every
+descendant's full notes and comments, uncapped. Unresolvable entries are
+returned as `{id, error}`. The `progress` field is
 omitted on rows where the task has no progress, cutting typical row size by
 ~25%. `my_list` now returns `{mine: {id,name,pending,complete},
 foreign_lists: [{id,name,pending,complete,created_by}]}`, merging `my_list`
 + `list_lists` into a single session-opening call. Status and progress
 writes auto-claim the task under the writing agent's identity (best-effort,
-non-stealing), so `claim_work` is only needed when an agent wants a claim
-before writing. Every other task write — `add_task`, `add_comment`, `edit_task` — auto-claims
+non-stealing) — that is the presence heartbeat of §3, and it is distinct
+from the durable `assign_task` that replaces `claim_work`. Every other task write — `add_task`, `add_comment`, `edit_task` — auto-claims
 the touched task too;
 `delete_task` does not (the task no longer exists), and `DeleteTask` clears
 any claim rows on the deleted subtree so a removed task cannot keep a spinner
@@ -887,28 +936,40 @@ alive. Full rationale: `docs/plan/mcp-presence-on-all-writes.md`. The
 `crush:///inbox` resource and `crush_inbox` prompt
 deliver all of the above as a single read for start-of-session triage.
 
-**Batch status/progress writes.** `set_progress(ids)`, `complete_task(ids)`,
-and `reopen_task(ids)` each take 1–50 task ids and return one
+**`set_status` is the one status/progress write.** It takes 1–50 ids in
+one call and accepts `status?` (`pending` | `in_progress` | `complete`),
+`progress?`, `percent?`, an optional `comment`, and `force?`; at least one
+of `status`/`progress`/`comment` is required. Per id, applied in this
+order: assignment guard (a task held by another agent is refused unless
+`force`) → reopen if needed → progress → status → comment. One call
+replaces the old `set_progress` + `complete_task` + `reopen_task` and
+fixes a documented gotcha: progress on a complete task no longer errors,
+because the reopen happens first —
+`set_status(ids, status='in_progress', progress='percentage', percent=10)`
+just works. `status='complete'` cascades and auto-unassigns; `status='pending'`
+reopens without cascading. Returns one
 `{id, ok:true}` / `{id, error}` row per id in input order (a bad id does not
-stop the rest — not a transaction). `edit_task` covers the
-rename/notes/re-parent/to-root structural edits in a single call (destructive
-or ownership-gated, it stays single-task). Each touched task is auto-claimed
-under the writing agent's identity, same as the single-task writes. Full
-rationale: `docs/plan/mcp-batch-writes.md` and
-`docs/plan/mcp-tool-consolidation.md`.
+stop the rest — `batchApply`).
+The rename/notes/re-parent/to-root structural edits stay in `edit_task`
+(cross-list or ownership-gated, it stays single-task). Each touched
+task is auto-claimed under the writing agent's identity, same as the
+single-task writes. Full rationale: `docs/plan/mcp-batch-writes.md` and
+`docs/plan/mcp-tool-consolidation.md`, with the merged-tool design in
+`docs/plan/mcp-assignment-and-priorities.md` §4.
 
-**`list_changes`** lets an agent cheaply check "did anything change since I last
-looked?" on a single list: pass the unix timestamp of your previous call as
-`since` and it returns only tasks whose `updated_at` is strictly greater (newly
+**Change-detection is folded into `list_tasks` via `since`.**
+`list_tasks(list_id, since=<unix>)` returns only tasks whose `updated_at`
+is strictly greater — newly
 created, status/progress edited, renamed, re-noted, re-parented, or newly
-commented — `AddComment` bumps `updated_at`, so new comments surface too). The
-rows use the exact same shape as `list_tasks` (`has_notes`/`notes_len`,
-omitted-empty `progress`), so `include=['notes']` inlines bodies identically.
+commented (`AddComment` bumps `updated_at`, so new comments surface too).
+The rows use the exact same shape as `list_tasks` (`has_notes`/`notes_len`), omitted-empty `progress`), so `include=['notes']` inlines bodies identically.
 Deletions are not representable by a row filter — a removed task is simply
 absent; an agent that must detect deletions diffs id sets against its last
 `list_tasks`. `updated_at` now means "last activity, including comments"
-(`docs/plan/mcp-list-changes-since.md` §1). Full rationale:
-`docs/plan/mcp-list-changes-since.md`.
+(`docs/plan/mcp-list-changes-since.md` §1). The standalone `list_changes`
+tool no longer exists — the `since` parameter is now part of `list_tasks`.
+Full rationale: `docs/plan/mcp-list-changes-since.md` and
+`docs/plan/mcp-assignment-and-priorities.md` §4.
 
 **List ownership, and what the MCP server refuses.** Every `List` carries a
 `created_by` tag (§2). The MCP server reads its own identity once at start
@@ -927,9 +988,12 @@ half-happens.
 move that would otherwise succeed the two are the same list; the owner check
 runs first and reports ownership rather than the cross-list error.)
 
-**Status and progress are never gated.** `complete_task`, `reopen_task`,
-and `set_progress` work on every list, as do all reads, `claim_work`, the
-resources, and the prompts. An **empty** `created_by`
+**Status and progress writes are never list-gated.** `set_status` works on
+every list, as do all reads, the surviving resources, and the prompts.
+What is gated is *assignment*: `assign_task`, and any `set_status`/`edit_task`/
+`delete_task` on a task whose `assignee` is another agent, are refused
+unless `force=true` — the forced write performs the change, reassigns, and
+records a takeover comment — the refuse-with-override rule (§3). An **empty** `created_by`
 means owned by nobody, which makes the list foreign to *every* identity: an
 untagged list — the shape `crush lists add` and the TUI create — is read +
 status/progress only for all agents, and only a human can restructure it.
@@ -1003,17 +1067,23 @@ the one-value rule.
   whenever `store.DerivedProgress` reports a percentage). `--flat` prints
   `<id>\t<status>\t<title>` per line instead — the greppable view, no
   headers. **`tasks`, JSON:** the same preorder array in both modes —
-  `[{"id", "parent_id", "title", "status", "progress", "depth"}]` —
+  `[{"id", "parent_id", "title", "status", "progress", "depth",
+  "assignee", "priority"}]` —
   `--flat` changes only the human rendering. Depth starts at 0 for a root;
-  `parent_id` + `depth` let a caller reassemble the tree.
+  `parent_id` + `depth` let a caller reassemble the tree; `assignee` is `""`
+  when unassigned; `priority` is one of `none`/`low`/`medium`/`high`.
 - **`show`, human mode:** labeled lines (`Title:`, `ID:`, `List:`, `Status:`,
   `Progress:`, `Notes:` with each line indented two spaces, then
   `Children (N):` and the §12 tree when there are any). The `Progress:` line
   spells out a subtasks task with no children as `subtasks (simple)` rather
   than a misleading `(0%)` (§3). **`show`, JSON:** the task's fields
   (`id`, `list_id`, `title`, `notes`, `status`, `created_at`, `updated_at`,
-  `completed_at` as unix seconds), its `progress`, and `children` as the
+  `completed_at` as unix seconds, plus `assignee`, `assigned_at` as unix
+  seconds or null, and `priority`), its `progress`, and `children` as the
   same row array `tasks` emits, depth relative to the shown task.
+  **`assign` / `unassign` JSON:** a single object per task id —
+  `{"ok": true, "assignee": "pi"}` on success, `{"error": …}` on a
+  refused takeover that failed. **`priority` JSON:** `{"ok": true}`.
 - **`progress` JSON:** `{"kind", "percent", "display_as_simple"}`.
   `kind` is the stored `progress_kind`; `percent` is the displayed value —
   the stored percent for `percentage`, the derived ratio for `subtasks` —
@@ -1024,7 +1094,8 @@ the one-value rule.
   title matches are ranked by `sahilm/fuzzy` score, then candidates that
   matched only on notes follow in store order — a notes hit is a real hit,
   just weaker than a title one. **`search`, JSON:**
-  `[{"id", "list_id", "list_name", "title", "status", "progress"}]`.
+  `[{"id", "list_id", "list_name", "title", "status", "progress",
+  "assignee", "priority"}]`.
 - **Empty results, human mode:** a read command whose result is empty prints
   nothing (exit 0); JSON mode prints `[]`. A caller that needs to
 distinguish "no data" from "failed" reads the exit code, never the bytes.
