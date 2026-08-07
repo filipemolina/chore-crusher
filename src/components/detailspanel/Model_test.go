@@ -593,3 +593,25 @@ func TestCommentsRenderOldestFirst(t *testing.T) {
 		t.Fatal("view has background bleed")
 	}
 }
+
+// TestNotesGutterHasNoRedundantGap pins the alignment fix for the notes
+// field's line-number gutter (bug: alignment on the Notes field, reported
+// as a "big gap between the ┃ character and the line number... (┃   1)").
+// bubbles/textarea's default Prompt is "┃ " (bar plus a trailing space),
+// which stacked with the line-number gutter's own built-in leading pad
+// space (lineNumberView formats every number as " %*v ") for a three-space
+// gap before line 1. Dropping the Prompt's redundant trailing space leaves
+// exactly the gutter's own two.
+func TestNotesGutterHasNoRedundantGap(t *testing.T) {
+	m, s, taskID := loaded(t, "line one\nline two")
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+
+	view := ansi.Strip(m.View().Content)
+	if strings.Contains(view, "┃   1") {
+		t.Errorf("notes gutter still has the three-space gap before line 1:\n%s", view)
+	}
+	if !strings.Contains(view, "┃  1") {
+		t.Errorf("notes gutter must render \"┃  1\" (two spaces, the gutter's own padding), got:\n%s", view)
+	}
+}
