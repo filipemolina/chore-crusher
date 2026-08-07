@@ -148,14 +148,17 @@ func New(s *store.Store) tea.Model {
 	ti.Placeholder = "Task title"
 
 	notes := textarea.New()
-	// bubbles/textarea's default Prompt is "┃ " — a trailing space that
-	// stacks with the line-number gutter's own built-in leading space
-	// (lineNumberView formats every number as " %*v ", so line 1 already
-	// gets one pad space of its own). The two compounded into a
-	// three-space gap before the number (bug: alignment on the Notes
-	// field, reported as "┃   1"). Dropping the redundant trailing space
-	// here removes one of the two independent sources of padding.
-	notes.Prompt = "┃"
+	// No line numbers on a to-do note. The gutter is a code-editor
+	// affordance: notes here are a few lines of prose, never something a
+	// reader needs to cite by line, so the column only spent width and made
+	// the field look like an editor pane. bubbles requires this be set before
+	// SetWidth (textarea.go's SetWidth comment), which the layout message does
+	// later — setting it at construction is what keeps that order.
+	notes.ShowLineNumbers = false
+	// bubbles/textarea's default Prompt is "┃ ". With the gutter gone the
+	// prompt is the field's only left edge, so it keeps the single trailing
+	// space as the gap between the edge and the text.
+	notes.Prompt = "┃ "
 
 	return &Model{
 		store:        s,

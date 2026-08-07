@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/constants"
 	"github.com/filipemolina/chore-crusher/src/store"
@@ -594,61 +595,92 @@ func TestCommentsRenderOldestFirst(t *testing.T) {
 	}
 }
 
-// TestNotesGutterHasNoRedundantGap pins the alignment fix for the notes
-// field's line-number gutter (bug: alignment on the Notes field, reported
-// as a "big gap between the ┃ character and the line number... (┃   1)").
-// bubbles/textarea's default Prompt is "┃ " (bar plus a trailing space),
-// which stacked with the line-number gutter's own built-in leading pad
-// space (lineNumberView formats every number as " %*v ") for a three-space
-// gap before line 1. Dropping the Prompt's redundant trailing space leaves
-// exactly the gutter's own two.
-func TestNotesGutterHasNoRedundantGap(t *testing.T) {
-	m, s, taskID := loaded(t, "line one\nline two")
+// TestNotesFieldHasNoLineNumberGutter pins the removal of the notes field's
+// line-number gutter. It was a code-editor affordance on a to-do note: these
+// notes are a few lines of prose, never something a reader cites by line, so
+// the column only spent width and made the field read as an editor pane.
+func TestNotesFieldHasNoLineNumberGutter(t *testing.T) {
+	m, s, taskID := loaded(t, "line one\nline two\nline three")
 	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
 	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
 
 	view := ansi.Strip(m.View().Content)
-	if strings.Contains(view, "┃   1") {
-		t.Errorf("notes gutter still has the three-space gap before line 1:\n%s", view)
+	for _, gutter := range []string{"┃  1", "┃ 1 ", "┃   1"} {
+		if strings.Contains(view, gutter) {
+			t.Errorf("notes field still renders a line-number gutter (%q):\n%s", gutter, view)
+		}
 	}
-	if !strings.Contains(view, "┃  1") {
-		t.Errorf("notes gutter must render \"┃  1\" (two spaces, the gutter's own padding), got:\n%s", view)
+	// The prompt bar itself stays — it is the field's left edge — and the text
+	// now sits one space after it.
+	if !strings.Contains(view, "┃ line one") {
+		t.Errorf("notes text must sit directly after the prompt bar, got:\n%s", view)
 	}
 }
 
-// TestNotesCursorLineIsAccented pins the theming fix for the notes field
-// (bug: accent color on the notes field — "filled lines are darker, empty
-// lines are lighter [and] the current line is not accented"). Before this
-// fix, LineNumber/CursorLineNumber/EndOfBuffer were left at bubbles'
-// hardcoded default-dark-theme greys, unrelated to the active Theme, and
-// CursorLine had no distinguishing background at all. This asserts the
-// current line's number renders in the Theme's Accent color on
-// BackgroundElevated — the same "selected = elevated" tier this modal's own
-// highlighted comment card already uses — and that a non-cursor line's
-// number renders in the dimmer TextDim, not the same tier as the cursor
-// line.
-func TestNotesCursorLineIsAccented(t *testing.T) {
+// TestNotesCursorLineIsLifted keeps the surviving half of the notes theming
+// work: the line the cursor is on renders on BackgroundElevated, the same
+// "this is where the keyboard is" lift the Details modal's percentage field
+// and its highlighted comment card use (docs/DESIGN.md §12). Only the gutter's
+// own colours went away with the gutter.
+func TestNotesCursorLineIsLifted(t *testing.T) {
 	m, s, taskID := loaded(t, "line one\nline two\nline three")
 	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
 	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
 
 	view := m.View().Content
 
-	accentProbe := lipgloss.NewStyle().
-		Foreground(appstyles.Active.Accent).
+	probe := lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextPrimary).
 		Background(appstyles.Active.BackgroundElevated).
 		Render("x")
-	accentSGR := accentProbe[:strings.Index(accentProbe, "x")]
-	if !strings.Contains(view, accentSGR) {
-		t.Errorf("notes gutter never renders the cursor line's number in Accent-on-BackgroundElevated:\n%s", ansi.Strip(view))
+	sgr := probe[:strings.Index(probe, "x")]
+	if !strings.Contains(view, sgr) {
+		t.Errorf("the notes cursor line must render on BackgroundElevated:\n%s", ansi.Strip(view))
+	}
+}
+
+// TestFocusedFieldLiftsToElevated pins the focus signal for the Title and
+// Notes fields. Neither has a frame or a border of its own, and until now the
+// only thing marking one as active was its section label turning bold — easy
+// to miss on a modal with four zones. Both now lift to BackgroundElevated
+// while they hold the keyboard, the app's one way of showing focus
+// (docs/DESIGN.md §12), and drop back flush with the modal when they do not.
+func TestFocusedFieldLiftsToElevated(t *testing.T) {
+	// Probe with the same foreground/background pair the fields render, since
+	// lipgloss emits one combined SGR rather than a bare background.
+	lifted := func(m *Model) bool {
+		probe := lipgloss.NewStyle().
+			Foreground(appstyles.Active.TextPrimary).
+			Background(appstyles.Active.BackgroundElevated).
+			Render("x")
+		sgr := probe[:strings.Index(probe, "x")]
+		return strings.Contains(m.View().Content, sgr)
 	}
 
-	dimProbe := lipgloss.NewStyle().
-		Foreground(appstyles.Active.TextDim).
-		Background(appstyles.Active.ModalBg).
-		Render("x")
-	dimSGR := dimProbe[:strings.Index(dimProbe, "x")]
-	if !strings.Contains(view, dimSGR) {
-		t.Errorf("notes gutter never renders a non-cursor line's number in TextDim-on-ModalBg:\n%s", ansi.Strip(view))
+	for _, zone := range []struct {
+		focus int
+		name  string
+	}{{focusTitle, "Title"}, {focusNotes, "Notes"}} {
+		m, s, taskID := loaded(t, "line one\nline two")
+		m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+		m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+		m = zoneFor(t, m, zone.focus)
+		m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+
+		if !lifted(m) {
+			t.Errorf("%s must lift to BackgroundElevated while focused", zone.name)
+		}
+	}
+
+	// With focus parked on Progress in a mode that has no editable value,
+	// nothing in the modal claims the lift.
+	m, s, taskID := loaded(t, "line one\nline two")
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+	m = zoneFor(t, m, focusProgress)
+	m.progressKind = apptypes.ProgressSimple
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+	if lifted(m) {
+		t.Error("no field should read as focused when the keyboard is on a valueless Progress mode")
 	}
 }

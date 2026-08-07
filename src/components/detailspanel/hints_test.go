@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
 	"github.com/filipemolina/chore-crusher/src/keys"
 )
@@ -46,6 +48,9 @@ func TestEveryDetailsBindingIsAdvertisedInSomeZone(t *testing.T) {
 	m.composing = true
 	all = append(all, m.zoneHints()...)
 	m.composing = false
+	m.confirmingDiscard = true
+	all = append(all, m.zoneHints()...)
+	m.confirmingDiscard = false
 
 	declared := []struct {
 		name    string
@@ -57,6 +62,7 @@ func TestEveryDetailsBindingIsAdvertisedInSomeZone(t *testing.T) {
 		{"CycleModeBack", keys.Details.CycleModeBack},
 		{"PercentNudge", keys.Details.PercentNudge},
 		{"PercentType", keys.Details.PercentType},
+		{"DiscardPrompt", keys.Details.DiscardPrompt},
 		{"CopyTaskID", keys.Details.CopyTaskID},
 		{"CommentNew", keys.Details.CommentNew},
 		{"CommentSubmit", keys.Details.CommentSubmit},
@@ -88,6 +94,7 @@ func TestModalHintWordingComesFromTheBindings(t *testing.T) {
 	for _, b := range []key.Binding{
 		keys.Details.Save, keys.Details.NextField, keys.Details.CycleMode,
 		keys.Details.CycleModeBack, keys.Details.PercentNudge, keys.Details.PercentType,
+		keys.Details.DiscardPrompt,
 		keys.Details.CopyTaskID, keys.Details.CommentNew,
 		keys.Details.CommentSubmit, keys.Details.CopyCommentID,
 		keys.Overlay.Cancel, keys.Overlay.Navigation, keys.Overlay.Submit,
@@ -156,5 +163,52 @@ func TestRenderedFooterShowsTheZoneHints(t *testing.T) {
 		if strings.Contains(footer, gone) {
 			t.Errorf("footer still uses the invented wording %q: %q", gone, footer)
 		}
+	}
+}
+
+// The discard prompt states its own keys, from the binding, and does not
+// promise enter. enter is unbound there on purpose: the confirm modal has a
+// visible yes/no selection for enter to act on, this prompt has none, so
+// binding it would put unsaved edits one stray keystroke from gone.
+func TestDiscardPromptAdvertisesYesNoAndNotEnter(t *testing.T) {
+	m, _, _ := loaded(t, "")
+	m.confirmingDiscard = true
+
+	footer := ansi.Strip(m.renderFooter())
+	if !strings.Contains(footer, "Discard changes?") {
+		t.Errorf("the discard prompt must still ask its question, got: %q", footer)
+	}
+	for _, want := range []string{"y/n", "discard or keep edits"} {
+		if !strings.Contains(footer, want) {
+			t.Errorf("the discard prompt must advertise %q, got: %q", want, footer)
+		}
+	}
+	if strings.Contains(footer, "enter") {
+		t.Errorf("the discard prompt must not promise enter, got: %q", footer)
+	}
+}
+
+// Pressing enter at the discard prompt does nothing at all — it neither
+// discards nor dismisses — so the prompt cannot be resolved by accident.
+func TestEnterAtDiscardPromptIsInert(t *testing.T) {
+	m, _, _ := loaded(t, "")
+	m = typeRune(t, m, 'x') // dirty the title
+	m, _ = updateModel(m, tea.KeyPressMsg{Text: "esc"})
+	if !m.confirmingDiscard {
+		t.Fatal("precondition: a dirty esc should raise the discard prompt")
+	}
+
+	m, cmd := updateModel(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.confirmingDiscard {
+		t.Error("enter must leave the discard prompt up, not resolve it")
+	}
+	if runCmd(cmd) != nil {
+		t.Errorf("enter at the discard prompt must emit nothing, got %T", runCmd(cmd))
+	}
+
+	// y still discards, n still keeps — the prompt itself is unchanged.
+	m, cmd = updateModel(m, tea.KeyPressMsg{Text: "y", Code: 'y'})
+	if _, ok := runCmd(cmd).(cmds.CloseDetailsSideMsg); !ok {
+		t.Errorf("y must still discard and close, got %T", runCmd(cmd))
 	}
 }

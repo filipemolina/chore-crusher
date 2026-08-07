@@ -94,6 +94,7 @@ type DetailsKeys struct {
 	CycleModeBack key.Binding
 	PercentNudge  key.Binding
 	PercentType   key.Binding
+	DiscardPrompt key.Binding
 	CopyTaskID    key.Binding
 	CommentNew    key.Binding
 	CommentSubmit key.Binding
@@ -205,6 +206,14 @@ var Details = DetailsKeys{
 	// percentage field, so there is no one keystroke to bind — but without a
 	// hint nothing on screen says the field takes typing at all.
 	PercentType: key.NewBinding(key.WithHelp("0-9", "type a number")),
+	// Help-only. Esc on a dirty modal raises "Discard changes? (y/n)", and
+	// that prompt answers to y and n alone. enter is deliberately not bound:
+	// unlike the confirm modal — where enter acts on a yes/no button the user
+	// can see is selected — this prompt has no visible default, so binding
+	// enter would make a single stray keystroke throw away unsaved edits.
+	// The Overlays scope's "enter confirm" is true of the modals that do have
+	// that selection; this entry is what keeps it from over-promising here.
+	DiscardPrompt: key.NewBinding(key.WithHelp("y/n", "discard or keep edits")),
 	// ctrl+y copies the open task's id; it is bound to no input widget, so it
 	// works from every zone including a focused text field.
 	CopyTaskID: key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "copy task id")),
@@ -401,7 +410,7 @@ func Catalog(ctx Context) []Scope {
 
 	scopes = append(scopes, Scope{
 		Title:   "Details",
-		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
+		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
 	})
 
 	return scopes

@@ -117,43 +117,39 @@ func modalTitleRow(width int, left, right string) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, spacer, trunc)
 }
 
-// applyTextareaStyles seals the textarea onto the modal background and
-// themes its line-number gutter and cursor line. Rebuilt every render so a
-// theme switch while the modal is closed cannot leave a stale background
-// behind.
+// applyTextareaStyles seals the textarea onto the modal background and themes
+// its cursor line. Rebuilt every render so a theme switch while the modal is
+// closed cannot leave a stale background behind.
 //
-// textarea.DefaultDarkStyles() left uncustomized fields (LineNumber,
-// CursorLineNumber, EndOfBuffer) at bubbles' own hardcoded ANSI-256 greys,
-// unrelated to the active Theme — their brightness relative to Text
-// (explicitly set to TextPrimary below) was whatever that fixed palette
-// happened to produce, which is why filler (empty) lines could read
-// brighter than real text (bug: accent color on the notes field). Every
-// tier here now comes from the active Theme: EndOfBuffer/LineNumber use
-// TextDim so empty lines read quieter than filled ones, and the cursor
-// line gets BackgroundElevated — the same "selected = elevated" tier the
-// highlighted comment card below it in this same modal already uses
-// (renderCommentCard) — plus its line number in Accent, so the current
-// line is unmistakably marked rather than blending into the rest.
+// textarea.DefaultDarkStyles() leaves uncustomized fields at bubbles' own
+// hardcoded ANSI-256 greys, unrelated to the active Theme — their brightness
+// relative to Text (explicitly set to TextPrimary below) was whatever that
+// fixed palette happened to produce, which is why filler (empty) lines could
+// read brighter than real text (bug: accent color on the notes field). Every
+// tier here comes from the active Theme instead: EndOfBuffer uses TextDim so
+// empty lines read quieter than filled ones, and the cursor line gets
+// BackgroundElevated — the same "this is where the keyboard is" lift the
+// percentage field and the highlighted comment card in this modal use
+// (docs/DESIGN.md §12) — so the current line is marked rather than blending in.
 func (m *Model) applyTextareaStyles(bg color.Color) {
 	styles := textarea.DefaultDarkStyles()
 	base := lipgloss.NewStyle().Background(bg)
 	text := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
 	dim := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
 
-	cursorBg := appstyles.Active.BackgroundElevated
-	cursorText := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(cursorBg)
-	cursorLineNumber := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Background(cursorBg)
+	cursorText := lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextPrimary).
+		Background(appstyles.Active.BackgroundElevated)
 
 	styles.Focused.Base = base
 	styles.Blurred.Base = base
 	styles.Focused.Text = text
 	styles.Blurred.Text = text
+	// Lit only while Notes actually holds the keyboard. Setting the blurred
+	// state to the same lift made every field look focused at once, which is
+	// what left the bold section label as the only real focus signal.
 	styles.Focused.CursorLine = cursorText
-	styles.Blurred.CursorLine = cursorText
-	styles.Focused.LineNumber = dim
-	styles.Blurred.LineNumber = dim
-	styles.Focused.CursorLineNumber = cursorLineNumber
-	styles.Blurred.CursorLineNumber = cursorLineNumber
+	styles.Blurred.CursorLine = text
 	styles.Focused.EndOfBuffer = dim
 	styles.Blurred.EndOfBuffer = dim
 	m.notes.SetStyles(styles)
@@ -163,15 +159,21 @@ func (m *Model) applyTextareaStyles(bg color.Color) {
 // background so their text rows do not bleed the terminal default behind them,
 // matching the notes textarea. Rebuilt every render for the same theme-switch
 // reason as applyTextareaStyles.
+//
+// A focused input also lifts to BackgroundElevated across its full width, the
+// app's one way of showing focus (docs/DESIGN.md §12). Before this the Title
+// field had no edge and no frame of its own, so the only thing marking it as
+// active was its section label going bold — easy to miss on a modal with four
+// zones. The widgets pick Focused vs Blurred from their own state, which
+// cycleFocus already drives.
 func (m *Model) applyInputStyles(bg color.Color) {
 	seal := func(in *textinput.Model) {
 		st := in.Styles()
-		text := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
-		placeholder := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
-		st.Focused.Text = text
-		st.Blurred.Text = text
-		st.Focused.Placeholder = placeholder
-		st.Blurred.Placeholder = placeholder
+		lift := appstyles.Active.BackgroundElevated
+		st.Focused.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(lift)
+		st.Blurred.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
+		st.Focused.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(lift)
+		st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
 		in.SetStyles(st)
 	}
 	seal(&m.titleInput)
@@ -458,7 +460,8 @@ func (m *Model) cardChrome(bg, barFg color.Color, content string, innerW int) st
 // drift into describing the same key two ways.
 func (m *Model) renderFooter() string {
 	if m.confirmingDiscard {
-		return lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render("Discard changes? (y/n)")
+		question := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render("Discard changes?")
+		return question + "  " + chrome.RenderKeyHints(m.zoneHints(), appstyles.Active.TextMuted)
 	}
 	return chrome.RenderKeyHints(m.zoneHints(), appstyles.Active.TextMuted)
 }
@@ -469,6 +472,12 @@ func (m *Model) renderFooter() string {
 // the same honesty the footer bar applies to the globals it drops.
 func (m *Model) zoneHints() []chrome.KeyHint {
 	switch {
+	case m.confirmingDiscard:
+		// The prompt owns the keyboard and answers to y/n alone. enter is not
+		// bound here on purpose: unlike the confirm modal, which has a visible
+		// yes/no selection for enter to act on, this prompt has no default —
+		// so enter would be one stray keystroke away from losing unsaved edits.
+		return []chrome.KeyHint{chrome.HintFor(keys.Details.DiscardPrompt)}
 	case m.composing:
 		return []chrome.KeyHint{
 			chrome.HintFor(keys.Details.CommentSubmit),

@@ -268,7 +268,11 @@ list beside it, so it is a modal again.
 
 Inside the Details modal the notes textarea grows with its content but is capped
 so at least one or two comment cards stay visible — notes never swallow the
-whole modal. The comment thread renders as selectable cards (the shared row-card
+whole modal. It renders **no line-number gutter**: that is a code-editor
+affordance, and these notes are a few lines of prose nobody cites by line, so
+the column only spent width and made the field read as an editor pane. The
+`┃` prompt is the field's left edge; the line the cursor is on lifts to
+`BackgroundElevated` while Notes holds the keyboard (§12). The comment thread renders as selectable cards (the shared row-card
 chrome, §12); `↑`/`↓` move the highlight and `y` copies the highlighted
 comment's id to the system clipboard.
 
@@ -346,9 +350,23 @@ comment's id to the system clipboard while the comment thread is focused;
 selection under mouse reporting, so the id is shown below the title and a key is
 the real copy affordance); `esc` closes a clean modal immediately, and on a dirty
 one shows the inline `Discard changes? (y/n)` prompt — `y` closes and discards,
-`n` keeps editing. No path silently discards edits. The label of the focused
-zone (Title/Notes/Progress/Comments) is bolded onto `TextPrimary`, and every
-footer hint bolds its key ahead of a muted description.
+`n` keeps editing. **`enter` is deliberately unbound at that prompt**: the
+confirm modal can bind it because it has a visible yes/no selection for `enter`
+to act on, and this prompt has none, so binding it would leave unsaved edits one
+stray keystroke from gone. The help overlay lists the prompt's own `y`/`n` entry
+for that reason, rather than letting the Overlays scope's "enter confirm" — true
+of the modals that do have that selection — imply it works here too. No path
+silently discards edits. The label of the focused zone
+(Title/Notes/Progress/Comments) is bolded onto `TextPrimary`, the focused field
+itself lifts to `BackgroundElevated` (§12), and every footer hint bolds its key
+ahead of a muted description.
+
+While the modal is open the **global footer renders nothing at all** — a blank
+full-width bar, so the layout height does not move. The modal carries its own
+hint line beside the controls it describes, and that line is the only one on
+screen; it never spells its own wording, taking every hint from the binding in
+`src/keys` so the modal and the help overlay cannot describe a key two ways.
+A key is advertised only in the zone where it is actually live.
 
 The task **title** is an editable single-line `textinput`, first in the tab
 cycle; a save writes it through `store.RenameTask`, and a title cleared to
