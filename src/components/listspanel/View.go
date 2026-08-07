@@ -110,12 +110,26 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 func (m Model) View() tea.View {
 	width := chrome.PanelBodyWidth(m.body.ListsWidth)
 	height := chrome.PanelBodyHeight(m.body.Height)
+	bg := chrome.PanelBg(m.focused)
 
 	var body string
 	if len(m.list.Items()) == 0 {
 		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height)
 	} else {
-		body = m.list.View()
+		content := m.list.View()
+		// The bubbles list shipped dots at the bottom for multi-page lists;
+		// this app renders its own "N below" overflow indicator instead
+		// (docs/DESIGN.md §12).
+		if below := m.listsBelow(); below > 0 {
+			footer := lipgloss.NewStyle().
+				Background(bg).
+				Foreground(appstyles.Active.TextDim).
+				Width(width).
+				Render(fmt.Sprintf("%d below", below))
+			body = chrome.PanelBodyWithFooter(width, height, bg, content, footer)
+		} else {
+			body = content
+		}
 	}
 
 	return tea.NewView(chrome.PanelFrame("Lists", m.focused, m.body.ListsWidth, m.body.Height, body))

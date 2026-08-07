@@ -64,6 +64,15 @@ type TaskTreeKeys struct {
 	// VS Code converge on for moving a line.
 	MoveUp   key.Binding
 	MoveDown key.Binding
+	// GoToStart/GoToEnd jump the cursor to the first or last visible row.
+	// PageUp/PageDown move it one viewport height up/down, clamped to the
+	// row bounds (docs/DESIGN.md §5). Key choices match ListKeyMap() so the
+	// two panels agree; left/right are deliberately not borrowed here because
+	// the tree reserves them for expand/collapse.
+	GoToStart key.Binding
+	GoToEnd   key.Binding
+	PageUp    key.Binding
+	PageDown  key.Binding
 }
 
 // CreateKeys act inside the inline create row: editing the draft, changing
@@ -133,12 +142,16 @@ var Tree = TaskTreeKeys{
 	OpenDetails: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
 	// New is handled at AppModel level (context = focused panel); kept here
 	// so the tree's handler can match it until the wiring moves in step 2.
-	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
-	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	Outdent:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
-	Indent:   key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
-	MoveUp:   key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
-	MoveDown: key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
+	New:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+	Delete:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Outdent:   key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
+	Indent:    key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
+	MoveUp:    key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
+	MoveDown:  key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
+	GoToStart: key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "first")),
+	GoToEnd:   key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "last")),
+	PageUp:    key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
+	PageDown:  key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "page down")),
 }
 
 var Create = CreateKeys{
@@ -310,6 +323,7 @@ func Active(ctx Context) []key.Binding {
 				Tree.Navigate, Tree.Toggle, Tree.OpenDetails,
 				Tree.Expand, Tree.Collapse, Tree.Delete, Tree.New,
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
+				Tree.GoToStart, Tree.GoToEnd, Tree.PageUp, Tree.PageDown,
 				Global.NextPanel,
 			}
 		}
@@ -400,7 +414,8 @@ func Catalog(ctx Context) []Scope {
 			scopes = append(scopes, Scope{
 				Title: "Task Tree",
 				Entries: entries(
-					Tree.Navigate, Tree.Expand, Tree.Collapse,
+					Tree.Navigate, Tree.GoToStart, Tree.GoToEnd,
+					Tree.PageUp, Tree.PageDown, Tree.Expand, Tree.Collapse,
 					Tree.Toggle, Tree.OpenDetails, Tree.Delete,
 					Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
 				),

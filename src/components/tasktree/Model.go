@@ -368,6 +368,14 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if msg.String() == "down" || msg.String() == "j" {
 				m.moveSelection(1)
 			}
+		case key.Matches(msg, keys.Tree.GoToStart):
+			m.moveToFirst()
+		case key.Matches(msg, keys.Tree.GoToEnd):
+			m.moveToLast()
+		case key.Matches(msg, keys.Tree.PageUp):
+			m.moveSelection(-m.bodyHeight())
+		case key.Matches(msg, keys.Tree.PageDown):
+			m.moveSelection(m.bodyHeight())
 		case key.Matches(msg, keys.Tree.Collapse):
 			m.toggleCollapse(false)
 		case key.Matches(msg, keys.Tree.Expand):
@@ -470,7 +478,16 @@ func (m Model) scrollFor(prev int) int {
 		return 0
 	}
 	plan := m.linePlan(m.bodyWidth(), chrome.PanelBg(m.focused))
-	return clampScroll(len(plan), m.selectedLineIndex(plan), height, prev)
+	selIdx := m.selectedLineIndex(plan)
+	// When a section header is above the window it gets pinned at the top
+	// (renderWindow), reducing the content area by one line: recompute
+	// the offset with the smaller height so the selection stays visible.
+	off := clampScroll(len(plan), selIdx, height, prev)
+	headerIdx := findSectionHeader(plan, selIdx)
+	if headerIdx >= 0 && headerIdx < off {
+		return clampScroll(len(plan), selIdx, height-1, prev)
+	}
+	return off
 }
 
 // clampScroll keeps the selected plan line inside the visible window
@@ -545,25 +562,26 @@ func (m *Model) clearFilter() {
 	m.filterInput.Reset()
 }
 
-// moveSelection moves the cursor by delta visible rows. The cursor walks the
-// Pending and Complete sections as one sequence — Pending first, then
-// Complete — so pressing ↓ past the last pending row lands on the first
-// complete row, and ↑ from the first complete row returns to the last pending
-// row. Each section keeps its own ordering (its rows never interleave by
-// store position), which is the "two lists with their own indexes" contract
-// (docs/DESIGN.md §6). While a /-filter is active the sections do not exist,
-// so the cursor moves through the flat filtered set instead.
-func (m *Model) moveSelection(delta int) {
-	var order []apptypes.Row
+// selectionOrder returns the rows the cursor walks over, in visit order: the
+// Pending section first, then Complete, each in store order. While a /-filter
+// is active the sections do not exist, so it returns the flat filtered set
+// instead (docs/DESIGN.md §6).
+func (m *Model) selectionOrder() []apptypes.Row {
 	if m.filterActive() {
-		order = m.displayedRows()
-	} else {
-		pending, complete := m.splitSections()
-		order = make([]apptypes.Row, 0, len(pending)+len(complete))
-		order = append(order, pending...)
-		order = append(order, complete...)
+		return m.displayedRows()
 	}
+	pending, complete := m.splitSections()
+	order := make([]apptypes.Row, 0, len(pending)+len(complete))
+	order = append(order, pending...)
+	order = append(order, complete...)
+	return order
+}
 
+// moveSelection moves the cursor by delta visible rows, using the same
+// section-order walk (pending first, then complete) the cursor always uses
+// (docs/DESIGN.md §6). Clamped to the row bounds.
+func (m *Model) moveSelection(delta int) {
+	order := m.selectionOrder()
 	current := -1
 	for i, r := range order {
 		if r.Task.ID == m.selectedID {
@@ -583,6 +601,25 @@ func (m *Model) moveSelection(delta int) {
 	}
 	if next >= 0 && next < len(order) {
 		m.selectedID = order[next].Task.ID
+	}
+}
+
+// moveToFirst moves the selection to the first visible row (the first pending
+// task, or the first complete task when none are pending), matching the
+// cursor's section-order walk (docs/DESIGN.md §6).
+func (m *Model) moveToFirst() {
+	order := m.selectionOrder()
+	if len(order) > 0 {
+		m.selectedID = order[0].Task.ID
+	}
+}
+
+// moveToLast moves the selection to the last visible row (the last complete
+// task, or the last pending task when none are complete).
+func (m *Model) moveToLast() {
+	order := m.selectionOrder()
+	if len(order) > 0 {
+		m.selectedID = order[len(order)-1].Task.ID
 	}
 }
 

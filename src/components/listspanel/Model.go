@@ -36,6 +36,12 @@ func New() tea.Model {
 	l.SetShowStatusBar(false)
 	l.SetShowFilter(true)
 	l.SetFilteringEnabled(true)
+	// The bubbles list ships dots at the bottom when there are multiple
+	// pages; this app renders its own "N below" overflow indicator instead,
+	// so the raw dots would read as debris (docs/DESIGN.md §12). The
+	// paginator's key handling (G/g/pgup/pgdown) still works — only the
+	// visual pagination view is suppressed.
+	l.SetShowPagination(false)
 	l.KeyMap = keys.ListKeyMap()
 	return Model{list: l}
 }
@@ -131,6 +137,17 @@ func (m Model) SelectedListID() string {
 		return sel.List.ID
 	}
 	return ""
+}
+
+// listsBelow returns the number of lists on pages after the current one —
+// the count to advertise in the "N below" overflow footer. It is the total
+// minus what the paginator has already placed before (and including) the
+// current page's visible slice.
+func (m Model) listsBelow() int {
+	total := len(m.list.Items())
+	first := m.list.Paginator.Page * m.list.Paginator.PerPage
+	onPage := m.list.Paginator.ItemsOnPage(total)
+	return max(0, total-first-onPage)
 }
 
 // FilterActive reports whether the panel's own filter is open or applied,

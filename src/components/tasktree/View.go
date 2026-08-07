@@ -33,6 +33,42 @@ func (m Model) View() tea.View {
 type panelLine struct {
 	taskID  string
 	content string
+	// section is non-empty for section header lines, set to "Pending" or
+	// "Complete" so the renderer can pin the current section's header at the
+	// top of the viewport and render its overflow suffix (docs/DESIGN.md §12).
+	section string
+}
+
+// sectionLine creates a section-header panelLine tagged with its section name,
+// so renderWindow can identify and pin it without inspecting rendered text.
+func sectionLine(name string, count int) panelLine {
+	return panelLine{content: sectionHeader(name, count), section: name}
+}
+
+// findSectionHeader scans the plan backwards from idx to find the section
+// header ("Pending" or "Complete") that precedes it, returning the header's
+// index in the plan, or -1 when idx is not under any section header
+// (e.g. the filtered view, which has no section headers).
+func findSectionHeader(plan []panelLine, idx int) int {
+	for i := idx; i >= 0; i-- {
+		if plan[i].section != "" {
+			return i
+		}
+	}
+	return -1
+}
+
+// countTaskRows counts plan lines that are task rows (non-empty taskID that is
+// not the create sentinel) within [start, end). Used for the overflow suffix
+// so the count reflects tasks, not chrome lines.
+func countTaskRows(plan []panelLine, start, end int) int {
+	n := 0
+	for i := start; i < end && i < len(plan); i++ {
+		if plan[i].taskID != "" && plan[i].taskID != createLineID {
+			n++
+		}
+	}
+	return n
 }
 
 // createLineID is the sentinel taskID the inline create row carries, so the
@@ -93,13 +129,44 @@ func (m *Model) linePlan(width int, bg color.Color) []panelLine {
 // the panel background so the window always paints its full box (no bleed on a
 // short tail). The offset is re-derived from the stored scrollOffset here so a
 // render never mutates persistent state; Update is what advances scrollOffset.
+//
+// The section header for the section the cursor is in is pinned to the top of
+// the viewport (docs/DESIGN.md §12): when the header has scrolled past, it
+// stays visible as a fixed line rather than disappearing. The pinned header
+// also carries the overflow suffix ("N above . N below") that tells the user
+// how many task rows are hidden above and/or below the window.
 func (m Model) renderWindow(plan []panelLine, height, width int, bg color.Color) string {
 	if height <= 0 {
 		return ""
 	}
-	off := clampScroll(len(plan), m.selectedLineIndex(plan), height, m.scrollOffset)
+	selIdx := m.selectedLineIndex(plan)
+	off := clampScroll(len(plan), selIdx, height, m.scrollOffset)
+
+	// Determine whether a section header needs pinning: find the header for
+	// the section the selection lives in, and check if it is above the window.
+	headerIdx := findSectionHeader(plan, selIdx)
+	pinned := false
+	if headerIdx >= 0 && headerIdx < off {
+		// Header is above the window — pin it at the top and shrink the
+		// content area by one line so the selection stays visible.
+		off = clampScroll(len(plan), selIdx, height-1, m.scrollOffset)
+		pinned = true
+	}
+
 	end := min(len(plan), off+height)
+	if pinned {
+		end = min(len(plan), off+height-1) // make room for the pinned header line
+	}
+
 	lines := make([]string, 0, height)
+
+	// Prepend the pinned header (with overflow suffix) if applicable.
+	if pinned {
+		header := plan[headerIdx]
+		overhead := overflowSuffix(plan, off, end, height)
+		lines = append(lines, header.content+overhead)
+	}
+
 	for i := off; i < end; i++ {
 		lines = append(lines, plan[i].content)
 	}
@@ -107,6 +174,28 @@ func (m Model) renderWindow(plan []panelLine, height, width int, bg color.Color)
 		lines = append(lines, lipgloss.NewStyle().Background(bg).Width(max(0, width)).Render(""))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+// overflowSuffix computes the "N above" / "N below" text suffix for the pinned
+// section header, rendered in TextDim (docs/DESIGN.md §12). When there are
+// more task rows hidden above the viewport it reports "N above"; below, "N
+// below"; both as "N above . N below". When everything fits, the suffix is
+// empty.
+func overflowSuffix(plan []panelLine, off, end, height int) string {
+	above := countTaskRows(plan, 0, off)
+	below := countTaskRows(plan, end, len(plan))
+	if above == 0 && below == 0 {
+		return ""
+	}
+	dim := lipgloss.NewStyle().Foreground(appstyles.Active.TextDim)
+	parts := make([]string, 0, 2)
+	if above > 0 {
+		parts = append(parts, dim.Render(fmt.Sprintf("%d above", above)))
+	}
+	if below > 0 {
+		parts = append(parts, dim.Render(fmt.Sprintf("%d below", below)))
+	}
+	return "  " + strings.Join(parts, " . ")
 }
 
 // fillToHeight clips or pads a rendered block to exactly height lines, padding
@@ -198,14 +287,14 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 	// the card belongs to the Pending section even while that section has
 	// nothing in it yet (docs/plan/task-row-cards-and-status.md).
 	if m.creating && len(pending) == 0 && len(complete) == 0 {
-		plan = append(plan, chromeLine(sectionHeader("Pending", 0)))
+		plan = append(plan, sectionLine("Pending", 0))
 		plan = append(plan, chromeLine(""))
 		plan = append(plan, m.createLine(width, bg))
 		return plan
 	}
 
 	if len(pending) > 0 {
-		plan = append(plan, chromeLine(sectionHeader("Pending", countByStatusNotComplete(pending))))
+		plan = append(plan, sectionLine("Pending", countByStatusNotComplete(pending)))
 		// One blank line below each section title, and one below the last
 		// pending row, so the sections read as blocks with air around them
 		// (docs/DESIGN.md §6).
@@ -221,7 +310,7 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 	}
 
 	if len(complete) > 0 {
-		plan = append(plan, chromeLine(sectionHeader("Complete", countByStatusComplete(complete))))
+		plan = append(plan, sectionLine("Complete", countByStatusComplete(complete)))
 		plan = append(plan, chromeLine(""))
 		plan, placedCreate = m.appendSectionPlan(plan, complete, width, bg, placedCreate)
 	}

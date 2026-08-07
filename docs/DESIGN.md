@@ -309,6 +309,13 @@ convention as `nnn`, `lf`, and most terminal file managers with a tree pane —
 picked because it is already muscle memory for the audience, not invented
 for this app.
 
+**`g`** jumps the cursor to the first row and **`G`** to the last,
+**`pgup`** and **`pgdown`** move it one viewport height up/down (clamped to
+the row bounds). `home`/`g` and `end`/`G` are both accepted, and `pgup`/
+`pgdown` mirror the lists panel's `ListKeyMap()` so the two panels agree on
+movement — `left`/`right` are deliberately **not** borrowed here, since the
+tree reserves them for expand/collapse (§5).
+
 **`alt+↑`/`alt+k` and `alt+↓`/`alt+j` move the selected task** up or down
 *within its own status run* — the gesture never crosses the Pending/Complete
 boundary, so a task cannot be moved out of the section it belongs in
@@ -493,8 +500,9 @@ one: it renders even when the next section is empty.
 sections together are taller than the panel body, the tree renders only a
 vertical window of its lines and shifts that window the minimum needed to keep
 the selected row (or, mid-create, the inline input row) inside it, under the
-existing `↑`/`↓`/`j`/`k` walk — there is no mouse wheel, no page-up/page-down
-binding, and no horizontal scroll (all out of scope). The window is computed
+existing `↑`/`↓`/`j`/`k` walk, plus `g`/`G` for first/last and `pgup`/`pgdown` for
+one viewport-height jumps (§5) — there is no mouse wheel and no horizontal
+scroll (both out of scope). The window is computed
 from one **line plan** (`[]panelLine` in `tasktree`, each entry a single display
 line tagged with its task id or blank for chrome) that the renderer and the
 scroll math share, so header/blank/rule counts are never duplicated in the
@@ -1188,6 +1196,33 @@ Section headers (`Pending`, `Complete` — §6) render as `{bold TextPrimary}
 {section name} {dim count in parens}`, e.g. **Pending** `(3)` — the same
 "name, then a muted count" shape the lists panel already uses for a list's
 own row, so the two surfaces read as one convention rather than two.
+
+### Section headers: pinned and overflow-marked
+
+When the cursor's section header has scrolled off the top of the task-tree
+viewport, it is **pinned** as a fixed line at the top of the window so the
+section name and count stay in view while scrolling (renderWindow in
+`src/components/tasktree/View.go`). The pin reduces the content area by one
+line: `scrollFor` recomputes the offset with `height-1` so the selected row
+remains visible in the shrunken window. A header that is already at the top
+of the viewport is not duplicated — the pin only takes effect when the header
+is above the scroll offset.
+
+The pinned header carries an **overflow suffix** rendered in `TextDim`,
+separated from the header by two spaces: the count of task rows hidden above
+the viewport (`N above`), the count hidden below (`N below`), or both joined
+by ` . ` — e.g. **Pending** `(3)` `  5 below`, or **Pending** `(30)` `  11 above . 5 below`.
+When the full section fits within the viewport (no rows hidden on either
+side), the suffix is omitted entirely. The counts span only task rows —
+not chrome lines like section rules, blank spacers, the filter bar, or the
+inline create row.
+
+The lists panel mirrors the same convention: the bubbles list's built-in
+pagination dots (which render as `••••…` at the bottom of a multi-page list)
+are disabled (`SetShowPagination(false)` in `src/components/listspanel/Model.go`),
+and an "N below" line in `TextDim` replaces them via `chrome.PanelBodyWithFooter`
+in `View()`, so both surfaces show the same "N below" overflow signal in the
+same tier.
 
 ### The task tree's filter bar
 
