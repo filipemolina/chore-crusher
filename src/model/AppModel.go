@@ -101,9 +101,10 @@ func (m AppModel) helpContext() keys.Context {
 	if tasks, ok := m.components.TaskPanel.(interface{ IsCreating() bool }); ok {
 		creating = tasks.IsCreating()
 	}
-	// Filtering is not yet exported by the tree; leave false until the
-	// tree wires the /-filter state into AppModel (phase A step 2).
 	filtering := false
+	if tasks, ok := m.components.TaskPanel.(interface{ FilterActive() bool }); ok {
+		filtering = tasks.FilterActive()
+	}
 
 	return keys.Context{
 		Focused:             m.focusedZone,

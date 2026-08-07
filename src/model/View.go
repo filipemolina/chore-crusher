@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/components/keybindingbar"
 	"github.com/filipemolina/chore-crusher/src/constants"
 )
 
@@ -12,7 +13,7 @@ import (
 func (m AppModel) View() tea.View {
 	header := m.components.MainMenu.View().Content
 	body := m.renderBody()
-	footer := m.components.KeybindingBar.View().Content
+	footer := m.footerView()
 
 	layout := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 
@@ -53,6 +54,23 @@ func (m AppModel) View() tea.View {
 	v.AltScreen = true
 
 	return v
+}
+
+// footerView renders the keybinding bar for the frame being drawn right now.
+// The bar's own Update only learns of context changes (creating, filtering,
+// focus) via SetFooterContextMsg, a command whose message is not delivered
+// until the NEXT Bubble Tea cycle — rendering the bar's stored ctx here would
+// always show the context computed one keystroke ago. Handing it this
+// frame's helpContext() directly, the same way SetBodyLayoutMsg's width is
+// otherwise threaded through, keeps the footer in lockstep with what the
+// user just pressed (bug: footer key hints lag the current mode by one
+// keystroke).
+func (m AppModel) footerView() string {
+	bar, ok := m.components.KeybindingBar.(keybindingbar.Model)
+	if !ok {
+		return m.components.KeybindingBar.View().Content
+	}
+	return bar.WithContext(m.helpContext()).View().Content
 }
 
 // renderBody renders the Tasks surface and, while visible, the Lists surface

@@ -22,6 +22,16 @@ func New() tea.Model {
 	return Model{}
 }
 
+// WithContext returns a copy of m with ctx set for the frame about to be
+// rendered, bypassing the deferred SetFooterContextMsg round trip — the
+// caller renders the result immediately rather than waiting for Update to
+// receive the message on a later cycle (docs/DESIGN.md's footer contract:
+// hints describe the mode the app is in right now).
+func (m Model) WithContext(ctx keys.Context) Model {
+	m.ctx = ctx
+	return m
+}
+
 // Update tracks the layout width and the context changes from AppModel.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {

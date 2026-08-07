@@ -6,6 +6,7 @@ import (
 
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/chore-crusher/src/keys"
 )
 
 func TestFooterRendersContextAndGlobalKeys(t *testing.T) {
@@ -76,6 +77,52 @@ func TestFooterEmptyTreeAdvertisesNew(t *testing.T) {
 		if strings.Contains(out, absent) {
 			t.Errorf("empty-tree footer must not advertise %q:\n%s", absent, out)
 		}
+	}
+}
+
+// TestFooterWithContextShowsCreateHints proves WithContext renders the
+// context handed to it directly, without going through the Update/
+// SetFooterContextMsg round trip — the fix for the footer lagging the
+// current mode by one keystroke: AppModel.View now calls WithContext with
+// this frame's context instead of reading the bar's own (stale) ctx field.
+func TestFooterWithContextShowsCreateHints(t *testing.T) {
+	m := New()
+	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})
+
+	out := m.(Model).WithContext(keys.Context{
+		Focused:       constants.COMPONENT_TASK_TREE,
+		HasActiveList: true,
+		Creating:      true,
+	}).View().Content
+
+	for _, label := range []string{"create", "cancel"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("creating footer missing %q:\n%s", label, out)
+		}
+	}
+	if strings.Contains(out, "navigate") {
+		t.Errorf("creating footer must not advertise browse hints:\n%s", out)
+	}
+}
+
+// TestFooterWithContextShowsFilterHints is the Filtering half of the same
+// proof: while ctx.Filtering is true the bar must show the filter hints
+// (confirm/cancel), not the browse or create hints.
+func TestFooterWithContextShowsFilterHints(t *testing.T) {
+	m := New()
+	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})
+
+	out := m.(Model).WithContext(keys.Context{
+		Focused:       constants.COMPONENT_TASK_TREE,
+		HasActiveList: true,
+		Filtering:     true,
+	}).View().Content
+
+	if !strings.Contains(out, "confirm") {
+		t.Errorf("filtering footer missing the confirm hint:\n%s", out)
+	}
+	if strings.Contains(out, "create") {
+		t.Errorf("filtering footer must not advertise create hints:\n%s", out)
 	}
 }
 

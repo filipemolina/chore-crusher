@@ -435,3 +435,36 @@ func TestPasteReachesDetailsNotes(t *testing.T) {
 		t.Errorf("notes = %q, want pasted content", got)
 	}
 }
+
+// Footer key hints must describe the mode the app is in right now, not the
+// mode it was in one keystroke ago: pressing n opens the inline create
+// input, and the very first rendered frame after that keypress — not the
+// second one — must already show the create hints (bug: footer key hints
+// lag the current mode by one keystroke). The stale rendering came from
+// View() reading the keybinding bar's own ctx field, which the bar only
+// updates once SetFooterContextMsg arrives on a later Update cycle;
+// AppModel.View now hands the bar this frame's context directly.
+func TestFooterShowsCreateHintsOnTheFrameAfterN(t *testing.T) {
+	m := seedOneList(t)
+	// The keybinding bar only learns the terminal width via a fanned-out
+	// SetBodyLayoutMsg (newTestModel's WindowSizeMsg discards the command
+	// that would normally deliver it) and renders empty at width 0.
+	// Re-broadcast the model's own already-correct bodyLayout — the same
+	// trick layout_test.go's startup() uses — rather than fabricating one,
+	// since a hand-built Height overrides the header/footer-adjusted body
+	// height and pushes the footer off the bottom of the frame.
+	m = refresh(t, m, m.bodyLayout)
+
+	updated, _ := m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = updated.(AppModel)
+
+	out := m.View().Content
+	for _, label := range []string{"create", "cancel"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("footer on the frame right after n = %q missing, want create hints:\n%s", label, out)
+		}
+	}
+	if strings.Contains(out, "navigate") {
+		t.Errorf("footer on the frame right after n still shows browse hints:\n%s", out)
+	}
+}
