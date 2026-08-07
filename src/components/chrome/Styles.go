@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
@@ -69,6 +70,28 @@ func ModalSurface(bg color.Color, content string) string {
 		Background(bg)
 
 	return appstyles.FillBackground(bg, style.Render(content))
+}
+
+// Scrim dims the whole page behind a modal to one flat muted tier, so no
+// styled fragment of the page underneath it — a status pill's tail, an
+// empty-state card's border — can still read as distinct text once the
+// modal is composited on top (docs/DESIGN.md §12 "Modal scrim"; the bug
+// this fixes: overlays leave orphan fragments of the rows underneath).
+//
+// lipgloss's compositor has no alpha blending — a layer only ever draws
+// opaquely (see lipgloss.Layer) — so a translucent-looking veil is not
+// available, and wrapping the already-styled page in an outer Background()
+// style does not work either: it only paints cells the page left unstyled
+// (see appstyles.FillBackground's doc comment), leaving every glyph's own
+// embedded color untouched underneath. Scrim instead strips every SGR the
+// page carries and re-renders the plain text in one TextDim-on-
+// BackgroundContent tier, which recolors every cell uniformly because
+// nothing embedded is left to compete with it.
+func Scrim(page string) string {
+	return lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextDim).
+		Background(appstyles.Active.BackgroundContent).
+		Render(ansi.Strip(page))
 }
 
 // ModalTitle renders a modal's heading. Every modal names itself, so a user

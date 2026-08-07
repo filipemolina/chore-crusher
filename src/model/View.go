@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/chore-crusher/src/components/chrome"
 	"github.com/filipemolina/chore-crusher/src/components/keybindingbar"
 	"github.com/filipemolina/chore-crusher/src/constants"
 )
@@ -112,12 +113,14 @@ func (m AppModel) renderBody() string {
 // overlayModal composites modalContent as a centered layer on top of the rest
 // of the screen (stack-stitcher's pattern: clamp y at 0 so a modal taller than
 // the terminal loses its bottom edge rather than scrolling). Both the Task
-// details modal and the activeModal overlays go through here.
+// details modal and the activeModal overlays go through here, so scrimming
+// base here — rather than in each modal — dims the page behind every one of
+// them (confirm, help, theme picker, search picker, details) the same way.
 func (m AppModel) overlayModal(base, modalContent string) string {
 	x := max(0, (m.terminalWidth-lipgloss.Width(modalContent))/2)
 	y := max(0, (m.terminalHeight-lipgloss.Height(modalContent))/2)
 
-	baseLayer := lipgloss.NewLayer(base)
+	baseLayer := lipgloss.NewLayer(chrome.Scrim(base))
 	modalLayer := lipgloss.NewLayer(modalContent).X(x).Y(y).Z(1)
 
 	return lipgloss.NewCompositor(baseLayer, modalLayer).Render()

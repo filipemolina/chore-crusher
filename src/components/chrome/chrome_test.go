@@ -192,3 +192,42 @@ func TestPanelBodyWithFooterPinsFooterAndClipsContent(t *testing.T) {
 		t.Errorf("overflowing content was not clipped: %q", ansi.Strip(body))
 	}
 }
+
+// TestScrimMutesOriginalColorsButKeepsText pins the modal scrim (docs/
+// DESIGN.md §12 "Modal scrim"; bug: overlays leave orphan fragments of the
+// rows underneath). A page with a brightly-colored status marker, scrimmed,
+// must lose that marker's original color code entirely (not just gain a
+// background painted over unstyled gaps — see appstyles.FillBackground's
+// doc comment for why that alone would not be enough) while still carrying
+// the marker's text, now in the muted TextDim tier, with no background
+// bleed.
+func TestScrimMutesOriginalColorsButKeepsText(t *testing.T) {
+	original := lipgloss.NewStyle().Foreground(appstyles.Active.StatusInProgress).Render("IN PROGRESS")
+	page := "row one\n" + original + " trailing text\nrow two"
+
+	scrimmed := Scrim(page)
+
+	originalSGR := original[:strings.Index(original, "IN PROGRESS")]
+	if strings.Contains(scrimmed, originalSGR) {
+		t.Errorf("scrimmed page still carries the marker's original color code:\n%q", scrimmed)
+	}
+
+	// Foreground and Background combine into one SGR sequence, so the probe
+	// must set both the way Scrim does or its prefix will not line up
+	// byte-for-byte with the scrimmed output's own combined sequence.
+	dimmedProbe := lipgloss.NewStyle().
+		Foreground(appstyles.Active.TextDim).
+		Background(appstyles.Active.BackgroundContent).
+		Render("x")
+	dimmedSGR := dimmedProbe[:strings.Index(dimmedProbe, "x")]
+	if !strings.Contains(scrimmed, dimmedSGR) {
+		t.Errorf("scrimmed page does not carry the muted TextDim color:\n%q", scrimmed)
+	}
+
+	if !strings.Contains(ansi.Strip(scrimmed), "IN PROGRESS") {
+		t.Errorf("scrim must mute the marker's text, not delete it:\n%q", scrimmed)
+	}
+	if appstyles.HasBackgroundBleed(scrimmed) {
+		t.Errorf("scrimmed page has background bleed:\n%q", scrimmed)
+	}
+}

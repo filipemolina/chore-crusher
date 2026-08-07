@@ -998,6 +998,29 @@ the outermost pass seals last. Port stack-stitcher's
 optional polish, it's the mechanical check that catches a missing
 `Background()` call before it ships.
 
+### Modal scrim
+
+Every modal composites over the rest of the screen (`AppModel.overlayModal`,
+used for the Details panel and every `activeModal`: confirm, help, theme
+picker, search picker). Before laying the modal on top, `overlayModal` runs
+the page underneath through `chrome.Scrim`, which dims the whole page to one
+flat `TextDim`-on-`BackgroundContent` tier. Without it, a modal only paints
+the columns its own box occupies — any page content in the cells the box
+doesn't cover keeps its original styling, and right-aligned row content (a
+status pill's tail, an empty-state card's border) ends up reading as
+distinct fragments stuck to the modal's edge.
+
+`chrome.Scrim` cannot use a translucent overlay layer: lipgloss's compositor
+has no alpha blending, a layer always draws opaquely. It also cannot get
+away with wrapping the page in an outer `Background()` style, the way the
+outermost frame seal above does — that only paints cells the page left
+unstyled, leaving every glyph's own embedded color (a status pill's fill, a
+row's `ModalBg`) untouched underneath. Instead `chrome.Scrim` strips every
+SGR the page carries (`ansi.Strip`) and re-renders the resulting plain text
+in the one muted tier, which recolors every cell uniformly because nothing
+embedded survives to compete with it. Every modal gets this through
+`overlayModal`; no modal implements its own dimming.
+
 ### Focus is shown by lifting a tier, never by changing box size or border weight
 
 A rendered surface's box is exactly the same width and height whether or not
