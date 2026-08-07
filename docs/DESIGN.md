@@ -321,6 +321,27 @@ convention as `nnn`, `lf`, and most terminal file managers with a tree pane —
 picked because it is already muscle memory for the audience, not invented
 for this app.
 
+**Collapse is deep; expand is shallow — two halves of one invariant, not
+independently choosable.** Collapsing a node hides its *entire* subtree,
+every depth, not just its direct children: every descendant's own collapse
+state is set at the same time (`tasktree.collapseDeep`), walking forward
+through `m.rows`' depth-first preorder while `Depth` stays greater than the
+collapsed node's own. Expanding a node reveals *only* its direct children —
+grandchildren stay collapsed, and have to be expanded themselves to appear.
+**Collapsing resets, it does not remember**: a descendant's collapsed flag is
+set unconditionally, never preserved from before, so a later shallow expand
+of an ancestor can never reveal more than exactly one level — not "however
+many levels happened to be open before that ancestor was collapsed." The
+alternative (each node remembers its own expansion state across a collapse)
+was considered and rejected: it would make expand's behavior depend on
+history the user can't see — sometimes revealing one level, sometimes six —
+which is precisely the inconsistency the shallow-expand rule exists to
+remove. This decision is final; a future contributor proposing "restore
+prior expansion on re-expand" is proposing the rejected alternative, not a
+new idea. If the currently selected row is a descendant hidden by a
+collapse, selection moves to the collapsed node itself — the nearest row
+that stayed visible — rather than pointing at a row no longer on screen.
+
 **`g`** jumps the cursor to the first row and **`G`** to the last,
 **`pgup`** and **`pgdown`** move it one viewport height up/down (clamped to
 the row bounds). `home`/`g` and `end`/`G` are both accepted, and `pgup`/

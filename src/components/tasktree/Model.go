@@ -847,6 +847,12 @@ func siblingRun(rows []apptypes.Row, parentID *string) []apptypes.Row {
 }
 
 // toggleCollapse toggles or sets the collapse state of the selected row.
+// Collapse is deep (the whole subtree, every depth); expand is shallow (only
+// the row's direct children) — two halves of one invariant, not
+// independently choosable (docs/DESIGN.md task-tree section). Collapsing
+// resets every descendant's own collapse state rather than remembering it,
+// so re-expanding always reveals exactly one level, never however many were
+// open before.
 func (m *Model) toggleCollapse(expand bool) {
 	row := m.findRow(m.selectedID)
 	if row == nil || !row.HasChildren {
@@ -855,7 +861,36 @@ func (m *Model) toggleCollapse(expand bool) {
 	if expand {
 		delete(m.collapsed, m.selectedID)
 	} else if row.Depth == 0 || !m.isParentCollapsed(*row) {
-		m.collapsed[m.selectedID] = true
+		m.collapseDeep(m.selectedID)
+	}
+}
+
+// collapseDeep marks taskID and every descendant at every depth as
+// collapsed — descendants are found from m.rows (depth-first preorder,
+// apptypes.Row.Depth), walking forward from taskID's index while Depth stays
+// greater than taskID's own. This is the "reset" half of the collapse/expand
+// invariant: a descendant's own collapsed flag is set unconditionally, not
+// preserved, so a later shallow expand of taskID can never reveal more than
+// one level. If the current selection is one of those now-hidden
+// descendants (not taskID itself), it moves to taskID — the row that stayed
+// visible.
+func (m *Model) collapseDeep(taskID string) {
+	m.collapsed[taskID] = true
+	idx := slices.IndexFunc(m.rows, func(r apptypes.Row) bool { return r.Task.ID == taskID })
+	if idx < 0 {
+		return
+	}
+	depth := m.rows[idx].Depth
+	selectedIsDescendant := false
+	for i := idx + 1; i < len(m.rows) && m.rows[i].Depth > depth; i++ {
+		descendantID := m.rows[i].Task.ID
+		m.collapsed[descendantID] = true
+		if descendantID == m.selectedID {
+			selectedIsDescendant = true
+		}
+	}
+	if selectedIsDescendant {
+		m.selectedID = taskID
 	}
 }
 
