@@ -179,8 +179,27 @@ func (m *Model) applyInputStyles(bg color.Color) {
 	seal(&m.commentInput)
 }
 
+// progressModeLabel is the user-facing name for a progress mode. The stored
+// ProgressKind values ("simple", "subtasks", "percentage") are a public
+// contract — the column value, the CLI's `crush progress --mode`, and the MCP
+// tool's parameter all speak them (docs/DESIGN.md §9) — so they are never
+// renamed. This maps them to language a reader recognises, for display only:
+// "simple" in particular describes nothing on its own, where §3's actual
+// meaning is "being worked on, with no number attached".
+func progressModeLabel(kind apptypes.ProgressKind) string {
+	switch kind {
+	case apptypes.ProgressSimple:
+		return "in progress (flag)"
+	case apptypes.ProgressSubtasks:
+		return "from subtasks"
+	case apptypes.ProgressPercentage:
+		return "percentage"
+	}
+	return string(kind)
+}
+
 func (m *Model) renderProgressZone() string {
-	modeName := string(m.progressKind)
+	modeName := progressModeLabel(m.progressKind)
 	modeStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
 	if m.focus == focusProgress {
 		modeStyle = modeStyle.Foreground(appstyles.Active.Accent)
