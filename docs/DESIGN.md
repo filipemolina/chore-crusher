@@ -373,8 +373,11 @@ and surfaces its error as an inline message rather than posting.
 **task tree** filter (phase 8) narrows the current list's rows in place to
 each match plus its ancestor chain, so a matched leaf never loses its
 parent rows; the **lists panel** filter narrows the visible lists the same
-way. `enter` applies the query and leaves the filtered view active;
-`esc` clears it.
+way. The filter is **live**: it re-narrows on every keystroke, the way `F`
+does, so the query never sits typed-but-inert waiting on a commit. `enter`
+still applies the query — it blurs the input and leaves the filtered view
+active so the cursor can walk the results — and `esc` clears it. The two
+states differ only in where the keyboard is, never in what is on screen.
 
 **`F`** opens the cross-list search picker (phase 8): a text input searches
 every list live, ranking title matches before notes-only hits, and showing
@@ -1143,6 +1146,30 @@ Section headers (`Pending`, `Complete` — §6) render as `{bold TextPrimary}
 {section name} {dim count in parens}`, e.g. **Pending** `(3)` — the same
 "name, then a muted count" shape the lists panel already uses for a list's
 own row, so the two surfaces read as one convention rather than two.
+
+### The task tree's filter bar
+
+The `/` filter bar replaces the section headers while the filter is active
+(§8). It opens with a bold `TextPrimary` `/`, then the query — the live input
+while typing, the same text in `TextMuted` once `enter` has applied it — then
+a `TextDim` suffix two spaces along: the **match count**, then two more
+spaces, then `esc to clear`. The count is `N matches`, singular `1 match`,
+and it counts *directly matched rows only* — the ancestors kept for tree
+context are not matches and never inflate it. Both the count and the hint
+appear from the first character typed, not on commit: they are what tell a
+user a query has gone too narrow before they abandon it. With `/` open but
+nothing typed there is no query to count, so the bar shows `esc to clear`
+alone.
+
+Inside a directly-matched row, the characters the query matched are drawn in
+`Accent` **bold**; the rest of the title keeps the colour the row would have
+had anyway. The offsets come from `sahilm/fuzzy`'s `MatchedIndexes` — the
+same `Find` call that decided the row matched, so the highlight can never
+disagree with the match — and adjacent matched characters coalesce into one
+span rather than being styled one rune at a time. A row visible only as an
+**ancestor** of a match is not highlighted: it renders elided as
+`[…] <title>` in the recessed dim card, which is what distinguishes "this
+matched" from "this is here for context".
 
 ### Typography: which text tier, when
 

@@ -405,6 +405,9 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.filterTyping {
 			var cmd tea.Cmd
 			m.filterInput, cmd = m.filterInput.Update(msg)
+			// Same live sync as handleFilterKey: a pasted query narrows the
+			// tree immediately, exactly as a typed one does.
+			m.filterQuery = m.filterInput.Value()
 			return m, cmd
 		}
 		if m.creating {
@@ -523,6 +526,12 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.filterInput, cmd = m.filterInput.Update(msg)
+	// The tree filters live, the way F already does: every keystroke lands in
+	// filterQuery, so displayedRows and the filter bar narrow as the user
+	// types instead of waiting for enter. enter above still matters — it is
+	// what flips filterTyping to filterApplied so the input blurs and the
+	// tree stays filtered while the cursor moves.
+	m.filterQuery = m.filterInput.Value()
 	return m, cmd
 }
 
@@ -849,23 +858,26 @@ func filterMatches(rows []apptypes.Row, query string) []apptypes.Row {
 	return visible
 }
 
-// matchVisible returns the rows a /-filter keeps visible plus the set of
-// directly-matched row ids. The direct set is what a renderer highlights; an
-// ancestor that is visible only to anchor a match is outside it and gets
-// dimmed. An empty query shows every row with an empty direct set.
-func matchVisible(rows []apptypes.Row, query string) ([]apptypes.Row, map[string]bool) {
+// matchVisible returns the rows a /-filter keeps visible plus, for each
+// directly-matched row, the byte offsets in its title that the query matched
+// (sahilm/fuzzy's MatchedIndexes, from the same Find call that decides the
+// match — the renderer highlights those offsets rather than re-running its
+// own search). Membership in that map is what marks a row as a direct match;
+// an ancestor that is visible only to anchor a match is absent from it and
+// gets dimmed. An empty query shows every row with an empty direct set.
+func matchVisible(rows []apptypes.Row, query string) ([]apptypes.Row, map[string][]int) {
 	q := strings.TrimSpace(query)
 	if q == "" {
-		return rows, make(map[string]bool)
+		return rows, make(map[string][]int)
 	}
 
-	direct := make(map[string]bool, len(rows))
+	direct := make(map[string][]int, len(rows))
 	titles := make([]string, len(rows))
 	for i, r := range rows {
 		titles[i] = r.Task.Title
 	}
 	for _, m := range fuzzy.Find(q, titles) {
-		direct[rows[m.Index].Task.ID] = true
+		direct[rows[m.Index].Task.ID] = m.MatchedIndexes
 	}
 
 	// visible = direct plus every ancestor of every direct match, so a matched

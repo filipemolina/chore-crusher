@@ -61,7 +61,9 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 		// Filtered to nothing: the filter bar over a recessed "no match" card.
 		// There are no rows to scroll, so this renders directly rather than
 		// through the line-plan window.
-		body := lipgloss.JoinVertical(lipgloss.Top, m.renderFilterBar(), chrome.EmptyStateCard("No tasks match", width, 3))
+		// No rows survived, so there are no direct matches either: the bar
+		// reports 0 over the card.
+		body := lipgloss.JoinVertical(lipgloss.Top, m.renderFilterBar(0), chrome.EmptyStateCard("No tasks match", width, 3))
 		return appstyles.FillBackground(bg, fillToHeight(body, height, width, bg))
 	default:
 		plan := m.linePlan(width, bg)
@@ -286,7 +288,7 @@ func (m *Model) appendSectionPlan(plan []panelLine, rows []apptypes.Row, width i
 		anchor = createRenderAnchorID(rows, m.createBeforeID)
 	}
 	for _, row := range rows {
-		plan = append(plan, panelLine{taskID: row.Task.ID, content: m.renderRow(row, width, bg)})
+		plan = append(plan, panelLine{taskID: row.Task.ID, content: m.renderRow(row, width, bg, nil)})
 		if m.creating && !placed && anchor != "" && row.Task.ID == anchor {
 			plan = append(plan, m.createLine(width, bg))
 			placed = true
@@ -310,40 +312,63 @@ func sectionHeader(name string, count int) string {
 func (m *Model) planFiltered(width int, bg color.Color) []panelLine {
 	rows, matched := matchVisible(m.rows, m.filterQuery)
 
-	plan := []panelLine{chromeLine(m.renderFilterBar())}
+	plan := []panelLine{chromeLine(m.renderFilterBar(len(matched)))}
 	for _, row := range rows {
 		// Only dim ancestors of a real match; when the query is empty (the
 		// input is open but nothing typed yet) nothing is dimmed.
-		dimmed := m.filterQuery != "" && !matched[row.Task.ID]
-		plan = append(plan, panelLine{taskID: row.Task.ID, content: m.renderFilterRow(row, width, dimmed, bg)})
+		_, isMatch := matched[row.Task.ID]
+		dimmed := m.filterQuery != "" && !isMatch
+		plan = append(plan, panelLine{taskID: row.Task.ID, content: m.renderFilterRow(row, width, dimmed, matched[row.Task.ID], bg)})
 	}
 
 	return plan
 }
 
 // renderFilterBar shows the live input while typing ([/ query]) or, once a
-// query is applied, a dimmed summary ([/ query — esc to clear]).
-func (m *Model) renderFilterBar() string {
+// query is applied, a dimmed summary of the same query. Both states carry the
+// same affordances — the match count and "esc to clear" — so the filter reads
+// identically from the first keystroke onward and never implies that enter is
+// what makes it work. matches is the number of directly-matched rows, which is
+// what the user is counting; the elided ancestors kept for tree context are
+// not matches and are excluded by the caller.
+func (m *Model) renderFilterBar(matches int) string {
 	slash := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Bold(true).Render("/")
-	dim := muted().Render
-	if m.filterTyping {
-		return slash + " " + m.filterInput.View()
+	// The suffix sits in the footer hint tier (TextDim), one step below the
+	// query itself (TextMuted), so it reads as chrome (docs/DESIGN.md §12).
+	hint := dim().Render
+	suffix := hint("esc to clear")
+	// With nothing typed yet the filter matches nothing in particular, so a
+	// count would be noise; esc still works and still says so.
+	if m.filterQuery != "" {
+		unit := "matches"
+		if matches == 1 {
+			unit = "match"
+		}
+		suffix = hint(fmt.Sprintf("%d %s", matches, unit)) + "  " + suffix
 	}
-	return slash + " " + dim(m.filterQuery) + "  " + dim("esc to clear")
+	if m.filterTyping {
+		return slash + " " + m.filterInput.View() + "  " + suffix
+	}
+	return slash + " " + muted().Render(m.filterQuery) + "  " + suffix
 }
 
 // renderFilterRow renders one filtered row. A directly-matched row renders like
 // a normal task row; an ancestor that only stays visible to anchor a match
 // renders dimmed so the two are distinguishable (docs/plans/phase-8-search.md
 // step 1's unmatched styling).
-func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, bg color.Color) string {
+func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, matchedIndexes []int, bg color.Color) string {
 	if dimmed {
 		cardIndent := strings.Repeat(" ", 2*row.Depth)
 		cardWidth := max(0, width-len(cardIndent))
 		content := dim().Render(chrome.Truncate("[…] "+row.Task.Title, max(1, cardWidth-cardInset)))
 		return cardIndent + renderTaskCard(cardWidth, bg, appstyles.Active.TextMuted, content)
 	}
-	return m.renderRow(row, width, bg)
+	// Highlight matched substring inside matching rows, using
+	// sahilm/fuzzy's MatchedIndexes — same fuzzy matching used
+	// by the F picker (searchpicker) and matchVisible. The
+	// fuzzy.Find call in matchVisible already computed these
+	// indexes, reusing the same data path.
+	return m.renderRow(row, width, bg, matchedIndexes)
 }
 
 // renderRow renders one task row as a full-width card: a ▌ bar column whose
@@ -353,7 +378,7 @@ func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, bg col
 // the title, and each level of depth indents the whole card by two columns,
 // so a subtask's bar steps right and the row reads at its real depth
 // (docs/DESIGN.md §12).
-func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
+func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIndexes []int) string {
 	cardIndent := strings.Repeat(" ", 2*row.Depth)
 	cardWidth := max(0, width-len(cardIndent))
 
@@ -380,8 +405,14 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color) string {
 		}
 	}
 
+	// A filtered row arrives with the offsets its query matched; highlighting
+	// paints the whole title (matched runs in accent, the rest in textFg), so
+	// it subsumes the complete-row dimming rather than nesting inside it.
 	title := row.Task.Title
-	if row.Task.Status == apptypes.StatusComplete {
+	switch {
+	case len(matchedIndexes) > 0:
+		title = highlightMatch(title, matchedIndexes, textFg)
+	case row.Task.Status == apptypes.StatusComplete:
 		title = lipgloss.NewStyle().Foreground(textFg).Render(title)
 	}
 
@@ -746,3 +777,53 @@ func primary(bold bool) lipgloss.Style {
 
 func muted() lipgloss.Style { return lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted) }
 func dim() lipgloss.Style   { return lipgloss.NewStyle().Foreground(appstyles.Active.TextDim) }
+
+// highlightMatch styles the query's matched characters inside a title so the
+// user can see why a row survived the filter. matchedIndexes are byte offsets
+// into title, as returned by sahilm/fuzzy's MatchedIndexes — the very slice
+// matchVisible got from the Find call that selected this row, so the highlight
+// can never disagree with the match.
+//
+// Only the matched runs are restyled (accent, bold); the rest of the title
+// keeps baseFg, the colour the row would have used anyway. Styling the whole
+// title here rather than letting the caller wrap the result keeps the ANSI
+// flat: a nested Render would reset colour at the first inner span and lose
+// the outer one for the remainder of the line.
+func highlightMatch(title string, matchedIndexes []int, baseFg color.Color) string {
+	base := lipgloss.NewStyle().Foreground(baseFg)
+	if len(matchedIndexes) == 0 {
+		return base.Render(title)
+	}
+
+	matched := make(map[int]bool, len(matchedIndexes))
+	for _, i := range matchedIndexes {
+		matched[i] = true
+	}
+	accent := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Bold(true)
+
+	// Walk runes, flushing a run whenever it flips between matched and not, so
+	// "gard" in "Plan the garden" emits one accent span, not four.
+	var out strings.Builder
+	var run strings.Builder
+	runMatched := false
+	flush := func() {
+		if run.Len() == 0 {
+			return
+		}
+		if runMatched {
+			out.WriteString(accent.Render(run.String()))
+		} else {
+			out.WriteString(base.Render(run.String()))
+		}
+		run.Reset()
+	}
+	for i, r := range title {
+		if isMatch := matched[i]; isMatch != runMatched {
+			flush()
+			runMatched = isMatch
+		}
+		run.WriteRune(r)
+	}
+	flush()
+	return out.String()
+}

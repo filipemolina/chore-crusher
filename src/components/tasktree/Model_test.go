@@ -147,11 +147,15 @@ func TestMatchedVisibleSeparatesMatchesFromAncestors(t *testing.T) {
 	leaf := apptypes.Row{Task: apptypes.Task{ID: "leaf", ParentID: strPtr("root"), Title: "Zorble"}}
 
 	_, matched := matchVisible([]apptypes.Row{root, leaf}, "zorble")
-	if !matched["leaf"] {
+	if _, ok := matched["leaf"]; !ok {
 		t.Errorf("leaf should be a direct match")
 	}
-	if matched["root"] {
+	if _, ok := matched["root"]; ok {
 		t.Errorf("root should not count as a direct match, only an ancestor")
+	}
+	// A direct match carries the title offsets the renderer highlights.
+	if got := len(matched["leaf"]); got != len("zorble") {
+		t.Errorf("leaf matched %d title offsets, want %d", got, len("zorble"))
 	}
 }
 
@@ -535,7 +539,6 @@ func TestDeleteAllReopensInputAfterEscCancel(t *testing.T) {
 		t.Error("an empty list whose last item was just deleted should re-open the input")
 	}
 }
-
 
 // TestCreateSuppressedClearsOnListChange verifies the suppression is per
 // list session, not global: switching to a different (empty) list re-enables

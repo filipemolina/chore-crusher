@@ -104,7 +104,7 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 	spinnerUnit := chrome.Spinner(2) + " claude"
 
 	for width := 20; width <= 200; width += 10 {
-		rendered := m.renderRow(row, width, testBg)
+		rendered := m.renderRow(row, width, testBg, nil)
 
 		if got := lipgloss.Width(rendered); got > width {
 			t.Fatalf("width %d: rendered row = %d columns (overflow)", width, got)
@@ -156,13 +156,13 @@ func TestExpandMarkerSitsAtTitleEnd(t *testing.T) {
 	m.rows = []apptypes.Row{parent}
 	m.selectedID = "1"
 
-	expanded := ansi.Strip(m.renderRow(parent, 60, testBg))
+	expanded := ansi.Strip(m.renderRow(parent, 60, testBg, nil))
 	if !strings.Contains(expanded, "Project ▾") {
 		t.Errorf("expanded row must render 'Project ▾', got: %q", expanded)
 	}
 
 	m.collapsed["1"] = true
-	collapsed := ansi.Strip(m.renderRow(parent, 60, testBg))
+	collapsed := ansi.Strip(m.renderRow(parent, 60, testBg, nil))
 	if !strings.Contains(collapsed, "Project ▸") {
 		t.Errorf("collapsed row must render 'Project ▸', got: %q", collapsed)
 	}
@@ -178,8 +178,8 @@ func TestSubtaskCardIsIndented(t *testing.T) {
 	child := apptypes.Row{Task: apptypes.Task{ID: "2", Title: "child", ParentID: strPtr("1")}, Depth: 1}
 	m.rows = []apptypes.Row{root, child}
 
-	rootRendered := ansi.Strip(m.renderRow(root, 60, testBg))
-	childRendered := ansi.Strip(m.renderRow(child, 60, testBg))
+	rootRendered := ansi.Strip(m.renderRow(root, 60, testBg, nil))
+	childRendered := ansi.Strip(m.renderRow(child, 60, testBg, nil))
 
 	if !strings.HasPrefix(rootRendered, "▌") {
 		t.Fatalf("root card must open with the bar at column 0: %q", rootRendered)
@@ -240,7 +240,7 @@ func TestDetailsIconInTrailingColumn(t *testing.T) {
 		m.rows = []apptypes.Row{tc.row}
 		m.selectedID = tc.row.Task.ID
 
-		rendered := ansi.Strip(m.renderRow(tc.row, 60, testBg))
+		rendered := ansi.Strip(m.renderRow(tc.row, 60, testBg, nil))
 		if !strings.Contains(rendered, tc.wantSubstring) {
 			t.Errorf("[%s] row must render %q in the trailing column, got: %q", tc.label, tc.wantSubstring, rendered)
 		}
@@ -277,7 +277,7 @@ func TestStatusColumnIsFixedWidth(t *testing.T) {
 	// trailing column invariant from ui-improvements Commit 4.
 	notesCol := -1
 	for _, r := range rows {
-		stripped := ansi.Strip(m.renderRow(r, width, testBg))
+		stripped := ansi.Strip(m.renderRow(r, width, testBg, nil))
 		gi := strings.Index(stripped, detailsIcon)
 		if gi < 0 {
 			t.Fatalf("row %q: expected a notes glyph in %q", r.Task.Title, stripped)
@@ -299,7 +299,7 @@ func TestStatusColumnIsFixedWidth(t *testing.T) {
 		if !r.HasComments {
 			continue
 		}
-		stripped := ansi.Strip(m.renderRow(r, width, testBg))
+		stripped := ansi.Strip(m.renderRow(r, width, testBg, nil))
 		gi := strings.Index(stripped, detailsIcon)
 		ci := strings.Index(stripped, commentsIcon)
 		// Both glyphs are single 4-byte UTF-8 runes, so adjacency is gi+4 bytes.
@@ -378,7 +378,7 @@ func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 		animFrame: 3,
 	}
 
-	claimed := ansi.Strip(m.renderRow(m.rows[0], 80, testBg))
+	claimed := ansi.Strip(m.renderRow(m.rows[0], 80, testBg, nil))
 	if !strings.Contains(claimed, chrome.Spinner(3)+" claude") {
 		t.Errorf("claimed row must render spinner %q + agent id, got: %q", chrome.Spinner(3), claimed)
 	}
@@ -387,7 +387,7 @@ func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 	}
 
 	m.work = map[string]apptypes.AgentActivity{}
-	free := ansi.Strip(m.renderRow(m.rows[0], 80, testBg))
+	free := ansi.Strip(m.renderRow(m.rows[0], 80, testBg, nil))
 	if strings.Contains(free, chrome.Spinner(3)) {
 		t.Errorf("unclaimed row must render no spinner, got: %q", free)
 	}
