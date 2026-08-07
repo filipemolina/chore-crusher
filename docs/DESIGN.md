@@ -1149,16 +1149,65 @@ percentage, a key-hint) under extreme narrowness, which is a different,
 coarser mechanism layered on top of truncation, not a replacement for having
 truncation from the start.
 
-Phase 9 implements that for the task-tree row as an explicit drop order
-(`tasktree.taskRowDropOrder`, enforced by `tasktree.fitTitleAndSuffix`): the
-indent, collapse marker and checkbox are the row's identity and are never
-shed; the title is truncated grapheme-safely by `chrome.Truncate` and kept to
-the last; the trailing percentage is the one whole unit the row gives up, and
-it is **never** rendered as a fragment — when there is no room for the whole
-unit, its columns are handed back to the title, so a task's name always
-survives at least as well as its optional progress figure. `TUI`'s width-sweep
-test (`tasktree.View_test.go`) asserts, for a sweep of panel widths, that a row
-never overflows and the percentage is shed whole or not at all.
+### The task row's width budget: reserve the fixed things first
+
+`tasktree.computeTaskRowCols` is where a row decides what fits. The order it
+works in is the whole point: **the fixed-width cells are reserved first and
+the title takes the remainder**, never the reverse. Sizing the title first and
+letting the status group have what is left is what produced
+`◻ Reach the fe…45%  IN PROGRESS` — an ellipsised title welded to a
+percentage, on a row whose right edge landed three columns past every other
+row's.
+
+Two rules follow from that ordering:
+
+- **A gutter of one column** (`titleGutter`) is reserved at the end of the
+  title cell, so an ellipsised title can never touch the cell after it. It is
+  reserved *inside* the title cell rather than added as a column of its own,
+  which is what keeps the status and icon columns at the fixed offsets every
+  row aligns on. The status label is right-aligned in its fixed column, so
+  labels of different lengths start at different columns and **end** at the
+  same one; the icon column after it is what makes every row's right edge
+  identical.
+- **A title floor of 12 columns** (`titleFloor`). When the reserved cells
+  would squeeze the title below it, the passengers shed whole — never as
+  fragments — in this order: the **status+icon block first**, then the
+  agent-spinner unit, and the **percentage last**, which sheds only to stop
+  the row overflowing. That order is deliberate and is the reverse of what
+  `docs/plan/mcp-server-enhancement.md` §3.7 and
+  `docs/plan/task-row-redesign-and-inline-creation.md` originally specified:
+  those budgeted for overflow alone, with no notion of a floor, so a narrow
+  row spent eleven columns on `IN PROGRESS` while the title shrank to a stub.
+  Dropping the label costs the user nothing — the row still carries its status
+  in the `◻`/`◼` glyph, in its foreground colour, and in the Pending/Complete
+  section it sits in — whereas the percentage appears nowhere else on the row.
+  Those two plan files are superseded on this point; this section is the rule.
+
+The indent, collapse marker and checkbox are the row's identity and are never
+shed, and the title is never dropped below one column. `tasktree`'s width-sweep
+tests assert, across a sweep of panel widths, that a row never overflows, that
+every unit is shed whole or not at all, that an ellipsised title always has a
+blank cell after it, and that every row ends its status label at the same
+column.
+
+### Below the minimum size: one line, not a broken layout
+
+The smallest terminal the app supports is **40 columns by 10 rows**
+(`constants.MIN_TERMINAL_WIDTH` / `MIN_TERMINAL_HEIGHT`). 40 columns is where a
+task row still seats a checkbox, a title at its `titleFloor`, and a status
+label; 10 rows is a header, a footer, a section header, and enough body left to
+be worth drawing.
+
+Below **either** dimension the app stops attempting the layout and renders a
+single line — **`Terminal too small`** — centred on both axes on the frame's
+tier-2 background. Nothing else renders: not the header, not the footer, not an
+open modal. The decision lives in exactly one predicate
+(`AppModel.terminalTooSmall`), which `View` consults before it composes
+anything, so no surface gets to decide this for itself. The predicate answers
+`false` until the first `WindowSizeMsg` has arrived, so the pre-layout frame —
+width and height still 0 — is not mistaken for a tiny terminal. It is not
+sticky: growing the terminal back over the threshold restores the real layout
+on the next resize.
 
 ### The glyph vocabulary
 

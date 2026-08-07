@@ -12,6 +12,17 @@ import (
 // View renders the whole screen. The header, body zones, and footer compose
 // on a tier-2 background; the modal, if any, is layered on top.
 func (m AppModel) View() tea.View {
+	// Below the minimum supported size there is no honest layout to draw: the
+	// panels would clip their own content and the frame would look broken
+	// without ever saying why. One centred line says it instead
+	// (docs/DESIGN.md §12). Nothing else renders — not the header, the footer,
+	// or an open modal — so the message is never competing with a half-frame.
+	if m.terminalTooSmall() {
+		v := tea.NewView(m.tooSmallView())
+		v.AltScreen = true
+		return v
+	}
+
 	header := m.components.MainMenu.View().Content
 	body := m.renderBody()
 	footer := m.footerView()
@@ -56,6 +67,29 @@ func (m AppModel) View() tea.View {
 
 	return v
 }
+
+// tooSmallView is the whole frame below the minimum supported size: the
+// message centred on both axes, painted on the frame's own tier-2 background
+// so no unstyled cell shows through. MaxWidth/MaxHeight clamp it the same way
+// the normal frame is clamped — at a terminal narrower than the message
+// itself, the line is cut rather than wrapped into a second row that would not
+// fit either (docs/DESIGN.md §12).
+func (m AppModel) tooSmallView() string {
+	return lipgloss.NewStyle().
+		Background(appstyles.Active.BackgroundContent).
+		Foreground(appstyles.Active.TextPrimary).
+		Width(m.terminalWidth).
+		Height(m.terminalHeight).
+		MaxWidth(m.terminalWidth).
+		MaxHeight(m.terminalHeight).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render(tooSmallMessage)
+}
+
+// tooSmallMessage is the one line the app shows below its minimum size. It is
+// stated here once so the view and its test cannot word it differently
+// (docs/DESIGN.md §12).
+const tooSmallMessage = "Terminal too small"
 
 // footerView renders the keybinding bar for the frame being drawn right now.
 // The bar's own Update only learns of context changes (creating, filtering,

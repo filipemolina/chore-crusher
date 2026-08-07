@@ -512,6 +512,21 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // (guttered < MIN_PANEL_WIDTH) gives the whole row to the main panel — the
 // lists panel yields rather than rendering at a degenerate width, and L
 // still brings it back when the terminal grows.
+// terminalTooSmall reports whether the terminal is below the minimum size the
+// app supports (constants.MIN_TERMINAL_WIDTH x MIN_TERMINAL_HEIGHT). It is the
+// single predicate for that decision — View renders the "Terminal too small"
+// line from it rather than each surface deciding for itself (docs/DESIGN.md
+// §12). It answers false until the first WindowSizeMsg has arrived, so the
+// pre-layout frame (width and height still 0) is not mistaken for a tiny
+// terminal.
+func (m AppModel) terminalTooSmall() bool {
+	if !m.layoutInitialized {
+		return false
+	}
+	return m.terminalWidth < constants.MIN_TERMINAL_WIDTH ||
+		m.terminalHeight < constants.MIN_TERMINAL_HEIGHT
+}
+
 func (m AppModel) calculateBodyLayout() cmds.SetBodyLayoutMsg {
 	height := max(0, m.terminalHeight-constants.HEADER_HEIGHT-constants.FOOTER_HEIGHT)
 	available := max(0, m.terminalWidth)

@@ -583,9 +583,12 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 }
 
 // taskRowCols describes the computed width of each column in a task row.
+// gutter is not a column of its own: it is the blank tail reserved inside the
+// title cell, so the cells to its right keep the fixed offsets they align on.
 type taskRowCols struct {
 	checkbox     int
 	title        int
+	gutter       int
 	status       int
 	progress     int
 	agentSpinner int
@@ -607,15 +610,43 @@ const statusColWidth = 11
 // docs/plan/task-comments.md §6, Commit 4).
 const detailsColWidth = 2
 
-// computeTaskRowCols distributes tableWidth among the task row's columns.
-// checkbox is never dropped; title is never dropped; progress, agentSpinner,
-// and the status+icon block are dropped whole (in that order) when the table
-// is too narrow. The status column is a fixed statusColWidth allocation and the
-// trailing icon column a fixed detailsColWidth allocation — reserved together
-// regardless of whether the row has notes — so the status label and the glyph
-// (or its blank cell) align across rows. Drop order matches
-// docs/plan/mcp-server-enhancement.md §3.7; the fixed trailing block is
-// decision 2 of docs/plan/ui-improvements.md.
+// titleFloor is the fewest columns of title text a row will show before it
+// starts shedding the cells to the title's right. Below it the card is mostly
+// chrome — "Reach the fe…" spends thirteen columns to say nothing — so the
+// fixed-width passengers yield instead (docs/DESIGN.md §12).
+const titleFloor = 12
+
+// titleGutter is the blank column reserved at the end of the title cell, so an
+// ellipsised title can never touch what follows it ("Reach the fe…45%"). It is
+// reserved inside the title cell rather than added as a column of its own,
+// which is what keeps the status and icon columns at the fixed offsets every
+// row aligns on (docs/DESIGN.md §12).
+const titleGutter = 1
+
+// computeTaskRowCols distributes tableWidth among the task row's columns. The
+// fixed-width cells are reserved first and the title takes what is left, minus
+// the gutter — that ordering is the whole reason the two can never share a
+// cell.
+//
+// checkbox and title are never dropped. When the remainder would leave the
+// title under titleFloor, the passengers shed whole, in this order: the
+// status+icon block first, then the agent-spinner unit. The percentage sheds
+// only to stop the row overflowing, because it is the one thing on the row
+// that appears nowhere else — the status label, by contrast, is still carried
+// by the ◻/◼ glyph, the row's foreground colour, and the Pending/Complete
+// section the row sits in, so dropping it costs the user nothing.
+//
+// This reverses the older order (progress first, status last) recorded in
+// docs/plan/mcp-server-enhancement.md §3.7 and
+// docs/plan/task-row-redesign-and-inline-creation.md: those plans budgeted for
+// overflow alone and had no notion of a title floor, so at narrow widths they
+// spent eleven columns on a label the row already showed three other ways
+// while the title shrank to a stub. docs/DESIGN.md §12 records the current
+// rule. The status column is a fixed statusColWidth allocation and the
+// trailing icon column a fixed detailsColWidth allocation — reserved and shed
+// together regardless of whether the row has notes (decision 2 of
+// docs/plan/ui-improvements.md) — so the label and the glyph (or its blank
+// cell) align across rows.
 func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSpinner string) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 
@@ -634,27 +665,36 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSp
 		agentW = len(agentSpinner) + 1 // +1 for trailing gap
 	}
 
-	// The status label and its trailing icon column are one atomic right block:
-	// they are reserved together and shed together, so a narrow row never shows
-	// a partial icon or a status fragment.
-	rightBlock := statusW + detailsW
-
-	// Drop order: progress first, then agent-spinner, then the whole right block.
-	if progressW > 0 && tableWidth-rightBlock-agentW-progressW < 1 {
-		progressW = 0
+	// gutterNow is reserved only while something actually follows the title;
+	// a row with no passengers at all gives the title every column.
+	gutterNow := func() int {
+		if statusW+detailsW+progressW+agentW > 0 {
+			return titleGutter
+		}
+		return 0
 	}
-	if agentW > 0 && tableWidth-rightBlock-agentW < 1 {
+	// titleTextNow is the title's usable text width under the current
+	// reserves — the cell minus the gutter, which is what the floor is about.
+	titleTextNow := func() int {
+		return tableWidth - statusW - detailsW - progressW - agentW - gutterNow()
+	}
+
+	if statusW > 0 && titleTextNow() < titleFloor {
+		statusW, detailsW = 0, 0
+	}
+	if agentW > 0 && titleTextNow() < titleFloor {
 		agentW = 0
 	}
-	if rightBlock > 0 && tableWidth-rightBlock < 1 {
-		statusW, detailsW, rightBlock = 0, 0, 0
+	if progressW > 0 && titleTextNow() < 1 {
+		progressW = 0
 	}
 
 	cols.status = statusW
 	cols.details = detailsW
 	cols.progress = progressW
 	cols.agentSpinner = agentW
-	cols.title = max(1, tableWidth-rightBlock-agentW-progressW)
+	cols.gutter = gutterNow()
+	cols.title = max(1, tableWidth-statusW-detailsW-progressW-agentW)
 
 	return cols
 }
@@ -786,17 +826,23 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 
 	checkboxCell := lipgloss.NewStyle().Width(cols.checkbox).Render(checkbox)
 
+	// The title's text budget is its cell minus the reserved gutter, so an
+	// ellipsised title always leaves a blank cell before the next one
+	// (docs/DESIGN.md §12). The cell itself keeps its full width, which is
+	// what holds the following columns at their fixed offsets.
+	titleTextW := max(1, cols.title-cols.gutter)
+
 	// The trailing marker (" ▾") is only rendered when it fits: at the
 	// narrowest widths the title alone claims the column and the marker is
 	// shed rather than pushed past the cell.
 	trailingW := 0
 	if trailing != "" {
 		need := 1 + lipgloss.Width(trailing)
-		if cols.title > need {
+		if titleTextW > need {
 			trailingW = need
 		}
 	}
-	titleText := chrome.Truncate(title, max(1, cols.title-trailingW))
+	titleText := chrome.Truncate(title, max(1, titleTextW-trailingW))
 	if trailingW > 0 {
 		titleText += " " + trailing
 	}

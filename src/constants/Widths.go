@@ -32,3 +32,14 @@ const BODY_GUTTER_WIDTH = 2
 // bar and the keybinding hint bar, matching stack-stitcher's shell.
 const HEADER_HEIGHT = 1
 const FOOTER_HEIGHT = 1
+
+// MIN_TERMINAL_WIDTH and MIN_TERMINAL_HEIGHT are the smallest terminal the app
+// claims to support. Below either one it stops attempting the layout and
+// renders a single centred "Terminal too small" line instead (docs/DESIGN.md
+// §12) — the alternative is a frame that looks broken without ever saying so.
+//
+// 40 columns is where a task row still seats a checkbox, a title at its
+// titleFloor, and a status label; 10 rows is a header, a footer, a section
+// header and enough body left to be worth drawing.
+const MIN_TERMINAL_WIDTH = 40
+const MIN_TERMINAL_HEIGHT = 10

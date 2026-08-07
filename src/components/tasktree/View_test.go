@@ -21,14 +21,20 @@ var testFg = color.RGBA{R: 200, G: 200, B: 200, A: 1}
 
 func intPtr(v int) *int { return &v }
 
-// TestComputeTaskRowColsDropOrder pins the column budget's drop order
-// (task-row redesign, docs/plan/task-row-redesign-and-inline-creation.md
-// step 1): the progress column and the status+icon right block are each atomic
-// (full width or zero) and progress is shed before the right block as the table
-// narrows — never the reverse, and never as a fragment. The title and checkbox
-// are never dropped: the title is always at least one column, and the checkbox
-// keeps its fixed width. The status column is a fixed statusColWidth and the
-// icon column a fixed detailsColWidth, reserved together regardless of notes.
+// TestComputeTaskRowColsDropOrder pins the column budget's drop order. The
+// progress column and the status+icon right block are each atomic (full width
+// or zero, never a fragment), and the right block sheds *before* progress as
+// the table narrows: the title floor is what the shedding protects, and a row
+// still shows its status through the ◻/◼ glyph, its colour, and its section,
+// while the percentage appears nowhere else.
+//
+// That is the reverse of the order this test pinned when it was written for
+// docs/plan/task-row-redesign-and-inline-creation.md step 1, which budgeted
+// for overflow alone; docs/DESIGN.md §12 now records the floor-driven rule.
+// The title and checkbox are never dropped: the title is always at least one
+// column, and the checkbox keeps its fixed width. The status column is a fixed
+// statusColWidth and the icon column a fixed detailsColWidth, reserved
+// together regardless of notes.
 func TestComputeTaskRowColsDropOrder(t *testing.T) {
 	const checkbox = 1
 	status := "in progress" // any label -> fixed status column, statusColWidth+1
@@ -66,9 +72,10 @@ func TestComputeTaskRowColsDropOrder(t *testing.T) {
 		if cols.progress != 0 && cols.progress != progressFull {
 			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
 		}
-		// drop order: progress before the right block -> a shed status implies a shed progress
-		if cols.status == 0 && cols.progress != 0 {
-			t.Fatalf("width %d: right block shed but progress kept (wrong drop order)", width)
+		// drop order: the right block before progress -> a kept status implies a
+		// kept progress, and the percentage outlives the label
+		if cols.status != 0 && cols.progress == 0 {
+			t.Fatalf("width %d: right block kept but progress shed (wrong drop order)", width)
 		}
 		// no overflow: title+status+details+progress fit the table budget (checkbox
 		// lives in the prefix, not the table budget)
@@ -136,7 +143,13 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 		// thing on the content line (right-aligned; the card's right-padding
 		// space is trimmed here). The card is a single line now that the
 		// vertical padding is gone.
-		if width >= 40 && !strings.HasSuffix(strings.TrimRight(stripped, " "), "IN PROGRESS") {
+		//
+		// The threshold is 50 rather than 40 because this sweep row is
+		// claimed: its spinner unit costs nine columns, and with the
+		// percentage and the gutter on top, a 40-column card would leave the
+		// title under titleFloor — so the label sheds by design (§12). An
+		// unclaimed row still keeps its label at 40.
+		if width >= 50 && !strings.HasSuffix(strings.TrimRight(stripped, " "), "IN PROGRESS") {
 			t.Fatalf("width %d: expected right-aligned IN PROGRESS suffix in: %q", width, stripped)
 		}
 		// A claimed row shows the full spinner+agent unit un-clipped when there
@@ -393,11 +406,17 @@ func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 	}
 }
 
-// TestSpinnerUnitShedsBeforeProgress pins the right-block drop order with a
-// claimed row (docs/plan/mcp-server-enhancement.md §3.7, §6): each unit is
-// atomic (full width or zero, never a fragment), progress sheds before the
-// agent-spinner unit, and the agent-spinner sheds before status.
-func TestSpinnerUnitShedsBeforeProgress(t *testing.T) {
+// TestSpinnerUnitShedsAfterStatus pins the drop order with a claimed row: each
+// unit is atomic (full width or zero, never a fragment), the status+icon block
+// sheds first, then the agent-spinner unit, and the percentage last.
+//
+// docs/plan/mcp-server-enhancement.md §3.7 ordered these the other way round
+// (progress, then spinner, then status) when the only constraint was overflow.
+// The title floor reverses it: the label is the cheapest thing to lose and the
+// percentage the dearest. The spinner's position relative to status and
+// progress is unchanged — it is still the middle one — so §3.7's actual point,
+// that the spinner unit is atomic and never clipped, still holds here.
+func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
 	const checkbox = 1
 	status := "IN PROGRESS" // any label -> fixed status column, statusColWidth+1
 	progress := "42%"       // 3 runes -> progress column = 4 (label + gap)
@@ -423,15 +442,15 @@ func TestSpinnerUnitShedsBeforeProgress(t *testing.T) {
 		if cols.details != 0 && cols.details != detailsFull {
 			t.Fatalf("width %d: details = %d, want 0 or %d", width, cols.details, detailsFull)
 		}
-		// Drop order: progress first, then agent-spinner, then the status+icon
-		// block. A unit shed while an earlier one is kept is the wrong order —
-		// progress must not survive the agent-spinner, nor the agent-spinner the
-		// right block.
-		if cols.progress != 0 && cols.agentSpinner == 0 {
-			t.Fatalf("width %d: progress kept but agent-spinner shed (wrong drop order)", width)
+		// Drop order: the status+icon block first, then agent-spinner, then
+		// progress. A unit kept while an earlier one is shed is the wrong order —
+		// status must not outlive the agent-spinner, nor the agent-spinner the
+		// percentage.
+		if cols.status != 0 && cols.agentSpinner == 0 {
+			t.Fatalf("width %d: status kept but agent-spinner shed (wrong drop order)", width)
 		}
-		if cols.agentSpinner != 0 && cols.status == 0 {
-			t.Fatalf("width %d: agent-spinner kept but status shed (wrong drop order)", width)
+		if cols.agentSpinner != 0 && cols.progress == 0 {
+			t.Fatalf("width %d: agent-spinner kept but progress shed (wrong drop order)", width)
 		}
 		if cols.title+cols.progress+cols.agentSpinner+cols.status+cols.details > width {
 			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
