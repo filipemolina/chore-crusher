@@ -82,15 +82,16 @@ Task
   updated_at     integer not null
   completed_at   integer          -- null unless status='complete'
   assignee       text not null default ''
-                 -- agent statement ("pi", "claude", …) holding this task;
+                 -- agent tag ("pi", "claude", …) holding this task;
                  -- '' = no assignment. NOT presence: AgentActivity (0002)
                  -- is a 120-second heartbeat; this column has no TTL and
                  -- changes only on explicit assign/unassign/complete.
   assigned_at    integer          -- unix seconds; null unless assignee != ''
   priority       text not null default 'none'
-                 -- 'none' | 'low' | 'medium' | 'high'; stored and shown;
-                 -- does NOT re-sort the task tree (that is list ordering,
-                 -- which priority is forbidden to change).
+                 -- 'none' | 'low' | 'medium' | 'high'. Stored, displayed,
+                 -- and used by next_task's ordering (§9) — and by nothing
+                 -- else: priority does NOT re-sort the tree, which stays
+                 -- ordered by `position` alone.
                  -- Migration: 0006 (docs/plan/mcp-assignment-and-priorities.md)
 ```
 
@@ -184,7 +185,7 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-acclaimed on any task write; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAllClaims` when the MCP session ends (client disconnect), so a dead agent's spinners vanish immediately rather than waiting for TTL (hardening plan H13).
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on any task write; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAllClaims` when the MCP session ends (client disconnect), so a dead agent's spinners vanish immediately rather than waiting for TTL (hardening plan H13).
 
 **Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) is durable — no TTL, no sweeper, no auto-expiry — and changes only when someone explicitly assigns, unassigns, or completes the task (§9 `assign_task` / `next_task`). It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. Neither field alone can tell you an agent died — **`assignee != ''` and no live presence claim (`assignee_live: false`) means the work is abandoned**, and that is the only signal the TUI's stale-assignment tier needs. A stale assignment is **never** auto-released: reads report enough for a human to decide, and the human releases it from the TUI, per task or per list. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget. Full model and rationale: `docs/plan/mcp-assignment-and-priorities.md` §3.
 
@@ -844,7 +845,7 @@ crush toggle <task-id>                         complete <-> reopen, whichever ap
 crush progress <task-id> --mode simple
 crush progress <task-id> --mode percentage --percent <0-100>
 crush progress <task-id> --mode subtasks
-crush assign <task-id> [--force]               assign the task to the current agent; --force takes it from another agent
+crush assign <task-id> [--force]               assign to the current agent; --force takes it from another
 crush unassign <task-id>                       release the current agent's assignment on the task
 crush unassign --list <list-id>                release the assignment on every task in the list
 crush priority <task-id> --level none|low|medium|high
@@ -928,8 +929,8 @@ foreign_lists: [{id,name,pending,complete,created_by}]}`, merging `my_list`
 + `list_lists` into a single session-opening call. Status and progress
 writes auto-claim the task under the writing agent's identity (best-effort,
 non-stealing) — that is the presence heartbeat of §3, and it is distinct
-from the durable `assign_task` that replaces `claim_work`. Every other task write — `add_task`, `add_comment`, `edit_task` — auto-claims
-the touched task too;
+from the durable `assign_task` that replaces `claim_work`. Every other task
+write — `add_task`, `comment`, `edit_task` — auto-claims the touched task too;
 `delete_task` does not (the task no longer exists), and `DeleteTask` clears
 any claim rows on the deleted subtree so a removed task cannot keep a spinner
 alive. Full rationale: `docs/plan/mcp-presence-on-all-writes.md`. The
@@ -957,12 +958,50 @@ single-task writes. Full rationale: `docs/plan/mcp-batch-writes.md` and
 `docs/plan/mcp-tool-consolidation.md`, with the merged-tool design in
 `docs/plan/mcp-assignment-and-priorities.md` §4.
 
+**`assign_task` is the durable grab.** `assign_task(ids, release?, force?)`
+takes 1–50 ids and assigns each to the calling session's identity. An
+explicit `agent_id` parameter is **rejected**, the same way `comment`'s
+`author` is: an agent may only assign work to itself, and assigning work
+*to* another agent is a human action taken from the TUI. `release: true`
+unassigns, and succeeds silently when the caller did not hold the task.
+Assignment reserves the **subtree**: it is refused when any ancestor or any
+descendant is held by a different agent, so two agents cannot own a parent
+and its child. A conflict without `force` is refused with an error naming
+the holder and the age — `task 000037YRRJNE is assigned to "claude" (2h14m
+ago, no live session)` — and `force: true` takes it, reassigns, and writes
+a takeover comment recording who took what from whom. That is the
+refuse-with-override rule of §3: a silent steal is worse than no steal. On
+a successful assign the tool returns the **full `show_task` payload** for
+each id rather than `{ok: true}` — grabbing a task and reading it are one
+call, which is the whole point.
+
+**`next_task` is the anti-race primitive.** `next_task(list_id)` atomically
+selects the top eligible task, assigns it to the caller, and returns its
+full `show_task` payload — the same shape `assign_task` returns. Eligible
+means all of: `status != 'complete'`, `assignee = ''`, no ancestor assigned
+to a different agent, and no descendant assigned to a different agent.
+Ordering is **`priority` descending** (`high` > `medium` > `low` > `none`),
+then depth-first preorder position — the same order `list_tasks` returns —
+so preorder breaks ties between tasks of equal priority, and the tree the
+TUI and CLI render is never itself re-sorted (§2). This is the *only* place
+priority changes behaviour. Nothing eligible is **not an
+error**: the tool returns `{ok: false, reason: "no eligible task in this
+list"}`, because an empty board is a normal state, not a failure. Splitting
+this into "read the list, then assign one" would be inherently racy across
+two calls; as one atomic conditional update it cannot be raced at all —
+which matters because the store file is shared across processes (TUI, CLI,
+and every MCP session), where in-process serialisation buys nothing. With
+`my_list` it makes session open two calls: what boards exist, then here is
+your task and everything about it. Full model:
+`docs/plan/mcp-assignment-and-priorities.md` §3 and §4.
+
 **Change-detection is folded into `list_tasks` via `since`.**
 `list_tasks(list_id, since=<unix>)` returns only tasks whose `updated_at`
 is strictly greater — newly
 created, status/progress edited, renamed, re-noted, re-parented, or newly
 commented (`AddComment` bumps `updated_at`, so new comments surface too).
-The rows use the exact same shape as `list_tasks` (`has_notes`/`notes_len`), omitted-empty `progress`), so `include=['notes']` inlines bodies identically.
+The rows use the exact same shape as `list_tasks` (`has_notes`/`notes_len`,
+omitted-empty `progress`), so `include=['notes']` inlines bodies identically.
 Deletions are not representable by a row filter — a removed task is simply
 absent; an agent that must detect deletions diffs id sets against its last
 `list_tasks`. `updated_at` now means "last activity, including comments"
@@ -1081,9 +1120,18 @@ the one-value rule.
   `completed_at` as unix seconds, plus `assignee`, `assigned_at` as unix
   seconds or null, and `priority`), its `progress`, and `children` as the
   same row array `tasks` emits, depth relative to the shown task.
-  **`assign` / `unassign` JSON:** a single object per task id —
-  `{"ok": true, "assignee": "pi"}` on success, `{"error": …}` on a
-  refused takeover that failed. **`priority` JSON:** `{"ok": true}`.
+- **`assign` / `unassign` / `priority` JSON:** each echoes the field it
+  wrote, so a caller never needs a follow-up `show` to confirm what landed.
+  `assign`: `{"ok": true, "assignee": "pi"}` — the tag the task now belongs
+  to, which is the caller's own identity whether or not `--force` was needed.
+  `unassign <task-id>`: `{"ok": true, "assignee": ""}`, the same shape with
+  the field cleared. `unassign --list <list-id>` acts on a list and so has no
+  single task to report: `{"ok": true, "released": <n>}`, the number of tasks
+  whose assignment was cleared (`store.UnassignList`'s count), which is `0`
+  when the list held none — not an error. `priority`:
+  `{"ok": true, "priority": "high"}`. Failures use the §9 error shape above
+  (`{"error": …}` and exit 1) like every other command, including a takeover
+  refused for want of `--force`.
 - **`progress` JSON:** `{"kind", "percent", "display_as_simple"}`.
   `kind` is the stored `progress_kind`; `percent` is the displayed value —
   the stored percent for `percentage`, the derived ratio for `subtasks` —
