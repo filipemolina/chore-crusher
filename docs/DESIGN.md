@@ -1358,6 +1358,23 @@ reusing the exact `PanelFrame` numbers is what makes it read as "this panel,
 currently empty" rather than a different kind of surface that happens to be
 nearby.
 
+### First run
+
+The store starts empty, so the TUI creates one list for itself. It is named
+**`Inbox`** (`constants.DEFAULT_LIST_NAME`) — a name, not a placeholder. "New
+List" described the list's age rather than its contents, read as an unfinished
+setup step the user was expected to complete, and the only way to correct it is
+`R` in the Lists panel: a panel a first-run user may not have discovered, and
+one that is hidden entirely below `AUTO_SHOW_LISTS_MIN_WIDTH`. The name a user
+is handed without being asked has to be one worth keeping. It matches what the
+MCP server already names an agent's own default list (`<tag>: Inbox`,
+`store.GetOrCreateAgentList`).
+
+This is only the *auto-created* name, used on first run and whenever every list
+has been deleted. A list the user creates with `n` is named by the user in
+`listnamemodal` and shares no constant with it. First run does not ask for a
+name: `Inbox` is the decision, not a question.
+
 ### The chrome-package contract
 
 Before a leaf component (`docs/DESIGN.md` §10) is considered done, it

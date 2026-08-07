@@ -72,9 +72,9 @@ type AppModel struct {
 // constructor returns immediately with no active list so Bubble Tea can render
 // the first frame (the Tasks panel's initial-load animation) before the
 // opening Lists query completes. The first RefreshListsMsg — issued from Init —
-// adopts the first list or creates the default "New List" when the store is
-// empty (see AppModel.Update), preserving the invariant that a successful first
-// load ends with an active list. The task tree is the startup focus zone — the
+// adopts the first list or creates the default list (constants.DEFAULT_LIST_NAME)
+// when the store is empty (see AppModel.Update), preserving the invariant that
+// a successful first load ends with an active list. The task tree is the startup focus zone — the
 // app's premise is "spend your time in one list" (docs/DESIGN.md §5) — so the
 // tree's keys live from the first frame and inline creation can begin before
 // any focus change.
