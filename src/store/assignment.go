@@ -29,6 +29,30 @@ var ErrNoAssignable = errors.New("no eligible task in this list")
 // blocker instead (plan §4).
 var ErrSubtreeAssigned = fmt.Errorf("%w (via its subtree)", ErrAssigned)
 
+// ErrInvalidPriority is returned when SetPriority receives a value outside
+// the four locked ones (plan decision 6): none, low, medium, high.
+var ErrInvalidPriority = errors.New("invalid priority")
+
+// SetPriority sets taskID's priority. Valid values are exactly the four
+// locked by decision 6 — anything else is rejected with an error wrapping
+// ErrInvalidPriority rather than stored, so the column can only ever hold
+// a value priorityRank and NextAssignable understand.
+func (s *Store) SetPriority(taskID string, p Priority) error {
+	switch p {
+	case PriorityNone, PriorityLow, PriorityMedium, PriorityHigh:
+	default:
+		return fmt.Errorf("%w: %q (want none, low, medium, or high)", ErrInvalidPriority, p)
+	}
+	res, err := s.db.Exec(
+		`UPDATE Task SET priority = ?, updated_at = ? WHERE id = ?`,
+		p, time.Now().Unix(), taskID,
+	)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res, "task", taskID)
+}
+
 // priorityRank orders priorities for NextAssignable: high > medium > low >
 // none. The column is TEXT and its values collate the wrong way
 // ("high" < "low" < "medium" < "none" alphabetically), so the rank is

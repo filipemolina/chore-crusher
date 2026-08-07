@@ -6,16 +6,6 @@ import (
 	"testing"
 )
 
-// setPriorityDirect sets a task's priority straight in the database. The
-// public SetPriority API lands in step 4 of the assignment plan; these
-// step-3 tests only need the column set.
-func setPriorityDirect(t *testing.T, s *Store, taskID string, p Priority) {
-	t.Helper()
-	if _, err := s.db.Exec(`UPDATE Task SET priority = ? WHERE id = ?`, p, taskID); err != nil {
-		t.Fatalf("set priority on %s: %v", taskID, err)
-	}
-}
-
 func TestAssignTaskConflictAndForce(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")
@@ -324,7 +314,9 @@ func TestNextAssignablePriorityAndPreorder(t *testing.T) {
 	a := mustTask(t, s, lid, "a", nil)
 	b := mustTask(t, s, lid, "b", nil)
 	c := mustTask(t, s, lid, "c", nil)
-	setPriorityDirect(t, s, b, PriorityHigh)
+	if err := s.SetPriority(b, PriorityHigh); err != nil {
+		t.Fatalf("SetPriority: %v", err)
+	}
 
 	got, err := s.NextAssignable(lid, "alpha")
 	if err != nil {
@@ -389,5 +381,53 @@ func TestNextAssignableSkipsAssignedAndComplete(t *testing.T) {
 	// c now held too; only child remains, blocked by its ancestor.
 	if _, err := s.NextAssignable(lid, "alpha"); !errors.Is(err, ErrNoAssignable) {
 		t.Fatalf("error = %v, want ErrNoAssignable", err)
+	}
+}
+
+func TestSetPriorityRoundTripsAllFourValues(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	id := mustTask(t, s, lid, "task", nil)
+
+	for _, p := range []Priority{PriorityLow, PriorityHigh, PriorityNone, PriorityMedium} {
+		if err := s.SetPriority(id, p); err != nil {
+			t.Fatalf("SetPriority(%s): %v", p, err)
+		}
+		got, err := s.GetTask(id)
+		if err != nil {
+			t.Fatalf("GetTask after SetPriority(%s): %v", p, err)
+		}
+		if got.Priority != p {
+			t.Fatalf("after SetPriority(%s): priority=%q, want %q", p, got.Priority, p)
+		}
+	}
+}
+
+func TestSetPriorityRejectsInvalidValue(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	id := mustTask(t, s, lid, "task", nil)
+	if err := s.SetPriority(id, PriorityLow); err != nil {
+		t.Fatalf("SetPriority(low): %v", err)
+	}
+
+	for _, p := range []Priority{"urgent", "HIGH", "", "1"} {
+		err := s.SetPriority(id, p)
+		if !errors.Is(err, ErrInvalidPriority) {
+			t.Fatalf("SetPriority(%q) error = %v, want ErrInvalidPriority", p, err)
+		}
+	}
+
+	// A rejected value must not clobber the stored one.
+	got, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Priority != PriorityLow {
+		t.Fatalf("priority after rejected writes = %q, want low", got.Priority)
+	}
+
+	if err := s.SetPriority("missing", PriorityHigh); !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("SetPriority on missing task error = %v, want not found", err)
 	}
 }
