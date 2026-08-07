@@ -13,6 +13,7 @@ import (
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/chore-crusher/src/keys"
 )
 
 // View renders the Task details modal: the shared chrome.ModalSurface (accent
@@ -415,36 +416,55 @@ func (m *Model) cardChrome(bg, barFg color.Color, content string, innerW int) st
 // key bolded ahead of its muted description. It swaps to the discard prompt
 // while a dirty Esc is pending, and to the compose hints while the compose card
 // is open.
+//
+// Since the global footer goes blank while this modal is open, this is the only
+// hint line on screen — so every key live in the current zone has to be here.
+// The wording is never written out here: each hint comes from the binding in
+// src/keys, through chrome.HintFor, so the modal and the help overlay cannot
+// drift into describing the same key two ways.
 func (m *Model) renderFooter() string {
 	if m.confirmingDiscard {
 		return lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render("Discard changes? (y/n)")
 	}
-
-	var hints [][2]string
-	switch {
-	case m.composing:
-		hints = [][2]string{{"enter", "post"}, {"esc", "cancel"}, {"ctrl+y", "copy task ID"}}
-	case m.focus == focusProgress:
-		hints = [][2]string{{"tab", "next"}, {"←/→", "mode"}, {"ctrl+s", "save"}, {"ctrl+y", "copy task ID"}, {"esc", "close"}}
-	case m.focus == focusComments:
-		hints = [][2]string{{"tab", "next"}, {"↑/↓", "select"}, {"c", "comment"}, {"y", "copy id"}, {"ctrl+y", "copy task ID"}, {"esc", "close"}}
-	default: // focusTitle, focusNotes
-		hints = [][2]string{{"tab", "next"}, {"ctrl+s", "save"}, {"ctrl+y", "copy task ID"}, {"esc", "close"}}
-	}
-	return m.renderHints(hints)
+	return chrome.RenderKeyHints(m.zoneHints(), appstyles.Active.TextMuted)
 }
 
-// renderHints joins key/description pairs with each key bolded onto the primary
-// ink and each description muted, separated by two spaces.
-func (m *Model) renderHints(hints [][2]string) string {
-	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(appstyles.Active.TextPrimary)
-	descStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
-	out := ""
-	for i, h := range hints {
-		if i > 0 {
-			out += descStyle.Render("  ")
+// zoneHints is the set of keys live in the current zone, in the order they are
+// advertised. A key absent from a zone is genuinely dead there — c only opens
+// the compose card from the comments zone, so it is not offered elsewhere,
+// the same honesty the footer bar applies to the globals it drops.
+func (m *Model) zoneHints() []chrome.KeyHint {
+	switch {
+	case m.composing:
+		return []chrome.KeyHint{
+			chrome.HintFor(keys.Details.CommentSubmit),
+			chrome.HintFor(keys.Overlay.Cancel),
+			chrome.HintFor(keys.Details.CopyTaskID),
 		}
-		out += keyStyle.Render(h[0]) + " " + descStyle.Render(h[1])
+	case m.focus == focusProgress:
+		return []chrome.KeyHint{
+			chrome.HintFor(keys.Details.NextField),
+			chrome.HintFor(keys.Details.CycleMode),
+			chrome.HintFor(keys.Details.CycleModeBack),
+			chrome.HintFor(keys.Details.Save),
+			chrome.HintFor(keys.Details.CopyTaskID),
+			chrome.HintFor(keys.Overlay.Cancel),
+		}
+	case m.focus == focusComments:
+		return []chrome.KeyHint{
+			chrome.HintFor(keys.Details.NextField),
+			chrome.HintFor(keys.Overlay.Navigation),
+			chrome.HintFor(keys.Details.CommentNew),
+			chrome.HintFor(keys.Details.CopyCommentID),
+			chrome.HintFor(keys.Details.CopyTaskID),
+			chrome.HintFor(keys.Overlay.Cancel),
+		}
+	default: // focusTitle, focusNotes
+		return []chrome.KeyHint{
+			chrome.HintFor(keys.Details.NextField),
+			chrome.HintFor(keys.Details.Save),
+			chrome.HintFor(keys.Details.CopyTaskID),
+			chrome.HintFor(keys.Overlay.Cancel),
+		}
 	}
-	return out
 }

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/constants"
 	"github.com/filipemolina/chore-crusher/src/keys"
@@ -29,11 +31,13 @@ func TestFooterRendersContextAndGlobalKeys(t *testing.T) {
 	}
 }
 
-// TestFooterInDetailsContextShowsOnlyDetailsHints verifies that while the
-// Details side panel owns the keyboard, the footer advertises its bindings
-// (save/next field/mode/cancel) and none of the task-tree or global keys that
-// are intentionally routed only to Details (docs/DESIGN.md §5).
-func TestFooterInDetailsContextShowsOnlyDetailsHints(t *testing.T) {
+// TestFooterIsBlankWhileDetailsIsOpen verifies the footer says nothing at all
+// while the Details modal owns the keyboard. The modal carries its own hint
+// line next to the controls it describes; the footer used to render a second
+// copy that listed a different subset in different words ("esc close" vs
+// "esc cancel"), so the user read two contradictory lines at once. The bar
+// still paints its full-width background, so the layout height does not move.
+func TestFooterIsBlankWhileDetailsIsOpen(t *testing.T) {
 	m := New()
 	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})
 	m, _ = m.(Model).Update(cmds.SetFooterContextMsg{
@@ -43,15 +47,14 @@ func TestFooterInDetailsContextShowsOnlyDetailsHints(t *testing.T) {
 	})
 
 	out := m.(Model).View().Content
-	for _, label := range []string{"save", "next field", "cancel"} {
-		if !strings.Contains(out, label) {
-			t.Errorf("Details footer missing %q:\n%s", label, out)
-		}
+	if got := strings.TrimSpace(ansi.Strip(out)); got != "" {
+		t.Errorf("footer must render no text while Details is open, got %q", got)
 	}
-	for _, absent := range []string{"lists", "help", "navigate", "search", "theme"} {
-		if strings.Contains(out, absent) {
-			t.Errorf("Details footer must not advertise %q:\n%s", absent, out)
-		}
+	if lipgloss.Height(out) != 1 {
+		t.Errorf("the blank footer must still occupy exactly one line, got %d", lipgloss.Height(out))
+	}
+	if got := lipgloss.Width(out); got != 120 {
+		t.Errorf("the blank footer must still paint its full width, got %d columns, want 120", got)
 	}
 }
 

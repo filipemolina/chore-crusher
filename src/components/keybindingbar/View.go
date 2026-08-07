@@ -17,14 +17,19 @@ func (m Model) View() tea.View {
 		return tea.NewView("")
 	}
 
-	left := keys.Active(m.ctx)
-	// While Details owns the keyboard, the right-side global hints are dropped:
-	// those keypresses are routed only to Details, so advertising them would be
-	// a lie (docs/DESIGN.md §5). ctrl+c stays an unadvertised emergency exit.
-	var right []key.Binding
-	if !m.ctx.DetailsPanelVisible {
-		right = globalsNotInLeft(left)
+	// While Details owns the keyboard the footer goes blank entirely. Details
+	// renders its own hint line inside the modal, next to the controls it
+	// describes; a second copy down here said the same things in different
+	// words ("esc close" vs "esc cancel") and listed a different subset, so
+	// the two contradicted each other. The bar still paints its full-width
+	// background so the layout height never moves.
+	if m.ctx.DetailsPanelVisible {
+		return tea.NewView(appstyles.FillBackground(appstyles.Active.BackgroundContent,
+			barStyle(m.terminalWidth).Render("")))
 	}
+
+	left := keys.Active(m.ctx)
+	right := globalsNotInLeft(left)
 
 	leftHints := chrome.RenderKeyHints(hintsFrom(left), appstyles.Active.TextDim)
 	rightHints := chrome.RenderKeyHints(hintsFrom(right), appstyles.Active.TextDim)
@@ -46,16 +51,20 @@ func (m Model) View() tea.View {
 		Width(sepWidth).
 		Render("")
 
-	barStyle := lipgloss.NewStyle().
+	line := lipgloss.JoinHorizontal(lipgloss.Left, leftHints, sep, rightHints)
+	return tea.NewView(appstyles.FillBackground(appstyles.Active.BackgroundContent, barStyle(m.terminalWidth).Render(line)))
+}
+
+// barStyle is the footer's one-line full-width box, shared by the rendered bar
+// and the blank one Details shows in its place.
+func barStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
 		Background(appstyles.Active.BackgroundContent).
-		Width(m.terminalWidth).
-		MaxWidth(m.terminalWidth).
+		Width(width).
+		MaxWidth(width).
 		Height(1).
 		MaxHeight(1).
 		Padding(0, 1)
-
-	line := lipgloss.JoinHorizontal(lipgloss.Left, leftHints, sep, rightHints)
-	return tea.NewView(appstyles.FillBackground(appstyles.Active.BackgroundContent, barStyle.Render(line)))
 }
 
 // globalsNotInLeft returns the always-live keys, omitting anything already
