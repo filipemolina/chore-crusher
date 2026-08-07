@@ -23,8 +23,13 @@ type GlobalKeys struct {
 	// ToggleListsPanel is L (shift+l). Lowercase l is the task tree's
 	// expand key, so the toggle takes the shifted form.
 	ToggleListsPanel key.Binding
-	// ForceQuit is ctrl+c, the only way to leave the app: it yields to
-	// nothing, so it quits from a modal or a text input alike.
+	// Quit is q, the ordinary way out: it is a printable character, so it
+	// yields to anything typing one — a modal, an inline create row, a
+	// filter being typed — and quits only from the task tree or the lists
+	// panel with none of those active (docs/DESIGN.md §5).
+	Quit key.Binding
+	// ForceQuit is ctrl+c, the escape hatch that yields to nothing, so it
+	// quits from a modal or a text input alike where q cannot.
 	ForceQuit key.Binding
 	// Back is esc away from everything that has a stronger claim on it: a
 	// modal closes itself first, the add input with text in it claims it
@@ -126,7 +131,8 @@ var Global = GlobalKeys{
 	NextPanel:        key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
 	PrevPanel:        key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev")),
 	ToggleListsPanel: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "lists")),
-	ForceQuit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "force quit")),
+	Quit:             key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+	ForceQuit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
 	Back:             key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	Help:             key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Theme:            key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme")),
@@ -314,7 +320,7 @@ func Active(ctx Context) []key.Binding {
 		if ctx.ListsPanelVisible {
 			return []key.Binding{
 				Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete,
-				Global.NextPanel,
+				Global.NextPanel, Global.Quit,
 			}
 		}
 	case constants.COMPONENT_TASK_TREE:
@@ -324,18 +330,18 @@ func Active(ctx Context) []key.Binding {
 				Tree.Expand, Tree.Collapse, Tree.Delete, Tree.New,
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
 				Tree.GoToStart, Tree.GoToEnd, Tree.PageUp, Tree.PageDown,
-				Global.NextPanel,
+				Global.NextPanel, Global.Quit,
 			}
 		}
 		if ctx.HasActiveList {
 			// Empty tree: n (new) is the only task action there is — the
 			// inline input is the empty state's way in
 			// (docs/plan/task-row-cards-and-status.md).
-			return []key.Binding{Tree.New, Global.NextPanel}
+			return []key.Binding{Tree.New, Global.NextPanel, Global.Quit}
 		}
 	}
 
-	return []key.Binding{Global.NextPanel}
+	return []key.Binding{Global.NextPanel, Global.Quit}
 }
 
 // Globals are the always-available keys the footer pins to its right-hand side,
@@ -381,7 +387,7 @@ func Catalog(ctx Context) []Scope {
 			Title: "Global",
 			Entries: entries(
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
-				Global.Back, Global.ForceQuit, Global.Help,
+				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
 				Global.Theme, Global.Filter, Global.Picker,
 			),
 		},

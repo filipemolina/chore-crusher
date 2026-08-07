@@ -113,6 +113,22 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		// q is the ordinary way out; ctrl+c above is the unconditional one.
+		// Because q is a printable character it has to yield to everything
+		// that could be typing one, and by this point most of that has
+		// already returned: a modal and the Details panel both intercept
+		// every keypress above. keyboardOwned() covers the rest — the inline
+		// create row and a /-filter being typed in either panel — and when it
+		// is true the case falls through to the component fan-out below, so
+		// the input still receives a literal "q" (docs/DESIGN.md §5).
+		case key.Matches(msg, keys.Global.Quit):
+			if !keyboardOwned() {
+				switch m.focusedZone {
+				case constants.COMPONENT_TASK_TREE, constants.COMPONENT_LISTS_PANEL:
+					return m, tea.Quit
+				}
+			}
+
 		case key.Matches(msg, keys.Global.Help):
 			finalCmds = append(finalCmds, cmds.OpenHelpModal())
 

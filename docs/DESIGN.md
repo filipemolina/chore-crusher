@@ -430,6 +430,20 @@ a confirm modal). The tree emits `DeleteTaskMsg`; AppModel opens a confirm modal
 accepting runs `store.DeleteTask` and refreshes the rows. List delete
 (`L` panel, `d`) follows the same confirm-modal pattern.
 
+**`q` quits, and `ctrl+c` always quits.** `q` is the ordinary exit and
+`ctrl+c` the escape hatch that yields to nothing — so both are advertised as
+"quit" rather than one of them as "force quit", which made the only documented
+way out sound like an emergency. Because `q` is a printable character it is
+handled *after* everything that could be typing one: a modal or the Details
+modal owns the keyboard and swallows it; the inline create row and a `/` filter
+being typed both take it as a literal `q`; and it quits only from the task tree
+or the lists panel with none of those active. That is the same precedence
+`keys.Active` already uses to decide what is live, so what the footer
+advertises and what `q` does cannot drift apart. There is no "really quit?"
+confirmation: every write is already on disk (§8), so leaving costs nothing.
+`q` is deliberately left unbound on the lists panel's inner bubbles list
+(`ListKeyMap()`), so the global handler is the only thing that answers to it.
+
 **Task renaming** in the TUI is done in the Details modal: its Title field is an
 editable input (first in the tab cycle), saved with `ctrl+s` through
 `store.RenameTask` — see the Details modal keys above.
