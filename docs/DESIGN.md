@@ -731,14 +731,27 @@ domain error (exit `1`), not a silent pick of the first match — silently
 guessing which task an agent meant is exactly the kind of behavior this
 project exists to not have.
 
-**Destructive commands need `--force`.** `crush lists rm` and `crush rm`
-(task) refuse to run without `--force`. The TUI's equivalent actions go
-through a confirm modal (the same pattern as stack-stitcher's
-`ConfirmModal`); the CLI has no modal to route through and no human to ask,
-so the flag *is* the confirmation. This is the one place the CLI is
-deliberately less convenient than the TUI, on purpose: an agent's typo in a
-task id should not have the blast radius of an unrecoverable delete with no
-prompt at all.
+**Destructive commands need `--force`.** `crush lists rm`, `crush rm`
+(task), and `crush comment rm` refuse to run without `--force`. The TUI's
+equivalent actions go through a confirm modal (the same pattern as
+stack-stitcher's `ConfirmModal`); the CLI has no modal to route through and
+no human to ask, so the flag *is* the confirmation. This is the one place
+the CLI is deliberately less convenient than the TUI, on purpose: an agent's
+typo in a task id should not have the blast radius of an unrecoverable
+delete with no prompt at all.
+
+**Comment deletion and its ownership rule.** Comments were append-only
+(§2); `store.DeleteComment` hard-deletes by id, with no soft-delete or
+tombstone. The CLI (`crush comment rm <comment-id> --force`) and the TUI
+(the Details modal's comments zone) are unenforced like every other
+human-facing delete — either may remove any comment. The MCP `delete_comment`
+tool is the one gated surface: it refuses unless the comment's `author`
+equals the calling session's identity, with the same error shape the list
+ownership gate (`requireWritable`) uses — `comment <id> is owned by <author>
+— you may only delete your own comments`. This is a narrower rule than list
+ownership: it keys off the individual comment's author, not the list's
+`created_by`, so an agent can always delete its own comment even on a list
+it does not own.
 
 **Full subcommand list**, grouped by the thing they act on. `<id>` accepts a
 prefix (see above) throughout.
@@ -765,6 +778,7 @@ crush progress <task-id> --mode percentage --percent <0-100>
 crush progress <task-id> --mode subtasks
 crush mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
 crush rm <task-id> --force                     delete a task and its descendants
+crush comment rm <comment-id> --force          delete a comment
 crush search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
 crush mcp                                      run the MCP server on stdin/stdout

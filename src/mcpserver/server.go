@@ -113,7 +113,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		Version: constants.Version(),
 	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
 
-IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you.
+IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
 
 IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
@@ -130,6 +130,7 @@ TOOLS (chore_crusher_<name>):
 - complete_task(ids) — cascades to descendants, auto-completes ancestors
 - reopen_task(ids) — back to pending; does not cascade
 - add_comment(task_id, note) — attributed to your tag
+- delete_comment(id, force=true) — only your own comments (author == your tag), regardless of list ownership
 - add_list(name, created_by?) — owned by you
 - claim_work(entity_type, entity_id, kind?, release?) — light/stop the TUI spinner; writes auto-claim for you, so you only need this to reserve a task BEFORE writing
 
@@ -484,6 +485,25 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_comment",
+		Description: "Delete a comment. Requires force=true. Only your own comments (author == this server's identity) may be deleted, regardless of who owns the comment's list — a foreign comment is refused. Example: delete_comment(id='01ABC...', force=true).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		ID    string `json:"id" jsonschema:"comment id"`
+		Force bool   `json:"force" jsonschema:"must be true to confirm deletion"`
+	}) (*mcp.CallToolResult, any, error) {
+		if !in.Force {
+			return errorResult(fmt.Errorf("deleting a comment requires force=true")), nil, nil
+		}
+		if _, err := requireOwnComment(s, identity, in.ID); err != nil {
+			return errorResult(err), nil, nil
+		}
+		if err := s.DeleteComment(in.ID); err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]bool{"ok": true})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "complete_task",
 		Description: "Mark 1..50 tasks complete; each cascades to all descendants. Example: complete_task(ids=['01ABC...','01DEF...']). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
@@ -763,6 +783,21 @@ func requireWritableTask(s *store.Store, identity, taskID string) error {
 		return err
 	}
 	return requireWritable(s, identity, t.ListID)
+}
+
+// requireOwnComment rejects deleting a comment this identity did not write.
+// Unlike requireWritable it keys off the individual comment's author, not
+// the list it lives on — an agent may always delete its own comment, even
+// on a list it does not own. The error shape mirrors requireWritable's.
+func requireOwnComment(s *store.Store, identity, commentID string) (store.Comment, error) {
+	c, err := s.GetComment(commentID)
+	if err != nil {
+		return store.Comment{}, err
+	}
+	if c.Author != identity {
+		return store.Comment{}, fmt.Errorf("comment %s is owned by %s — you may only delete your own comments", c.ID, c.Author)
+	}
+	return c, nil
 }
 
 // sectionRows returns the preorder task rows for a status filter, mirroring

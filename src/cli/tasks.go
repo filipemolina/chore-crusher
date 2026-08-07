@@ -160,6 +160,14 @@ func taskCommands() []*cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE:  runComment,
 	}
+	commentRmCmd := &cobra.Command{
+		Use:   "rm <comment-id>",
+		Short: "delete a comment",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runCommentRm,
+	}
+	commentRmCmd.Flags().Bool("force", false, "delete without confirmation")
+	commentCmd.AddCommand(commentRmCmd)
 
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
 		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd}
@@ -525,6 +533,28 @@ func runComment(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		printResult(jsonMode, func() { fmt.Println(cid) }, idJSON{cid})
+		return nil
+	})
+}
+
+// runCommentRm mirrors runRm: the CLI is unenforced (docs/DESIGN.md §9,
+// "List ownership, and what the MCP server refuses" — enforcement lives in
+// src/mcpserver alone), so it may delete any comment, and --force is the
+// only confirmation since there is no modal to route through here.
+func runCommentRm(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	force, _ := cmd.Flags().GetBool("force")
+	if !force {
+		err := fmt.Errorf("refusing to delete comment %q without --force", args[0])
+		printError(jsonMode, err)
+		return domainError(err)
+	}
+	return runStore(cmd, func(s *store.Store) error {
+		if err := s.DeleteComment(args[0]); err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
 }

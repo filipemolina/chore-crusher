@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -384,6 +385,63 @@ func TestCommentRefusedOnMissingTask(t *testing.T) {
 	code, _, errOut := runCLI(t, data, "comment", "01ARZ", "note")
 	if code != 1 || !strings.Contains(errOut, "not found") {
 		t.Errorf("comment on nonexistent task: exit %d stderr %q, want exit 1 mentioning not found", code, errOut)
+	}
+}
+
+// TestCommentRmRequiresForce mirrors TestRmRequiresForce: no store call at
+// all without --force, and the comment survives.
+func TestCommentRmRequiresForce(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+	cid := strings.TrimSpace(mustCLI(t, data, "comment", tid, "note"))
+
+	code, _, errOut := runCLI(t, data, "comment", "rm", cid)
+	if code != 1 || !strings.Contains(errOut, "--force") {
+		t.Errorf("comment rm without --force: exit %d stderr %q", code, errOut)
+	}
+
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if len(details.Comments) != 1 {
+		t.Errorf("comment deleted despite missing --force: %+v", details.Comments)
+	}
+}
+
+// TestCommentRmForce pins the --json contract on both success and failure
+// (exactly one JSON value on stdout either way, docs/DESIGN.md §9): rm
+// --force emits {"ok":true} and removes the comment; rm on a nonexistent id
+// emits {"error":"..."}.
+func TestCommentRmForce(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+	cid := strings.TrimSpace(mustCLI(t, data, "comment", tid, "note"))
+
+	var ok okPayload
+	mustJSONCLI(t, data, &ok, "comment", "rm", cid, "--force", "--json")
+	if !ok.OK {
+		t.Errorf("comment rm --force --json = %+v, want ok:true", ok)
+	}
+
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if len(details.Comments) != 0 {
+		t.Errorf("comment still present after rm --force: %+v", details.Comments)
+	}
+
+	code, stdout, _ := runCLI(t, data, "comment", "rm", "no-such-comment", "--force", "--json")
+	if code != 1 {
+		t.Errorf("comment rm nonexistent: exit %d, want 1", code)
+	}
+	var errPayload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &errPayload); err != nil {
+		t.Fatalf("stdout %q is not one JSON value: %v", stdout, err)
+	}
+	if !strings.Contains(errPayload.Error, "not found") {
+		t.Errorf("comment rm nonexistent error = %q, want it to mention 'not found'", errPayload.Error)
 	}
 }
 

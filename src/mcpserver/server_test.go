@@ -58,6 +58,40 @@ func setupMCPAs(t *testing.T, identity string) *mcp.ClientSession {
 	return setupMCP(t)
 }
 
+// sessionAs connects a new server+client pair under the given identity,
+// pointed at dataDir — the caller sets XDG_DATA_HOME to dataDir first, so
+// multiple sessions from this helper share one store (the same pattern
+// TestInboxResourceReturnsMineAndForeign builds inline for a human+pi pair).
+// Used where a test needs two distinct CRUSH_AGENT identities acting on the
+// same data, e.g. the delete_comment cross-author refusal.
+func sessionAs(t *testing.T, dataDir, identity string) *mcp.ClientSession {
+	t.Helper()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("CRUSH_AGENT", identity)
+
+	server, st, err := mcpserver.NewServer()
+	if err != nil {
+		t.Fatalf("NewServer (%s): %v", identity, err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	ctx := context.Background()
+	ct, transport := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("server.Connect (%s): %v", identity, err)
+	}
+	t.Cleanup(func() { ss.Close() })
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.0"}, nil)
+	cs, err := client.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client.Connect (%s): %v", identity, err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	return cs
+}
+
 func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[string]any) string {
 	t.Helper()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -148,7 +182,7 @@ func releaseWork(t *testing.T, session *mcp.ClientSession, args map[string]any) 
 }
 
 // TestMCPToolSurface pins the consolidated tool surface
-// (docs/plan/mcp-tool-consolidation.md §2): exactly the 14 tools below, and
+// (docs/plan/mcp-tool-consolidation.md §2): exactly the 15 tools below, and
 // none of the removed ones. A new tool must be a deliberate edit here — the
 // ceiling is the point of the plan.
 func TestMCPToolSurface(t *testing.T) {
@@ -166,7 +200,7 @@ func TestMCPToolSurface(t *testing.T) {
 	want := []string{
 		"my_list", "list_tasks", "list_changes", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
-		"reopen_task", "add_comment", "add_list", "claim_work",
+		"reopen_task", "add_comment", "delete_comment", "add_list", "claim_work",
 	}
 	for _, name := range want {
 		if !got[name] {
@@ -282,7 +316,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	wantTools := []string{
 		"my_list", "list_tasks", "list_changes", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
-		"reopen_task", "add_comment", "add_list", "claim_work",
+		"reopen_task", "add_comment", "delete_comment", "add_list", "claim_work",
 	}
 	lower := strings.ToLower(instructions)
 	if !strings.Contains(lower, "chore_crusher_") {
@@ -2118,6 +2152,114 @@ func TestMCPAddCommentRefusedOnMissingTask(t *testing.T) {
 	})
 	if !strings.Contains(msg, "not found") {
 		t.Errorf("expected 'not found' error, got %q", msg)
+	}
+}
+
+// TestMCPDeleteCommentRefusesAnotherAuthor pins the ownership rule that
+// makes delete_comment safe to expose to agents at all: an identity may
+// never delete a comment it did not write, even on a list it owns.
+func TestMCPDeleteCommentRefusesAnotherAuthor(t *testing.T) {
+	dataDir := t.TempDir()
+
+	piSession := sessionAs(t, dataDir, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, piSession, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, piSession, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+	var comment map[string]string
+	mustUnmarshal(t, callTool(t, piSession, "add_comment", map[string]any{
+		"task_id": task["id"], "note": "pi's comment",
+	}), &comment)
+
+	claudeSession := sessionAs(t, dataDir, "claude")
+	msg := callToolErr(t, claudeSession, "delete_comment", map[string]any{
+		"id": comment["id"], "force": true,
+	})
+	if !strings.Contains(msg, "owned by pi") {
+		t.Errorf("expected error naming pi as owner, got %q", msg)
+	}
+	if !strings.Contains(msg, "only delete your own comments") {
+		t.Errorf("expected the ownership-gate wording, got %q", msg)
+	}
+
+	// The comment must still exist — a refused delete is not a partial one.
+	var detailsArr []struct {
+		Comments []struct{ ID string } `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, piSession, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &detailsArr)
+	if len(detailsArr[0].Comments) != 1 {
+		t.Fatalf("comment should survive a refused delete, got %+v", detailsArr[0].Comments)
+	}
+}
+
+// TestMCPDeleteCommentOwnSucceeds pins the success path: an identity may
+// delete its own comment.
+func TestMCPDeleteCommentOwnSucceeds(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+	var comment map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_comment", map[string]any{
+		"task_id": task["id"], "note": "mine",
+	}), &comment)
+
+	var ok map[string]bool
+	mustUnmarshal(t, callTool(t, session, "delete_comment", map[string]any{
+		"id": comment["id"], "force": true,
+	}), &ok)
+	if !ok["ok"] {
+		t.Errorf("delete_comment = %+v, want ok:true", ok)
+	}
+
+	var detailsArr []struct {
+		Comments []struct{ ID string } `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &detailsArr)
+	if len(detailsArr[0].Comments) != 0 {
+		t.Errorf("comment should be gone, got %+v", detailsArr[0].Comments)
+	}
+}
+
+// TestMCPDeleteCommentRequiresForce mirrors TestMCPDeleteTaskRequiresForce.
+func TestMCPDeleteCommentRequiresForce(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+	var comment map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_comment", map[string]any{
+		"task_id": task["id"], "note": "mine",
+	}), &comment)
+
+	// A missing force key is refused by the tool schema itself before the
+	// handler runs (the same behavior TestMCPDeleteTaskRequiresForce pins for
+	// delete_task) — callToolErr only asserts that it errors, not the exact
+	// message, since that message comes from schema validation, not this code.
+	callToolErr(t, session, "delete_comment", map[string]any{"id": comment["id"]})
+
+	var detailsArr []struct {
+		Comments []struct{ ID string } `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &detailsArr)
+	if len(detailsArr[0].Comments) != 1 {
+		t.Errorf("comment deleted despite missing force, got %+v", detailsArr[0].Comments)
 	}
 }
 
