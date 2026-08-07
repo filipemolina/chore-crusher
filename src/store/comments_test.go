@@ -241,3 +241,71 @@ func TestAddCommentBumpsTaskUpdatedAt(t *testing.T) {
 		t.Errorf("updated_at (%d) should be after cutoff (%d)", after.UpdatedAt, cutoff)
 	}
 }
+
+// TestDeleteCommentRemovesRow pins the round-trip: a deleted comment is gone
+// from ListComments and GetComment returns "not found".
+func TestDeleteCommentRemovesRow(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	taskID := mustTask(t, s, lid, "task", nil)
+
+	id, err := s.AddComment(taskID, "human", "note")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	if err := s.DeleteComment(id); err != nil {
+		t.Fatalf("DeleteComment: %v", err)
+	}
+
+	got, err := s.ListComments(taskID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	for _, c := range got {
+		if c.ID == id {
+			t.Fatalf("deleted comment %q still present in ListComments", id)
+		}
+	}
+
+	if _, err := s.GetComment(id); err == nil {
+		t.Fatal("GetComment on a deleted comment should fail")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error %q should mention 'not found'", err.Error())
+	}
+}
+
+// TestDeleteCommentNonexistent verifies deleting a nonexistent comment
+// returns an error rather than panicking or silently succeeding.
+func TestDeleteCommentNonexistent(t *testing.T) {
+	s := newTestStore(t)
+
+	err := s.DeleteComment("no-such-comment")
+	if err == nil {
+		t.Fatal("DeleteComment on a nonexistent comment should fail")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error %q should mention 'not found'", err.Error())
+	}
+}
+
+// TestGetCommentRoundTrip pins GetComment's shape — the field the MCP
+// ownership gate reads is Author.
+func TestGetCommentRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	taskID := mustTask(t, s, lid, "task", nil)
+
+	id, err := s.AddComment(taskID, "pi", "hello")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	c, err := s.GetComment(id)
+	if err != nil {
+		t.Fatalf("GetComment: %v", err)
+	}
+	if c.ID != id || c.TaskID != taskID || c.Author != "pi" || c.Note != "hello" {
+		t.Errorf("GetComment = %+v, want id=%s task=%s author=pi note=hello", c, id, taskID)
+	}
+}

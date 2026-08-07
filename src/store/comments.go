@@ -123,6 +123,37 @@ func (s *Store) TaskIDsWithComments(listID string) (map[string]bool, error) {
 	return out, rows.Err()
 }
 
+// GetComment returns one comment by id. Callers that must decide whether a
+// delete is allowed (the MCP server's "own comments only" rule) read the
+// author here before calling DeleteComment.
+func (s *Store) GetComment(id string) (Comment, error) {
+	var c Comment
+	err := s.db.QueryRow(
+		`SELECT id, task_id, author, note, created_at FROM TaskComment WHERE id = ?`,
+		id,
+	).Scan(&c.ID, &c.TaskID, &c.Author, &c.Note, &c.CreatedAt)
+	if err != nil {
+		if isNoRows(err) {
+			return Comment{}, fmt.Errorf("comment %q not found", id)
+		}
+		return Comment{}, err
+	}
+	return c, nil
+}
+
+// DeleteComment hard-deletes one comment — no soft-delete, undo, or
+// tombstone, the same append-then-remove shape DeleteTask uses. The store
+// does not enforce who may delete what; that is a caller decision (the MCP
+// server gates on author, the CLI and TUI are deliberately unenforced),
+// exactly as ownership works for lists today.
+func (s *Store) DeleteComment(id string) error {
+	res, err := s.db.Exec(`DELETE FROM TaskComment WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(res, "comment", id)
+}
+
 // SetCommentsDisabled toggles the list-level comments_disabled flag. The
 // plan (docs/plan/task-comments.md §1) leaves the "how a human turns it on"
 // question as a follow-up — this store method exists so the flag can be set
