@@ -337,7 +337,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		finalCmds = append(finalCmds, m.footerContextCmd())
 
 	case cmds.OpenHelpModalMsg:
-		m.activeModal = helpoverlay.New(m.helpContext(), m.terminalWidth)
+		m.activeModal = helpoverlay.New(m.helpContext(), m.terminalWidth, m.terminalHeight)
 
 	case cmds.OpenThemePickerMsg:
 		m.activeModal = themepickermodal.New(m.terminalHeight)

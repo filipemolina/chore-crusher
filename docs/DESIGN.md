@@ -451,6 +451,40 @@ confirmation: every write is already on disk (§8), so leaving costs nothing.
 `q` is deliberately left unbound on the lists panel's inner bubbles list
 (`ListKeyMap()`), so the global handler is the only thing that answers to it.
 
+**`?` opens the help overlay, and it lists EVERY key in the app on every
+screen.** Not the keys live on the screen it was opened from — the whole
+catalog, always the same scopes in the same order, built by `keys.Catalog` from
+the same binding structs the handlers match against. Keys the user cannot press
+right now are **dimmed** rather than omitted, and the overlay carries a legend
+saying so, since a dimmed row otherwise reads as "removed" rather than "not
+here".
+
+The scopes came and went with the context once — `Lists` only while the lists
+panel was visible, `Task Tree` only with an active list, `Creating`/`Filter`/
+`Task Tree` as three mutually exclusive branches. That makes the overlay
+useless for its actual job: a key you can only read about once you have already
+found the surface it belongs to is not documented at all. The same failure, in
+its worst form, is what shipped — `n` (new task) was bound, handled, advertised
+in the footer and named by the empty state, but appeared nowhere in the overlay,
+so help taught a reader how to create a *list* and not how to create a *task*.
+`src/components/helpoverlay/coverage_test.go` reflects over every keymap struct
+and fails if any binding is missing from the rendered overlay; that guard, not
+review discipline, is what keeps this true.
+
+Where a key does something its help text cannot carry, the scope gets a
+one-line **`Note`** (`keys.Scope.Note`) — that is how `L` says it also moves
+focus into the panel it reveals, and how the Overlays scope says the Details
+discard prompt answers to `y`/`n` alone. Saying so in the section is the
+alternative to omitting the key.
+
+Listing the whole app is more than an 80x24 terminal holds, so the scope
+content is **windowed and scrolls with `↑`/`↓`** (`keys.Overlay.Navigation`,
+which every overlay already advertised for exactly this and now carries the
+keystrokes to match), with the same `N above` / `N below` counts the task
+tree's pinned section headers use (§12). The window height is *measured* from
+the assembled chrome rather than counted from a constant, because several of
+those pieces wrap at some widths and not others.
+
 **Task renaming** in the TUI is done in the Details modal: its Title field is an
 editable input (first in the tab cycle), saved with `ctrl+s` through
 `store.RenameTask` — see the Details modal keys above.

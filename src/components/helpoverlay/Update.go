@@ -11,6 +11,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
+		m.termHeight = msg.Height
+		m.offset = min(m.offset, m.maxOffset())
 
 	case tea.KeyPressMsg:
 		// Either of the two closes: ? is the toggle that opened it, esc is
@@ -21,6 +23,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Global.Help),
 			key.Matches(msg, keys.Overlay.Cancel):
 			return m, cmds.CloseModal(nil)
+
+		// The catalog is longer than a terminal, so it scrolls. These are
+		// Overlay.Navigation's own keystrokes — the binding every overlay
+		// already advertises for "the arrows move within me".
+		case key.Matches(msg, keys.Overlay.Navigation):
+			switch msg.String() {
+			case "up", "k":
+				m.offset = max(0, m.offset-1)
+			default:
+				m.offset = min(m.maxOffset(), m.offset+1)
+			}
 		}
 	}
 

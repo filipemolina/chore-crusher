@@ -251,8 +251,11 @@ var Overlay = OverlayKeys{
 	Cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 	Yes:    key.NewBinding(key.WithKeys("y", "Y"), key.WithHelp("y", "yes")),
 	No:     key.NewBinding(key.WithKeys("n", "N"), key.WithHelp("n", "no")),
-	// Help-only: the bubbles list owns the arrow keystrokes.
-	Navigation: key.NewBinding(key.WithHelp("↑/↓", "navigate")),
+	// The arrows every overlay moves within itself with. Where a modal wraps
+	// a bubbles list, the list handles the keystrokes itself and this binding
+	// is only the hint; the help overlay, which has no list, matches against
+	// it directly to scroll its catalog. One declaration, both uses.
+	Navigation: key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "navigate")),
 }
 
 // Context is what the help overlay and keybinding bar know about the screen:
@@ -358,6 +361,13 @@ func Globals() []key.Binding {
 type Scope struct {
 	Title   string
 	Entries []Entry
+	// Note is one line of prose under the scope's keys, for behaviour a
+	// key/description pair cannot carry on its own — what a key does BESIDES
+	// what its help text says, or which of a scope's keys only apply to some
+	// of the surfaces the scope covers. Where a scope is context-dependent,
+	// this is how it says so; omitting the key instead is what made the
+	// overlay incomplete in the first place.
+	Note string
 }
 
 // Entry is one row of the help overlay: the binding to render, and whether
@@ -382,7 +392,14 @@ func Catalog(ctx Context) []Scope {
 		return out
 	}
 
-	scopes := []Scope{
+	// Every scope is present on every screen. They used to come and go with
+	// the context — Lists only while the lists panel was visible, Task Tree
+	// only with an active list, Creating/Filter/Task Tree as three exclusive
+	// branches — so the overlay described the corner the user opened it from
+	// rather than the app. A key you can only read about once you have already
+	// found the surface it belongs to is not documentation. Availability is
+	// carried by Entry.Available, which the overlay renders as dimming.
+	return []Scope{
 		{
 			Title: "Global",
 			Entries: entries(
@@ -392,49 +409,39 @@ func Catalog(ctx Context) []Scope {
 			),
 		},
 		{
-			Title:   "Overlays",
-			Entries: entries(Overlay.Submit, Overlay.Cancel, Overlay.Yes, Overlay.No),
+			Title: "Task Tree",
+			Entries: entries(
+				Tree.Navigate, Tree.GoToStart, Tree.GoToEnd,
+				Tree.PageUp, Tree.PageDown, Tree.Expand, Tree.Collapse,
+				Tree.Toggle, Tree.OpenDetails, Tree.New, Tree.Delete,
+				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
+			),
 		},
-	}
-
-	if ctx.ListsPanelVisible {
-		scopes = append(scopes, Scope{
+		{
+			Title:   "Creating a task",
+			Entries: entries(Create.Submit, Create.Cancel, Tree.Outdent, Tree.Indent),
+			Note:    "[ and ] set the new task's level while the input is open.",
+		},
+		{
+			Title:   "Filtering",
+			Entries: entries(Global.Filter, Overlay.Submit, Overlay.Cancel),
+			Note:    "/ filters the focused panel; F searches across every list.",
+		},
+		{
 			Title:   "Lists",
 			Entries: entries(Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete),
-		})
+			Note:    "L shows the lists panel and moves focus into it; tab moves focus back.",
+		},
+		{
+			Title:   "Details",
+			Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
+		},
+		{
+			Title:   "Overlays",
+			Entries: entries(Overlay.Submit, Overlay.Cancel, Overlay.Yes, Overlay.No),
+			Note:    "Details' \"Discard changes?\" prompt answers to y and n only — it has no visible default for enter to act on.",
+		},
 	}
-
-	if ctx.HasActiveList {
-		switch {
-		case ctx.Creating:
-			scopes = append(scopes, Scope{
-				Title:   "Creating",
-				Entries: entries(Create.Submit, Create.Cancel, Tree.Outdent, Tree.Indent),
-			})
-		case ctx.Filtering:
-			scopes = append(scopes, Scope{
-				Title:   "Filter",
-				Entries: entries(Overlay.Submit, Overlay.Cancel),
-			})
-		default:
-			scopes = append(scopes, Scope{
-				Title: "Task Tree",
-				Entries: entries(
-					Tree.Navigate, Tree.GoToStart, Tree.GoToEnd,
-					Tree.PageUp, Tree.PageDown, Tree.Expand, Tree.Collapse,
-					Tree.Toggle, Tree.OpenDetails, Tree.Delete,
-					Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
-				),
-			})
-		}
-	}
-
-	scopes = append(scopes, Scope{
-		Title:   "Details",
-		Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
-	})
-
-	return scopes
 }
 
 // pressableNow is the set of bindings the user can actually press in ctx: the
