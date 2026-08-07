@@ -1,10 +1,14 @@
 package store
 
 import (
+	"database/sql"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/filipemolina/chore-crusher/src/store/migrations"
 )
 
 func TestCreateTaskValidations(t *testing.T) {
@@ -545,5 +549,98 @@ func TestTasksChangedSinceIncludesNewComment(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != a {
 		t.Fatalf("a new comment should make the task 'changed'; got %d rows: %+v", len(got), got)
+	}
+}
+
+// openStoreAtMigration builds a database whose schema is exactly the first
+// upto migrations recorded — a pre-0006 file that prod Open can no longer
+// produce, because Open always migrates to head. The historical state is
+// built with the store's own runner (applyOneMigration) over a raw
+// connection, so a later migration genuinely lands on a file that existed
+// before it, not on one rebuilt from the current schema.
+func openStoreAtMigration(t *testing.T, path string, upto int) *Store {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path+"?_journal_mode=WAL&_foreign_keys=1&_busy_timeout=5000")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	s := &Store{db: db}
+	t.Cleanup(func() { s.Close() })
+
+	entries, err := migrations.FS.ReadDir(".")
+	if err != nil {
+		t.Fatalf("migrations FS: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	slices.SortFunc(names, func(a, b string) int { return versionOf(a) - versionOf(b) })
+	for _, name := range names {
+		v := versionOf(name)
+		if v <= 0 || v > upto {
+			continue
+		}
+		contents, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if err := s.applyOneMigration(v, string(contents)); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+	}
+	return s
+}
+
+// TestMigration0006PreservesExistingTasks: 0006 adds assignee, assigned_at
+// and priority. A database created before 0006 (here: at 0005, holding real
+// tasks) must be upgraded in place with every pre-existing task landing on
+// the new defaults — assignee ”, assigned_at NULL, priority 'none' — and
+// both read paths must return the new fields (docs/plan/
+// mcp-assignment-and-priorities.md §6.1, §6.2).
+func TestMigration0006PreservesExistingTasks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	s5 := openStoreAtMigration(t, path, 5)
+	lid := mustList(t, s5, "list")
+	root := mustTask(t, s5, lid, "root", nil)
+	_ = mustTask(t, s5, lid, "child", &root)
+	s5.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open after 0006: %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.ListTasks(lid)
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListTasks returned %d rows, want the 2 pre-existing tasks", len(got))
+	}
+	for _, tk := range got {
+		if tk.Assignee != "" || tk.AssignedAt != nil || tk.Priority != PriorityNone {
+			t.Errorf("migrated task %q is not unassigned/none: %+v", tk.ID, tk)
+		}
+	}
+
+	one, err := s.GetTask(root)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if one.Assignee != "" || one.AssignedAt != nil || one.Priority != PriorityNone {
+		t.Errorf("GetTask did not return the migrated defaults: %+v", one)
+	}
+
+	// A task created after the migration starts from the same defaults.
+	fresh := mustTask(t, s, lid, "fresh", nil)
+	freshGot, err := s.GetTask(fresh)
+	if err != nil {
+		t.Fatalf("GetTask(fresh): %v", err)
+	}
+	if freshGot.Assignee != "" || freshGot.AssignedAt != nil || freshGot.Priority != PriorityNone {
+		t.Errorf("new task did not default to unassigned/none: %+v", freshGot)
 	}
 }

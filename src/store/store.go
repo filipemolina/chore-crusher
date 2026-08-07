@@ -40,9 +40,21 @@ const (
 	ProgressPercentage ProgressKind = "percentage"
 )
 
+// Priority is a task's importance. It is orthogonal to Status and to
+// assignment, and it does NOT re-order the tree (docs/DESIGN.md §3).
+type Priority string
+
+const (
+	PriorityNone   Priority = "none"
+	PriorityLow    Priority = "low"
+	PriorityMedium Priority = "medium"
+	PriorityHigh   Priority = "high"
+)
+
 // Task mirrors one row of the Task table. ParentID is nil for a root-level
 // task; ProgressPct is set only when ProgressKind is ProgressPercentage;
-// CompletedAt is set only when Status is StatusComplete.
+// CompletedAt is set only when Status is StatusComplete; AssignedAt is set
+// only when Assignee != ""; Priority defaults to PriorityNone.
 type Task struct {
 	ID           string
 	ListID       string
@@ -56,6 +68,9 @@ type Task struct {
 	CreatedAt    int64
 	UpdatedAt    int64
 	CompletedAt  *int64
+	Assignee     string // agent tag holding this task; "" = unassigned. No TTL.
+	AssignedAt   *int64 // unix seconds; nil unless Assignee != ""
+	Priority     Priority
 }
 
 // List mirrors one row of the List table.

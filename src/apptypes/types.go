@@ -29,6 +29,18 @@ const (
 	ProgressPercentage ProgressKind = "percentage"
 )
 
+// Priority is a task's importance, mirroring store.Priority. It is
+// orthogonal to Status and to assignment, and it does NOT re-order the tree
+// (docs/DESIGN.md §3).
+type Priority string
+
+const (
+	PriorityNone   Priority = "none"
+	PriorityLow    Priority = "low"
+	PriorityMedium Priority = "medium"
+	PriorityHigh   Priority = "high"
+)
+
 // Task is a task the components render, mirroring store.Task's row shape.
 // ParentID is nil for a root-level task; ProgressPct is set only when
 // ProgressKind is ProgressPercentage; CompletedAt is set only when Status is
@@ -48,6 +60,9 @@ type Task struct {
 	CreatedAt    int64
 	UpdatedAt    int64
 	CompletedAt  *int64
+	Assignee     string // agent tag holding this task; "" = unassigned. No TTL.
+	AssignedAt   *int64 // unix seconds; nil unless Assignee != ""
+	Priority     Priority
 }
 
 // List is a list the components render, mirroring store.List.
@@ -88,6 +103,9 @@ func FromStore(t store.Task) Task {
 		CreatedAt:    t.CreatedAt,
 		UpdatedAt:    t.UpdatedAt,
 		CompletedAt:  t.CompletedAt,
+		Assignee:     t.Assignee,
+		AssignedAt:   t.AssignedAt,
+		Priority:     Priority(t.Priority),
 	}
 }
 

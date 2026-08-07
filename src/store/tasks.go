@@ -458,12 +458,7 @@ func (s *Store) DeleteTask(id string) error {
 // same way before the next root or sibling subtree. This keeps parents before
 // their children and siblings in their stored position order.
 func (s *Store) ListTasks(listID string) ([]Task, error) {
-	rows, err := s.db.Query(
-		`SELECT id, list_id, parent_id, title, notes, status, progress_kind, progress_pct,
-		        position, created_at, updated_at, completed_at
-		 FROM Task WHERE list_id = ?`,
-		listID,
-	)
+	rows, err := s.db.Query(`SELECT `+taskColumns+` FROM Task WHERE list_id = ?`, listID)
 	if err != nil {
 		return nil, err
 	}
@@ -550,7 +545,7 @@ func (s *Store) TasksChangedSince(listID string, since int64) ([]Task, error) {
 
 // taskColumns is shared by every query that reads a full Task row.
 const taskColumns = `id, list_id, parent_id, title, notes, status, progress_kind, progress_pct,
-	position, created_at, updated_at, completed_at`
+	position, created_at, updated_at, completed_at, assignee, assigned_at, priority`
 
 // getTask reads one Task row, converting sql.Null* columns to pointers.
 func getTask(q querier, id string) (Task, error) {
@@ -561,16 +556,20 @@ func getTask(q querier, id string) (Task, error) {
 	return t, err
 }
 
-// scanTask converts one result row into a Task.
+// scanTask converts one result row into a Task. The Scan argument order must
+// match taskColumns exactly; a column added to the constant in one place and
+// not the other surfaces as a runtime scan error on every read.
 func scanTask(r rowScanner) (Task, error) {
 	var t Task
 	var parent sql.NullString
 	var pct sql.NullInt64
 	var done sql.NullInt64
+	var assigned sql.NullInt64
 	err := r.Scan(
 		&t.ID, &t.ListID, &parent, &t.Title, &t.Notes,
 		&t.Status, &t.ProgressKind, &pct,
 		&t.Position, &t.CreatedAt, &t.UpdatedAt, &done,
+		&t.Assignee, &assigned, &t.Priority,
 	)
 	if err != nil {
 		return Task{}, err
@@ -585,6 +584,10 @@ func scanTask(r rowScanner) (Task, error) {
 	if done.Valid {
 		v := done.Int64
 		t.CompletedAt = &v
+	}
+	if assigned.Valid {
+		v := assigned.Int64
+		t.AssignedAt = &v
 	}
 	return t, nil
 }
