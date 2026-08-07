@@ -280,14 +280,22 @@ func (m *Model) hydrate(msg cmds.RefreshDetailsMsg, resetFocus bool) {
 	if !m.composing {
 		m.commentInput.SetValue("")
 	}
-	// Rebalance the textarea height against the (possibly changed) comment
-	// section so the modal never overflows its box.
-	m.resizeNotes()
-
 	if m.notes.Value() != msg.Task.Notes {
 		m.notes.SetValue(msg.Task.Notes)
+		// SetValue leaves the cursor at the END of the buffer. The textarea
+		// repositions its viewport onto the cursor on every SetHeight, so a
+		// note taller than the cap would scroll to its last line the moment
+		// the next resize ran — a reader opening a long note saw the end of
+		// it. Park the cursor on line 1 so the note opens where it starts.
+		m.notes.MoveToBegin()
 	}
 	m.origNotes = msg.Task.Notes
+
+	// Rebalance the textarea height against the (possibly changed) comment
+	// section so the modal never overflows its box. This runs AFTER the note
+	// is written, because the row budget is derived from its line count — the
+	// other order sizes the box from the previous task's note.
+	m.resizeNotes()
 
 	if resetFocus {
 		// A freshly opened task hydrates and resets focus to Title, the first

@@ -272,7 +272,10 @@ whole modal. It renders **no line-number gutter**: that is a code-editor
 affordance, and these notes are a few lines of prose nobody cites by line, so
 the column only spent width and made the field read as an editor pane. The
 `┃` prompt is the field's left edge; the line the cursor is on lifts to
-`BackgroundElevated` while Notes holds the keyboard (§12). The comment thread renders as selectable cards (the shared row-card
+`BackgroundElevated` while Notes holds the keyboard (§12). A note taller than
+the cap **opens on its first line**, with the cursor parked there — a reader
+opening a note starts at its beginning, and typing lands where the cursor is
+visible rather than off-screen at the end. The comment thread renders as selectable cards (the shared row-card
 chrome, §12); `↑`/`↓` move the highlight and `y` copies the highlighted
 comment's id to the system clipboard.
 

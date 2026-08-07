@@ -162,13 +162,15 @@ func TestRefreshUpdatesCleanButNotDirty(t *testing.T) {
 
 	// Now dirty the draft and push another external change: the draft wins.
 	// Move to Notes (Title is the entry field, so tab once) and type into it.
+	// A hydrated note parks the cursor on line 1 (see
+	// TestMultilineNotesOpenOnTheFirstLine), so the rune lands at the front.
 	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"})
 	m = typeRune(t, m, 'Q')
 	if err := s.SetNotes(taskID, "clobbered"); err != nil {
 		t.Fatalf("set notes: %v", err)
 	}
 	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
-	if m.NotesValue() != "externalQ" {
+	if m.NotesValue() != "Qexternal" {
 		t.Fatalf("dirty refresh overwrote the draft: NotesValue = %q", m.NotesValue())
 	}
 }
@@ -682,5 +684,54 @@ func TestFocusedFieldLiftsToElevated(t *testing.T) {
 	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
 	if lifted(m) {
 		t.Error("no field should read as focused when the keyboard is on a valueless Progress mode")
+	}
+}
+
+// longNote is taller than the notes textarea's row cap, so the textarea has to
+// scroll and it matters which end it scrolls to.
+const longNote = "first line\nsecond\nthird\nfourth\nfifth\nsixth\nseventh\neighth\nninth\nlast line"
+
+// A note taller than the cap opens on its first line and stays there across a
+// poll refresh. SetValue leaves the cursor at the end of the buffer and the
+// textarea repositions onto the cursor on every SetHeight, so the note used to
+// jump to its last line one poll tick after the modal opened.
+func TestMultilineNotesOpenOnTheFirstLine(t *testing.T) {
+	m, s, taskID := loaded(t, longNote)
+	m, _ = updateModel(m, cmds.SetDetailsLayout(60, 24)())
+
+	assertFirstLine := func(when string) {
+		t.Helper()
+		view := ansi.Strip(m.View().Content)
+		if !strings.Contains(view, "first line") {
+			t.Fatalf("%s: notes do not show their first line:\n%s", when, view)
+		}
+		if strings.Contains(view, "last line") {
+			t.Fatalf("%s: notes are scrolled to their last line:\n%s", when, view)
+		}
+	}
+
+	assertFirstLine("on open")
+
+	// The poll loop re-hydrates the open modal. Rendering first matters: the
+	// textarea only scrolls once its viewport has content, which is what made
+	// this surface a tick after opening rather than immediately.
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	assertFirstLine("after a poll refresh")
+}
+
+// The row budget is derived from the note's line count, so it has to be
+// computed after the note is written — otherwise a long note opens at the
+// height the previous (empty) task needed and grows a tick later.
+func TestNotesSizedToTheNoteOnOpen(t *testing.T) {
+	m, _, _ := loaded(t, longNote)
+	m, _ = updateModel(m, cmds.SetDetailsLayout(60, 24)())
+
+	view := ansi.Strip(m.View().Content)
+	rows := strings.Count(view, m.notes.Prompt)
+	if want := m.notesRows(); rows != want {
+		t.Fatalf("notes rendered %d rows, want the budgeted %d:\n%s", rows, want, view)
+	}
+	if rows <= minNotesRows {
+		t.Fatalf("a %d-line note rendered at %d rows, no taller than the minimum", strings.Count(longNote, "\n")+1, rows)
 	}
 }
