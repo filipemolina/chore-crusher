@@ -1352,11 +1352,21 @@ dismissed; a lists panel with no lists yet) is the same shape: a box on the
 `BorderCard` (not `BorderDefault` — see §11's inherited reasoning: a border
 has to contrast with the surface it wraps, and `BorderDefault` moves *toward*
 `BackgroundRecessed` rather than away from it), `Padding(1, 2)` matching
-`PanelFrame`, one line of `TextDim` guidance text, left-aligned. Do not
+`PanelFrame`, `TextDim` guidance text, left-aligned. Do not
 center empty-state text and do not give it its own bespoke padding —
 reusing the exact `PanelFrame` numbers is what makes it read as "this panel,
 currently empty" rather than a different kind of surface that happens to be
 nearby.
+
+**The card is sized to its message, then centered in the space it is given.**
+It does not stretch to fill that space: a two-line message inside a 28-row
+rounded box reads as a large broken panel rather than a note. Only the *box* is
+centered — the text inside it stays left-aligned, per the rule above.
+`chrome.EmptyStateCard` still returns a block occupying the caller's full
+width × height, so the caller composes one thing; the space around the card is
+painted in the **caller's own tier**, not the recessed one, because that space
+belongs to the panel and not to the card. That is why the function takes the
+surrounding background as a parameter rather than assuming a tier.
 
 ### First run
 

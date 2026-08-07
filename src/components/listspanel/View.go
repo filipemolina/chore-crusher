@@ -114,7 +114,7 @@ func (m Model) View() tea.View {
 
 	var body string
 	if len(m.list.Items()) == 0 {
-		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height)
+		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height, bg)
 	} else {
 		content := m.list.View()
 		// The bubbles list shipped dots at the bottom for multi-page lists;

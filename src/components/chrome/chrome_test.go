@@ -115,17 +115,19 @@ func TestTruncatePreservesStyles(t *testing.T) {
 	}
 }
 
-// The empty-state card must render at exactly the box it was given, with no
+// The empty-state card must occupy exactly the box it was given, with no
 // unpainted cells, under every registered theme — the recessed surface is
-// where a missing seal would show the panel behind it.
-func TestEmptyStateCardFillsBoxAndSeals(t *testing.T) {
+// where a missing seal would show the panel behind it. The CARD inside that
+// box is sized to its message (see TestEmptyStateCardSizesToItsContent); this
+// pins the block the caller composes.
+func TestEmptyStateCardOccupiesBoxAndSeals(t *testing.T) {
 	for _, theme := range appstyles.Themes {
 		t.Run(theme.Name, func(t *testing.T) {
 			orig := appstyles.Active
 			appstyles.Active = theme
 			defer func() { appstyles.Active = orig }()
 
-			card := EmptyStateCard("nothing here yet", 40, 6)
+			card := EmptyStateCard("nothing here yet", 40, 6, theme.PanelBg)
 			if got, want := lipgloss.Width(card), 40; got != want {
 				t.Errorf("EmptyStateCard width = %d, want %d", got, want)
 			}
@@ -140,7 +142,7 @@ func TestEmptyStateCardFillsBoxAndSeals(t *testing.T) {
 }
 
 func TestEmptyStateCardZeroBox(t *testing.T) {
-	if got := EmptyStateCard("x", 0, 5); got != "" {
+	if got := EmptyStateCard("x", 0, 5, appstyles.Active.PanelBg); got != "" {
 		t.Errorf("zero width should render nothing, got %q", got)
 	}
 }
@@ -229,5 +231,58 @@ func TestScrimMutesOriginalColorsButKeepsText(t *testing.T) {
 	}
 	if appstyles.HasBackgroundBleed(scrimmed) {
 		t.Errorf("scrimmed page has background bleed:\n%q", scrimmed)
+	}
+}
+
+// The card is sized to its message, not to the box. It used to take a height
+// and fill it, so two lines of guidance rendered as a 28-row rounded box that
+// read as a large broken panel rather than a note. The box is still fully
+// occupied — the card is centred in it, and the space around the card is
+// painted in the caller's own tier, because that space belongs to the panel
+// and not to the recessed card.
+func TestEmptyStateCardSizesToItsContent(t *testing.T) {
+	const boxW, boxH = 60, 30
+	block := EmptyStateCard("No tasks yet.\nPress n to create one.", boxW, boxH, appstyles.Active.PanelBg)
+
+	if got := lipgloss.Height(block); got != boxH {
+		t.Fatalf("returned block height = %d, want the full box %d", got, boxH)
+	}
+	if got := lipgloss.Width(block); got != boxW {
+		t.Fatalf("returned block width = %d, want the full box %d", got, boxW)
+	}
+
+	// The card is the run of lines carrying its rounded border.
+	lines := strings.Split(ansi.Strip(block), "\n")
+	top, bottom := -1, -1
+	for i, line := range lines {
+		if strings.ContainsAny(line, "╭╰") {
+			if top < 0 {
+				top = i
+			}
+			bottom = i
+		}
+	}
+	if top < 0 {
+		t.Fatalf("no card border found in:\n%s", ansi.Strip(block))
+	}
+
+	// Two message lines + Padding(1,2) top and bottom + one border row each
+	// side. Anything taller means it stretched again.
+	const wantRows = 2 + 2 + 2
+	if got := bottom - top + 1; got != wantRows {
+		t.Errorf("card is %d rows tall for a two-line message, want %d:\n%s", got, wantRows, ansi.Strip(block))
+	}
+	if top == 0 {
+		t.Error("card is not centred vertically: it starts on the box's first row")
+	}
+
+	// The card is narrower than the box and centred in it, with the message
+	// still left-aligned inside the card (docs/DESIGN.md §12).
+	cardW := lipgloss.Width(strings.TrimRight(lines[top], " "))
+	if cardW >= boxW {
+		t.Errorf("card width %d fills the %d-column box; it should size to its message", cardW, boxW)
+	}
+	if !strings.Contains(lines[top+2], "│  No tasks yet.") {
+		t.Errorf("message is not left-aligned against the card's padding: %q", lines[top+2])
 	}
 }

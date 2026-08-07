@@ -92,14 +92,19 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 		// An empty list after an esc cancel: the standard recessed empty-state
 		// card. The input is no longer the empty state — single-press esc
 		// removes it (docs/plan/task-row-cards-and-status.md).
-		return appstyles.FillBackground(bg, chrome.EmptyStateCard("No tasks yet.\nPress n to create one.", width, height))
+		return appstyles.FillBackground(bg, chrome.EmptyStateCard("No tasks yet.\nPress n to create one.", width, height, bg))
 	case m.filterActive() && len(filterMatches(m.rows, m.filterQuery)) == 0:
 		// Filtered to nothing: the filter bar over a recessed "no match" card.
 		// There are no rows to scroll, so this renders directly rather than
 		// through the line-plan window.
 		// No rows survived, so there are no direct matches either: the bar
 		// reports 0 over the card.
-		body := lipgloss.JoinVertical(lipgloss.Top, m.renderFilterBar(0), chrome.EmptyStateCard("No tasks match", width, 3))
+		bar := m.renderFilterBar(0)
+		// The card sizes itself to its message, so it is handed the whole
+		// space under the bar to centre in rather than a hand-picked row
+		// count — that count only existed to stop the card filling the panel.
+		card := chrome.EmptyStateCard("No tasks match", width, max(0, height-lipgloss.Height(bar)), bg)
+		body := lipgloss.JoinVertical(lipgloss.Top, bar, card)
 		return appstyles.FillBackground(bg, fillToHeight(body, height, width, bg))
 	default:
 		plan := m.linePlan(width, bg)
