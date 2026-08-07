@@ -151,6 +151,36 @@ func (m *Model) splitSections() (pending, complete []apptypes.Row) {
 	return
 }
 
+// countByStatusNotComplete and countByStatusComplete count rows by their own
+// Task.Status rather than by section membership. A section's row count (the
+// slice length) and its status count can disagree: a completed subtask of a
+// pending parent is deliberately displayed inside the Pending section (see
+// splitSections), so that section's rows are not all pending. The Lists
+// panel counts statuses (apptypes.ListSummary.PendingCount/CompleteCount),
+// so the tree's section headers must too, or the same list shows two
+// different "pending" numbers on one screen (bug: the same list shows two
+// different counts on one screen). Rows are already in memory here; this
+// does not re-query the store, which could disagree with what is drawn.
+func countByStatusNotComplete(rows []apptypes.Row) int {
+	n := 0
+	for _, row := range rows {
+		if row.Task.Status != apptypes.StatusComplete {
+			n++
+		}
+	}
+	return n
+}
+
+func countByStatusComplete(rows []apptypes.Row) int {
+	n := 0
+	for _, row := range rows {
+		if row.Task.Status == apptypes.StatusComplete {
+			n++
+		}
+	}
+	return n
+}
+
 // planSections builds the line plan for the Pending and Complete sections,
 // splicing the inline create row in immediately after the reference task (its
 // insertion point) within whichever section that task lives. The create row is
@@ -173,7 +203,7 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 	}
 
 	if len(pending) > 0 {
-		plan = append(plan, chromeLine(sectionHeader("Pending", len(pending))))
+		plan = append(plan, chromeLine(sectionHeader("Pending", countByStatusNotComplete(pending))))
 		// One blank line below each section title, and one below the last
 		// pending row, so the sections read as blocks with air around them
 		// (docs/DESIGN.md §6).
@@ -189,7 +219,7 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 	}
 
 	if len(complete) > 0 {
-		plan = append(plan, chromeLine(sectionHeader("Complete", len(complete))))
+		plan = append(plan, chromeLine(sectionHeader("Complete", countByStatusComplete(complete))))
 		plan = append(plan, chromeLine(""))
 		plan, placedCreate = m.appendSectionPlan(plan, complete, width, bg, placedCreate)
 	}

@@ -542,3 +542,38 @@ func TestCreateRowRendersAfterAnchorSubtree(t *testing.T) {
 			"it renders between the anchor and its first child", iCreate, iB1, iB2)
 	}
 }
+
+// TestPendingHeaderCountsStatusesNotSectionRows pins the section-header count
+// fix (bug: the same list shows two different counts on one screen). A
+// completed subtask of a pending parent renders inside the Pending section
+// (splitSections' deliberate behaviour, preserved here), but the Pending
+// header must count only rows whose own status is not complete — the same
+// thing apptypes.ListSummary.PendingCount counts — so the header matches
+// what the Lists panel would show for the same list, instead of counting
+// every row in the section regardless of status.
+func TestPendingHeaderCountsStatusesNotSectionRows(t *testing.T) {
+	m := &Model{collapsed: make(map[string]bool)}
+	parentID := strPtr("P")
+	m.rows = []apptypes.Row{
+		{Task: apptypes.Task{ID: "P", Title: "Plan the garden", Status: apptypes.StatusPending}, HasChildren: true, Depth: 0},
+		{Task: apptypes.Task{ID: "C1", Title: "Prep the beds", Status: apptypes.StatusComplete, ParentID: parentID}, Depth: 1},
+		{Task: apptypes.Task{ID: "C2", Title: "Build the beds", Status: apptypes.StatusComplete, ParentID: parentID}, Depth: 1},
+		{Task: apptypes.Task{ID: "C3", Title: "Water the beds", Status: apptypes.StatusPending, ParentID: parentID}, Depth: 1},
+	}
+	m.activeList = true
+
+	rendered := ansi.Strip(m.ViewInPanel(80, 24, appstyles.Active.BackgroundPanel))
+
+	// Statuses: P pending, C1 complete, C2 complete, C3 pending -> 2 not-complete.
+	if !strings.Contains(rendered, "Pending (2)") {
+		t.Errorf("Pending header must count statuses (2 not-complete of 4 rows), got:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Complete") {
+		t.Errorf("no row's root status is complete, so no Complete section should render, got:\n%s", rendered)
+	}
+	for _, title := range []string{"Plan the garden", "Prep the beds", "Build the beds", "Water the beds"} {
+		if !strings.Contains(rendered, title) {
+			t.Errorf("all four rows must still render inside the Pending section, missing %q:\n%s", title, rendered)
+		}
+	}
+}
