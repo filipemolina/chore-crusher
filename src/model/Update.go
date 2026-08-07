@@ -450,6 +450,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
+	case cmds.DeleteCommentMsg:
+		// The Details modal's d binding emitted this (handleCommentsKey owns
+		// it); route it through the same confirm modal pattern as task and
+		// list delete. The dialog quotes the comment's own text — the same
+		// "name what you're about to destroy" fix the Bugs list's delete-dialog
+		// task applied everywhere else — so d never wipes the wrong comment.
+		if msg.CommentID != "" {
+			commentID, taskID := msg.CommentID, msg.TaskID
+			body := fmt.Sprintf("Delete this comment? This cannot be undone.\n\n%q", msg.Note)
+			m.activeModal = confirmmodal.New("Delete comment", body, func() tea.Msg {
+				if err := m.store.DeleteComment(commentID); err != nil {
+					return nil
+				}
+				return cmds.RefreshDetails(m.store, taskID)()
+			})
+		}
+
 	case cmds.ToggleTaskMsg:
 		if err := m.store.Toggle(msg.TaskID); err != nil {
 			m.lastError = err.Error()

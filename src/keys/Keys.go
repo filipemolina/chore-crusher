@@ -113,6 +113,7 @@ type DetailsKeys struct {
 	CommentNew    key.Binding
 	CommentSubmit key.Binding
 	CopyCommentID key.Binding
+	CommentDelete key.Binding
 }
 
 // OverlayKeys are the keys every modal answers to. Cancel is one binding for
@@ -244,6 +245,10 @@ var Details = DetailsKeys{
 	CommentNew:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "add comment")),
 	CommentSubmit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "post comment")),
 	CopyCommentID: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy comment id")),
+	// d deletes the highlighted comment, routed through the same confirmmodal
+	// pattern as every other destructive action (docs/DESIGN.md §9) — the same
+	// key Tree.Delete uses, unused elsewhere in the comments zone.
+	CommentDelete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete comment")),
 }
 
 var Overlay = OverlayKeys{
@@ -303,6 +308,7 @@ func Active(ctx Context) []key.Binding {
 			Details.Save, Details.NextField, Details.CycleMode,
 			Details.CycleModeBack, Overlay.Cancel, Details.CopyTaskID,
 			Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID,
+			Details.CommentDelete,
 		}
 	}
 
@@ -434,7 +440,7 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Details",
-			Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID),
+			Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID, Details.CommentDelete),
 		},
 		{
 			Title:   "Overlays",

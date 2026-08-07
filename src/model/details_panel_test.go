@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/constants"
@@ -162,6 +163,67 @@ func TestDetailsSaveRefreshesAndCloses(t *testing.T) {
 	}
 	if !strings.Contains(got.Notes, "Z") {
 		t.Fatalf("save did not persist: notes = %q", got.Notes)
+	}
+}
+
+// TestCommentDeleteConfirmQuotesTheComment pins that pressing d on the
+// highlighted comment opens a confirm dialog naming what it is about to
+// destroy — the same "delete dialog must name its target" fix the Bugs
+// list's "Panel focus is imperceptible, and no delete dialog names its
+// target" task applied to task and list delete, now applied here too.
+func TestCommentDeleteConfirmQuotesTheComment(t *testing.T) {
+	m, taskID := openDetails(t, 120, 40)
+
+	if _, err := m.store.AddComment(taskID, "human", "a very particular comment"); err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	m = refresh(t, m, cmds.RefreshDetails(m.store, taskID)())
+
+	// Tab from Title into Notes, Progress, then Comments.
+	for i := 0; i < 3; i++ {
+		m = stepKey(t, m, tea.KeyPressMsg{Text: "tab"})
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "d", Code: 'd'})
+
+	if m.activeModal == nil {
+		t.Fatal("d on a selected comment should open a confirm modal")
+	}
+	body := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(body, "a very particular comment") {
+		t.Errorf("confirm dialog does not quote the comment text: %q", body)
+	}
+}
+
+// TestCommentDeleteConfirmRemovesComment pins the confirm path end to end:
+// answering yes deletes the comment and closes the modal, leaving Details
+// open on the same task (unlike task delete, which closes Details too).
+func TestCommentDeleteConfirmRemovesComment(t *testing.T) {
+	m, taskID := openDetails(t, 120, 40)
+
+	cid, err := m.store.AddComment(taskID, "human", "delete me")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	m = refresh(t, m, cmds.RefreshDetails(m.store, taskID)())
+	for i := 0; i < 3; i++ {
+		m = stepKey(t, m, tea.KeyPressMsg{Text: "tab"})
+	}
+	m = refresh(t, m, tea.KeyPressMsg{Text: "d", Code: 'd'})
+	if m.activeModal == nil {
+		t.Fatal("precondition: d should have opened a confirm modal")
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "y", Code: 'y'})
+
+	if m.activeModal != nil {
+		t.Error("confirm modal should close after y")
+	}
+	if !m.detailsPanelVisible {
+		t.Error("Details modal should stay open after deleting a comment")
+	}
+	if _, err := m.store.GetComment(cid); err == nil {
+		t.Error("comment should be deleted from the store")
 	}
 }
 

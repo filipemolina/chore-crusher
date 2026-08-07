@@ -471,6 +471,12 @@ func (m *Model) handleCommentsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		id := m.comments[m.selectedComment].ID
 		m.flash = fmt.Sprintf("copied comment id %s", id)
 		return m, tea.SetClipboard(id)
+	case "d", "D":
+		if len(m.comments) == 0 {
+			return m, nil
+		}
+		c := m.comments[m.selectedComment]
+		return m, cmds.DeleteComment(m.taskID, c.ID, c.Note)
 	}
 	return m, nil
 }

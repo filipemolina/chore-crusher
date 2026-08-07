@@ -547,6 +547,7 @@ func (m *Model) zoneHints() []chrome.KeyHint {
 			chrome.HintFor(keys.Details.CommentNew),
 			chrome.HintFor(keys.Overlay.Navigation),
 			chrome.HintFor(keys.Details.CopyCommentID),
+			chrome.HintFor(keys.Details.CommentDelete),
 			chrome.HintFor(keys.Details.CopyTaskID),
 		}
 	default: // focusTitle, focusNotes

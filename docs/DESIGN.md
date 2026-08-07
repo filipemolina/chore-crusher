@@ -354,9 +354,12 @@ MCP vocabulary (§9); in `percentage` mode **digits** type the value directly an
 error instead of clamping — the user can see what they typed, unlike a held
 arrow key), and both affordances are advertised in the modal's hint line only
 while that mode is selected, since neither does anything in the other two;
-**`↑`/`↓`** move the comment highlight and **`y`** copies the highlighted
-comment's id to the system clipboard while the comment thread is focused;
-**`ctrl+y`** copies the open task's id from any zone (a TUI has no reliable text
+**`↑`/`↓`** move the comment highlight, **`y`** copies the highlighted
+comment's id to the system clipboard, and **`d`** deletes it — routed through
+the same confirm modal every other destructive action uses (§9), with the
+dialog quoting the comment's own text so the highlight can never be
+mistaken — while the comment thread is focused; **`ctrl+y`** copies the open
+task's id from any zone (a TUI has no reliable text
 selection under mouse reporting, so the id is shown below the title and a key is
 the real copy affordance); `esc` closes a clean modal immediately, and on a dirty
 one shows the inline `Discard changes? (y/n)` prompt — `y` closes and discards,

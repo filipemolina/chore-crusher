@@ -68,6 +68,7 @@ func TestEveryDetailsBindingIsAdvertisedInSomeZone(t *testing.T) {
 		{"CommentNew", keys.Details.CommentNew},
 		{"CommentSubmit", keys.Details.CommentSubmit},
 		{"CopyCommentID", keys.Details.CopyCommentID},
+		{"CommentDelete", keys.Details.CommentDelete},
 	}
 	for _, d := range declared {
 		want := chrome.HintFor(d.binding)
@@ -98,6 +99,7 @@ func TestModalHintWordingComesFromTheBindings(t *testing.T) {
 		keys.Details.DiscardPrompt,
 		keys.Details.CopyTaskID, keys.Details.CommentNew,
 		keys.Details.CommentSubmit, keys.Details.CopyCommentID,
+		keys.Details.CommentDelete,
 		keys.Overlay.Cancel, keys.Overlay.Navigation, keys.Overlay.Submit,
 	} {
 		known[chrome.HintFor(b)] = true
@@ -147,6 +149,35 @@ func TestCommentKeyAdvertisedOnlyWhereItWorks(t *testing.T) {
 	}
 }
 
+// d deletes the highlighted comment only from the comments zone —
+// handleCommentsKey owns it — so no other zone may advertise it, the same
+// contract TestCommentKeyAdvertisedOnlyWhereItWorks pins for c.
+func TestCommentDeleteKeyAdvertisedOnlyWhereItWorks(t *testing.T) {
+	m, _, _ := loaded(t, "")
+	deleteComment := chrome.HintFor(keys.Details.CommentDelete)
+
+	for _, tc := range []struct {
+		zone int
+		want bool
+	}{
+		{focusTitle, false},
+		{focusNotes, false},
+		{focusProgress, false},
+		{focusComments, true},
+	} {
+		m = zoneFor(t, m, tc.zone)
+		got := false
+		for _, h := range m.zoneHints() {
+			if h == deleteComment {
+				got = true
+			}
+		}
+		if got != tc.want {
+			t.Errorf("zone %d advertises d=%v, want %v", tc.zone, got, tc.want)
+		}
+	}
+}
+
 // The rendered footer actually carries the zone's hints (guards against
 // zoneHints being correct while renderFooter drops them).
 func TestRenderedFooterShowsTheZoneHints(t *testing.T) {
@@ -154,7 +185,7 @@ func TestRenderedFooterShowsTheZoneHints(t *testing.T) {
 	m = zoneFor(t, m, focusComments)
 
 	footer := ansi.Strip(m.renderFooter())
-	for _, want := range []string{"add comment", "copy task id", "next field", "cancel"} {
+	for _, want := range []string{"add comment", "copy task id", "next field", "cancel", "delete comment"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("comments-zone footer missing %q, got: %q", want, footer)
 		}
