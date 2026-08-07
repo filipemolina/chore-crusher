@@ -269,6 +269,23 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// auto-shows its input again.
 			m.activeListID = msg.ListID
 			m.createSuppressed = false
+			// A list switch also closes any inline create input left open
+			// from the previous list — e.g. the auto-open on an empty list
+			// carrying over — and drops its draft. Clearing happens before
+			// applyRows below re-evaluates the empty-list auto-open, so an
+			// empty destination list still gets its input back; a non-empty
+			// one does not inherit a stale input anchored to a task id that
+			// belongs to the list just left (bug: create-mode persists when
+			// you switch to another list, which also explains the reported
+			// viewport pinned near the bottom — clampScroll follows the
+			// stale create row's position, not the new list's top).
+			if m.creating {
+				m.creating = false
+				m.createBeforeID = ""
+				m.createLevelOffset = 0
+				m.createInput.Blur()
+				m.createInput.Reset()
+			}
 		}
 		m.activeList = msg.ListID != ""
 		m.applyRows(msg.Rows)

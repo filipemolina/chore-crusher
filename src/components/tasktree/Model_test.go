@@ -560,6 +560,44 @@ func TestCreateSuppressedClearsOnListChange(t *testing.T) {
 	}
 }
 
+// TestCreateModeClosesOnListSwitch pins the fix for "create-mode persists
+// when you switch to another list": an empty list's auto-opened input must
+// not survive a switch to a different, non-empty list. Left open, arrow
+// keys after the switch would type into the stale input instead of
+// navigating, and the viewport would stay anchored to wherever that stale
+// input's (now-nonexistent) anchor task rendered — which for a long list is
+// pinned near the bottom rather than the new list's top.
+func TestCreateModeClosesOnListSwitch(t *testing.T) {
+	m := driveTree(t, nil, 12, 40) // "L" starts empty; auto-opens the input.
+	if !m.IsCreating() {
+		t.Fatal("setup: an empty list must auto-open the create input")
+	}
+
+	rows := nPending(30)
+	u, _ := m.Update(cmds.RefreshTasksMsg{ListID: "Backlog", Rows: rows})
+	m = u.(Model)
+	if m.IsCreating() {
+		t.Fatal("switching to a non-empty list must close the create input left open from the empty one")
+	}
+
+	// Arrow keys must now navigate the new list, not type into a stale input.
+	before := m.SelectedID()
+	m = pressKey(m, "", tea.KeyDown)
+	if m.SelectedID() == before {
+		t.Errorf("down arrow after the switch did not move the selection (still %q); arrows are typing into a stale input", before)
+	}
+
+	// The viewport starts at the top of the new list, not pinned near the
+	// bottom by the old (now-cleared) create row's position.
+	if m.scrollOffset != 0 {
+		t.Errorf("scrollOffset = %d after switching to a fresh list, want 0 (top)", m.scrollOffset)
+	}
+	body := ansi.Strip(treeBody(m))
+	if !strings.Contains(body, "Pending-00") {
+		t.Errorf("new list's first row not visible; viewport did not reset to top:\n%s", body)
+	}
+}
+
 // TestNewKeyStartsCreatingOnEmptyTree verifies n starts creating when the
 // tree has no rows and is not already creating: esc can leave the surface
 // bare, and n is the way back in.
