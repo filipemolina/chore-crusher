@@ -92,6 +92,7 @@ type CreateKeys struct {
 // renaming, deleting.
 type ListsPanelKeys struct {
 	Navigate key.Binding
+	Select   key.Binding
 	New      key.Binding
 	Rename   key.Binding
 	Delete   key.Binding
@@ -168,9 +169,14 @@ var Create = CreateKeys{
 
 var Lists = ListsPanelKeys{
 	Navigate: key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "navigate")),
-	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
-	Rename:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
-	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	// Select commits the highlighted list and closes the panel — the Lists
+	// panel is a transient picker (docs/DESIGN.md §5). While a filter is being
+	// typed, enter belongs to it instead (list.KeyMap's AcceptWhileFiltering);
+	// AppModel's case for Select is guarded so it never steals that keystroke.
+	Select: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
+	New:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
+	Rename: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
+	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 }
 
 // ListKeyMap is the keymap the lists panel installs on its inner bubbles
@@ -328,7 +334,7 @@ func Active(ctx Context) []key.Binding {
 	case constants.COMPONENT_LISTS_PANEL:
 		if ctx.ListsPanelVisible {
 			return []key.Binding{
-				Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete,
+				Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete,
 				Global.NextPanel, Global.Quit,
 			}
 		}
@@ -435,8 +441,8 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Lists",
-			Entries: entries(Lists.Navigate, Lists.New, Lists.Rename, Lists.Delete),
-			Note:    "L shows the lists panel and moves focus into it; tab moves focus back.",
+			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete),
+			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively.",
 		},
 		{
 			Title:   "Details",

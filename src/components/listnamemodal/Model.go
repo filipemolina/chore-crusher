@@ -69,20 +69,24 @@ func (m Model) createFollowCmd(name string) tea.Cmd {
 		}
 
 		if m.mode == ModeNew {
-			_, err := m.store.CreateList(name, "")
+			id, err := m.store.CreateList(name, "")
 			if err != nil {
 				// TODO: surface error to user
 				return nil
 			}
-		} else {
-			err := m.store.RenameList(m.listID, name)
-			if err != nil {
-				// TODO: surface error to user
-				return nil
-			}
+			// A new list is the one worth landing on: AppModel selects it,
+			// refreshes, and closes the transient Lists picker (docs/DESIGN.md
+			// §5) — the plain RefreshLists a rename uses below has no way to
+			// say "land here specifically".
+			return cmds.ListCreatedMsg{ID: id}
+		}
+		err := m.store.RenameList(m.listID, name)
+		if err != nil {
+			// TODO: surface error to user
+			return nil
 		}
 
-		// Refresh lists after creating/renaming
+		// Refresh lists after renaming
 		return cmds.RefreshLists(m.store)()
 	}
 }

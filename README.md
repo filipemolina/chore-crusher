@@ -65,12 +65,15 @@ model, and the CLI/agent contract Tasks has no reason to have.
 
 ## What it does (planned)
 
-**Two panels.** The lists panel starts hidden — `L` toggles it — because most
-sessions live inside one list, and list management (`n` new, `d` delete, `R`
-rename) is enabled only while that panel is visible and focused, so those
-letters are free for task-level use everywhere else. The main panel holds two
-sections, **Pending** and **Complete**, and a text input fixed to the bottom
-for adding tasks.
+**Two panels.** The lists panel starts hidden on a narrow terminal and shown
+on a wide one (120+ columns) — `L` toggles it from either starting point, and
+so does picking a list with `enter` or backing out with `esc`, both of which
+close the panel and hand focus to the tasks panel. Once toggled, the panel
+stays however you left it; a resize never reopens or recloses it on its own.
+List management (`n` new, `d` delete, `R` rename) is enabled only while that
+panel is visible and focused, so those letters are free for task-level use
+everywhere else. The main panel holds two sections, **Pending** and
+**Complete**, and a text input fixed to the bottom for adding tasks.
 
 **Nested tasks, added inline.** Type a title and hit `enter` to add it as a
 sibling of whatever is selected. `]` before you hit enter adds it as a

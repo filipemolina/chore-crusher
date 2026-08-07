@@ -91,13 +91,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, keys.Global.Back):
-			// Esc ladder (docs/DESIGN.md §5): a modal closes itself first —
-			// it intercepts all keypresses at the top of Update, so by
-			// the time we reach here no modal is open. Next, a focused child
-			// that declared KeepsEsc (tree with applied filter or inline
-			// create; lists panel with active filter) claims esc for itself.
-			// Do not consume it here — let the component's own Update handle
-			// it. When no child claims it, esc is a no-op.
+			// Esc ladder (docs/DESIGN.md §5, "esc is the most overloaded key"):
+			// a modal closes itself first — it intercepts all keypresses at the
+			// top of Update, so by the time we reach here no modal is open.
+			// Next, a focused child that declared KeepsEsc (tree with applied
+			// filter or inline create; lists panel with active filter) claims
+			// esc for itself. Do not consume it here — let the component's own
+			// Update handle it. When no child claims it, the Lists panel (if
+			// that is what's focused) closes as esc's cancel of the transient
+			// picker, the same "commit or cancel closes it" contract enter's
+			// Lists.Select case commits. Anything else is a no-op.
 			claimed := false
 			switch m.focusedZone {
 			case constants.COMPONENT_TASK_TREE:
@@ -110,6 +113,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if !claimed {
+				if m.focusedZone == constants.COMPONENT_LISTS_PANEL && m.listsPanelVisible {
+					finalCmds = append(finalCmds, m.closeListsPanel())
+					break
+				}
 				return m, nil
 			}
 
@@ -179,6 +186,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					finalCmds = append(finalCmds, m.ChangeFocus(1))
 				}
 			}
+
+		// Select commits the highlighted list: the cursor already live-switched
+		// the Tasks panel to it (docs/DESIGN.md §5), so there is nothing to
+		// write — just close the transient picker and hand focus to Tasks.
+		// Guarded on !keyboardOwned() so a filter being typed keeps enter for
+		// itself (list.KeyMap's AcceptWhileFiltering) rather than this case
+		// stealing it — the raw keypress still reaches the list unconsumed via
+		// the component fan-out below.
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.Select):
+			finalCmds = append(finalCmds, m.closeListsPanel())
 
 		// List CRUD keys: only active when lists panel is visible and focused.
 		// Both rename and delete act on the panel's highlighted list, not on
@@ -501,6 +518,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeListID = msg.ListID
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
+
+	case cmds.ListCreatedMsg:
+		// listnamemodal's ModeNew follow: land on the new list and close the
+		// transient picker, in that order (docs/DESIGN.md §5) — closing first
+		// would leave Tasks showing the previous list while the brand-new one
+		// silently became active underneath it. activeListID is set here,
+		// synchronously, before RefreshLists is even scheduled, so whichever
+		// order the batched refresh commands actually complete in, the lists
+		// refresh's "is the active list still present" check already agrees
+		// with this one.
+		if msg.ID != "" {
+			m.activeListID = msg.ID
+			finalCmds = append(finalCmds,
+				cmds.RefreshLists(m.store),
+				cmds.RefreshTasks(m.store, msg.ID),
+				m.closeListsPanel(),
+			)
+		}
 	}
 
 	// Forward the message to every component. TaskPanel forwards to the tree
@@ -631,6 +666,19 @@ func (m *AppModel) ChangeFocus(delta int) tea.Cmd {
 	next := (cur + delta + len(zones)) % len(zones)
 	m.focusedZone = zones[next]
 	return cmds.SetFocus(m.focusedZone)
+}
+
+// closeListsPanel hides the Lists panel and returns focus to the task tree —
+// the shared "commit and close" path every exit from the transient picker
+// reuses (enter selecting a list, esc cancelling, landing in a newly created
+// list), so the three don't each grow a slightly different idea of "close"
+// (docs/DESIGN.md §5). It never writes to the store: the highlighted list is
+// already the active one by the time any of these fire.
+func (m *AppModel) closeListsPanel() tea.Cmd {
+	m.listsPanelVisible = false
+	m.bodyLayout = m.calculateBodyLayout()
+	focusCmd := m.ChangeFocus(1)
+	return tea.Batch(m.broadcastBodyLayout(), m.footerContextCmd(), focusCmd)
 }
 
 // broadcastBodyLayout returns a command that sends the current body layout

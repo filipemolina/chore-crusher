@@ -237,7 +237,16 @@ has a sidebar that can be entirely absent from the cycle:
   Lists auto-shows at `AUTO_SHOW_LISTS_MIN_WIDTH` (120 columns) or wider and
   starts hidden below it — spending your time in one list is still the premise,
   but a wide terminal has room for both. That seeding happens once; afterward
-  `L` is the sole authority and a resize never reverses a toggle. When the
+  `L` is the sole authority and a resize never reverses a toggle — but `L` is
+  not the only way to flip `listsPanelVisible` off. The Lists panel is a
+  transient picker: committing a list with **`enter`** and cancelling with
+  **`esc`** (see the esc precedence order below) both close it and move focus
+  to Tasks exactly as `L` would, through the same `closeListsPanel` path
+  (`src/model/Update.go`) — so a `enter`/`esc` close is indistinguishable from
+  an `L` close afterward, including staying closed across a later resize.
+  Selecting a list moves the highlight live as the cursor moves (no store
+  write), so `enter`/`esc` never need to change *which* list is active —
+  only whether the panel is in the way. When the
   terminal is too narrow for any sidebar (`MIN_PANEL_WIDTH + BODY_GUTTER_WIDTH`)
   Lists yields its width without changing the preference and focus falls back
   to Tasks; it reappears on a later resize if the preference is still on.
@@ -492,20 +501,36 @@ those pieces wrap at some widths and not others.
 editable input (first in the tab cycle), saved with `ctrl+s` through
 `store.RenameTask` — see the Details modal keys above.
 
-`esc` follows the "ladder of claims" stack-stitcher documents: a modal
-(theme picker, confirm, list-name) closes itself first — it intercepts
-all keypresses at the top of `Update`, so by the time esc reaches AppModel's
-own handler no modal is open. Next, while the **Details** modal is visible it
-owns every keypress (it is tracked separately from `activeModal` — for its
-poll-refresh-while-open — so it sits just after the modal check): its own handler
-takes `esc` — closing a clean modal, or opening the discard prompt on a dirty
-one — before AppModel's normal Back case runs.
-Then the focused panel claims esc if it declared `KeepsEsc`: the tree while
-typing in or applying a `/` filter, or inline-creating (§8); the lists panel
-while its filter is open or applied. After that, a no-op. The ladder is one
-switch case (`keys.Global.Back`) that checks `KeepsEsc` on the focused
-component. Keep this ladder tested against its claims in order — checking
-claims in the wrong order silently breaks whichever claim got skipped.
+**`esc` is the most overloaded key in the app** — six jobs (cancel an inline
+create, clear the task-tree filter, clear the lists-panel filter, close a
+modal, discard a dirty Details edit, close the Lists panel) resolved through
+a strict "ladder of claims" (the term stack-stitcher's docs use for the same
+pattern). It is one switch case (`keys.Global.Back`), checked in this order —
+the order is the contract; checking it out of sequence silently breaks
+whichever claim got skipped:
+
+1. **A modal** (theme picker, confirm, list-name) closes itself first — modals
+   intercept every keypress at the top of `Update`, so by the time esc
+   reaches AppModel's own handling, no modal is open.
+2. **The Details modal**, while visible, owns every keypress ahead of
+   AppModel's normal Back case (it is tracked outside `activeModal`, for its
+   poll-refresh-while-open behavior, so it sits just after the modal check).
+   Its own handler takes esc: closing a clean modal, or raising the inline
+   "Discard changes? (y/n)" prompt on a dirty one — once that prompt is up,
+   only `y`/`n` resolve it (see the Details modal keys above).
+3. **The focused panel's own `KeepsEsc` claim**: the task tree while typing
+   or applying a `/` filter, or while inline-creating a task (§8); the lists
+   panel while its own filter is open or applied — clearing the filter, not
+   closing the panel. A user who just filtered the list must not lose the
+   whole panel to their very next esc.
+4. **Closing the Lists panel**, when it is focused and visible and did not
+   already claim esc at step 3: `listsPanelVisible` goes false and focus
+   returns to Tasks, through the same `closeListsPanel` path `enter` uses to
+   commit a selection (§5 above) — the panel is a transient picker, and esc
+   is its cancel. This must stay below step 3, or a filtered lists panel
+   would close instead of clearing its query — the worse-bug-than-the-fix
+   failure mode this ordering exists to prevent.
+5. Otherwise, a no-op.
 
 ## 6. The main panel: Pending and Complete
 
