@@ -20,18 +20,16 @@ In this order:
    something in here, either the change is wrong or the document needs to be
    updated *first*, as its own commit, with the reasoning for the change
    written into it.
-2. [`docs/ROADMAP.md`](docs/ROADMAP.md) — which phase you're in, what it
-   depends on, and the decisions already taken that your phase should not
-   re-litigate.
-3. The specific file in [`docs/plans/`](docs/plans/) for your phase — the
-   step-by-step "how."
-4. **For UI components:** [`docs/UI_INSTRUCTIONS.md`](docs/UI_INSTRUCTIONS.md) —
+2. [`docs/ROADMAP.md`](docs/ROADMAP.md) — what has shipped and what it found,
+   what is still ahead, and the decisions already taken that a change should
+   not re-litigate.
+3. **For UI components:** [`docs/UI_INSTRUCTIONS.md`](docs/UI_INSTRUCTIONS.md) —
    the hardened checklist for visual coherence. Before marking a component
    complete, run through the six rules and the verification script
    (`scripts/verify-ui-component.sh <component-path>`). This is not optional
    polish; it's the mechanical check that keeps all components looking like
    one app rather than a collection of bespoke pieces.
-5. [stack-stitcher's `docs/DESIGN.md`](https://github.com/filipemolina/stack-stitcher/blob/main/docs/DESIGN.md)
+4. [stack-stitcher's `docs/DESIGN.md`](https://github.com/filipemolina/stack-stitcher/blob/main/docs/DESIGN.md)
    and [its `CONTRIBUTING.md`](https://github.com/filipemolina/stack-stitcher/blob/main/CONTRIBUTING.md) —
    this project's architecture is deliberately copied from that one (theming,
    the single-keymap-package discipline, request/response commands, panel
@@ -61,7 +59,7 @@ rules rather than left implicit:
   component that builds its own padding or picks its own color instead of
   going through `chrome` is the single most common way two phases built
   months apart stop looking like one app.
-- **Do not add a dependency not named in `docs/DESIGN.md` or a phase plan.**
+- **Do not add a dependency not named in `docs/DESIGN.md`.**
   The stack is Bubble Tea v2 / Lip Gloss v2 / Bubbles v2, Cobra, and
   `modernc.org/sqlite`. If a task seems to need something else (a YAML
   library, a different fuzzy-match package, a TUI table widget), that is a
@@ -92,12 +90,13 @@ rules rather than left implicit:
 - **Do not resolve an ambiguous id by guessing.** `store.ResolveID` returns
   an error on an ambiguous prefix match; no caller should catch that error
   and silently pick the first result.
-- **When a plan file and `docs/DESIGN.md` disagree, `docs/DESIGN.md` wins**,
-  and the plan file is out of date and should be corrected in the same PR.
-  The reverse should never happen silently — if implementing a plan reveals
-  that `docs/DESIGN.md` itself is wrong or underspecified, fix
-  `docs/DESIGN.md` and explain why in the commit message, rather than
-  quietly implementing something else and letting the two drift.
+- **When anything disagrees with `docs/DESIGN.md`, `docs/DESIGN.md` wins** —
+  an issue, a review comment, a task description, your own working notes.
+  Those are all narrower than the contract and routinely out of date against
+  it. The reverse should never happen silently: if the work reveals that
+  `docs/DESIGN.md` itself is wrong or underspecified, fix `docs/DESIGN.md`
+  and explain why in the commit message, rather than quietly implementing
+  something else and letting the two drift.
 
 ## Known hallucination traps in this stack
 
@@ -215,9 +214,8 @@ stop and read the guide, not to add the dependency.
 
 Lower risk — the API most training data agrees on here is also the current
 one. The one place worth double-checking is the flag-grouping helpers this
-project's CLI spec relies on
-(`docs/plans/phase-2-cli.md` step 5: `MarkFlagsMutuallyExclusive`,
-`MarkFlagsRequiredTogether`) — both take a variadic list of flag *names*
+project's CLI spec relies on — `MarkFlagsMutuallyExclusive` and
+`MarkFlagsRequiredTogether`. Both take a variadic list of flag *names*
 (strings), not a single name or the flag objects themselves. Run `go doc
 github.com/spf13/cobra.Command.MarkFlagsMutuallyExclusive` if a call site
 doesn't compile, rather than guessing at the signature a second time from
@@ -234,12 +232,13 @@ before it becomes ten more lines built on top of it:
   describe, and it's faster than writing code and finding out from a compile
   error.
 - **Before assuming a helper doesn't exist in this repo and writing your own,
-  `grep -rn` for it first.** `docs/DESIGN.md` and the phase plans repeatedly
-  point at shared functions (the tree-flattening logic mentioned in both
-  `docs/plans/phase-2-cli.md` and `docs/plans/phase-4-task-tree.md`, the three
-  `store` mutators in `docs/DESIGN.md` §3) that a *later* phase's author
-  needs to find, not reinvent — and a plan file can tell you such a thing
-  should exist without knowing the exact name an earlier phase gave it.
+  `grep -rn` for it first.** `docs/DESIGN.md` repeatedly names behavior that
+  one shared function already provides for every surface — the tree flattening
+  in `src/apptypes/flatten.go` that the CLI and the task tree both render
+  from, the three `store` mutators in `docs/DESIGN.md` §3 — and it describes
+  them by what they do, not by the name they ended up with. A second
+  implementation of one of these is the most common way the surfaces drift
+  apart.
 - **Work in the smallest increment you can verify, and verify it before
   writing the next one.** Write one function (or one tight group of related
   ones), then run `go build ./... && go vet ./...` immediately — `go test
@@ -251,24 +250,26 @@ before it becomes ten more lines built on top of it:
 - **For a function whose correctness is a matter of exact rules rather than
   judgment** — `docs/DESIGN.md` §3's state machine, §4's level-offset table —
   **write the test from the rule's own worked examples before or alongside
-  the implementation.** Several phase plans hand you the table already
-  (`docs/plans/phase-1-storage.md`'s required-coverage list,
-  `docs/plans/phase-5-add-input.md` step 2's `nextOffset` table); treat a
-  passing suite as the definition of "implemented," not a read-through of
-  the code that looks right.
-- **When a plan file and the repository disagree — it references a function
-  that doesn't exist, or a file that was never created — stop and reconcile
-  before working around it.** Check `docs/ROADMAP.md` for whether an earlier
-  phase was skipped. If the plan itself is simply wrong, fix the plan file in
-  the same change; don't invent an undocumented workaround that the next
-  reader has no way to discover.
+  the implementation.** Those sections state their rules as tables, which
+  transcribe directly into a table-driven test; treat a passing suite as the
+  definition of "implemented," not a read-through of the code that looks
+  right.
+- **When `docs/DESIGN.md` and the repository disagree, the code is the bug.**
+  DESIGN is the contract, not a description of what happens to be there — if
+  it names a field, a surface or a rule the code does not have, the fix is to
+  make the code match, not to quietly narrow the contract. If DESIGN is
+  genuinely wrong, change it in the same commit, with the reasoning written
+  in; don't invent an undocumented workaround the next reader has no way to
+  discover.
 - **Prefer a pure function with a table-driven test over a stateful method
   with none, whenever they're equivalent.** A table of (input → expected
   output) can be checked mechanically, row by row; a stateful `Update`
   handler's correctness has to be reasoned about from a diff.
-  `docs/plans/phase-5-add-input.md`'s `nextOffset` function is the template —
-  follow that shape for other small, rule-heavy pieces of logic as they come
-  up (row-flattening's depth/collapse bookkeeping is another candidate).
+  `computeTaskRowCols` in `src/components/tasktree/View.go` is the template —
+  the whole column drop order is a pure function over widths, and
+  `TestComputeTaskRowColsDropOrder` checks it row by row. Follow that shape
+  for other small, rule-heavy pieces of logic as they come up (row-flattening's
+  depth/collapse bookkeeping is another candidate).
 
 ## Glossary
 
@@ -312,13 +313,10 @@ src/
 └── constants/        # layout widths, focusable-zone ids, branding
 docs/
 ├── DESIGN.md         # why — the specification
-├── ROADMAP.md        # order — which phase, what it depends on
-└── plans/            # how — one file per phase
+└── ROADMAP.md        # order — what shipped, what it found, what is ahead
 ```
 
 ## The loop
-
-Once phase 0 has landed (`docs/plans/phase-0-scaffolding.md`):
 
 ```bash
 make dev            # go run . (launches the TUI against a scratch database)
@@ -367,7 +365,6 @@ should stay rare, because it's timing-based.
 
 ## Releases
 
-Maintainer-only. Once phase 0's GoReleaser config is in place, pushing a `v*`
-tag builds and drafts a release the same way stack-stitcher's does — see
-`docs/plans/phase-0-scaffolding.md` for the exact config, carried over with
+Maintainer-only. Pushing a `v*` tag builds and drafts a release the same way
+stack-stitcher's does — `.goreleaser.yaml` is that config, carried over with
 the binary name changed from `stitch` to `crush`.
