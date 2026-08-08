@@ -501,20 +501,106 @@ func TestClaimedTaskListIDsExcludesStale(t *testing.T) {
 	}
 }
 
-// TestReleaseAllClaimsClearsAllClaims verifies the session-end cleanup
-// (hardening plan H13): when the MCP process shuts down, every claim—regardless
-// of agent or staleness—is deleted so the TUI does not show lingering spinners
-// for a disconnected agent.
-func TestReleaseAllClaimsClearsAllClaims(t *testing.T) {
+// TestReleaseAgentClaimsLeavesOtherAgentsAlone verifies that releasing claims
+// for one agent leaves other agents' claims intact, and returns the count of
+// claims released for the target agent.
+func TestReleaseAgentClaimsLeavesOtherAgentsAlone(t *testing.T) {
+	s := newActivityStore(t)
+	lid1 := mustList(t, s, "list1")
+	lid2 := mustList(t, s, "list2")
+	tid1 := mustTask(t, s, lid1, "task1", nil)
+	tid2 := mustTask(t, s, lid2, "task2", nil)
+
+	// Agent a1 claims a task and a list
+	if _, err := s.ClaimWork("task", tid1, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	if _, err := s.ClaimWork("list", lid1, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	// Agent a2 claims a task and a list
+	if _, err := s.ClaimWork("task", tid2, "a2", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	if _, err := s.ClaimWork("list", lid2, "a2", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+
+	// Release a1's claims
+	n, err := s.ReleaseAgentClaims("a1")
+	if err != nil {
+		t.Fatalf("ReleaseAgentClaims: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 deleted rows for agent a1, got %d", n)
+	}
+
+	// a2's claims should still exist
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 2 {
+		t.Fatalf("expected 2 active claims (agent a2's), got %d", len(work))
+	}
+	for _, w := range work {
+		if w.AgentID != "a2" {
+			t.Fatalf("expected agent a2's claims, got %v", work)
+		}
+	}
+
+	// Calling on an agent with no claims is a no-op, not an error.
+	if n2, err := s.ReleaseAgentClaims("a1"); err != nil || n2 != 0 {
+		t.Fatalf("empty ReleaseAgentClaims = (%d, %v), want (0, nil)", n2, err)
+	}
+}
+
+// TestReleaseAgentClaimsRejectsEmptyAgent verifies that an empty agentID
+// returns an error and deletes nothing.
+func TestReleaseAgentClaimsRejectsEmptyAgent(t *testing.T) {
 	s := newActivityStore(t)
 	lid := mustList(t, s, "list")
 	tid := mustTask(t, s, lid, "task", nil)
 
-	// Two claims: one fresh, one stale, from different agents.
+	// Create a claim so we can verify nothing gets deleted
 	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
 		t.Fatalf("ClaimWork: %v", err)
 	}
-	if _, err := s.ClaimWork("list", lid, "a2", ActivityWorking); err != nil {
+
+	n, err := s.ReleaseAgentClaims("")
+	if err == nil {
+		t.Fatalf("ReleaseAgentClaims with empty agentID expected error, got (%d, nil)", n)
+	}
+	if n != 0 {
+		t.Fatalf("ReleaseAgentClaims with empty agentID should delete 0 rows, got %d", n)
+	}
+
+	// Original claim should still exist
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 1 || work[0].AgentID != "a1" {
+		t.Fatalf("expected original claim to still exist, got %v", work)
+	}
+}
+
+// TestReleaseAgentClaimsClearsOwnClaims verifies the session-end cleanup
+// (hardening plan H13): when the MCP process shuts down, the agent's own claims—regardless
+// of staleness—are deleted so the TUI does not show lingering spinners
+// for that agent, while other agents' claims remain.
+// Retargeted: a released agent's claims go regardless of staleness
+// (unlike PruneStaleWork).
+func TestReleaseAgentClaimsClearsOwnClaims(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid := mustTask(t, s, lid, "task", nil)
+
+	// Two claims: one fresh, one stale, from the same agent.
+	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	if _, err := s.ClaimWork("list", lid, "a1", ActivityWorking); err != nil {
 		t.Fatalf("ClaimWork: %v", err)
 	}
 	// Force one row stale so PruneStaleWork would normally skip it.
@@ -526,9 +612,9 @@ func TestReleaseAllClaimsClearsAllClaims(t *testing.T) {
 		t.Fatalf("age claim: %v", err)
 	}
 
-	n, err := s.ReleaseAllClaims()
+	n, err := s.ReleaseAgentClaims("a1")
 	if err != nil {
-		t.Fatalf("ReleaseAllClaims: %v", err)
+		t.Fatalf("ReleaseAgentClaims: %v", err)
 	}
 	if n != 2 {
 		t.Fatalf("expected 2 deleted rows, got %d", n)
@@ -542,8 +628,8 @@ func TestReleaseAllClaimsClearsAllClaims(t *testing.T) {
 		t.Fatalf("expected 0 active claims after release, got %d", len(work))
 	}
 
-	// Calling on an empty table is a no-op, not an error.
-	if n2, err := s.ReleaseAllClaims(); err != nil || n2 != 0 {
-		t.Fatalf("empty ReleaseAllClaims = (%d, %v), want (0, nil)", n2, err)
+	// Calling on an agent with no claims is a no-op, not an error.
+	if n2, err := s.ReleaseAgentClaims("a1"); err != nil || n2 != 0 {
+		t.Fatalf("empty ReleaseAgentClaims = (%d, %v), want (0, nil)", n2, err)
 	}
 }

@@ -239,16 +239,21 @@ func (s *Store) PruneStaleWork(now int64) (int, error) {
 	return int(n), err
 }
 
-// ReleaseAllClaims removes every row from the AgentActivity table. It is
-// called when the MCP server shuts down (the MCP session has ended) so that
-// stale spinners do not linger in the TUI beyond the process's lifetime
-// (docs/plan/mcp-server-enhancement.md §3.1; hardening plan H13). Unlike
-// PruneStaleWork, this does not filter by WorkTTL — it clears all claims
-// unconditionally because the process that made them is going away.
-func (s *Store) ReleaseAllClaims() (int, error) {
-	res, err := s.db.Exec(`DELETE FROM AgentActivity`)
+// ReleaseAgentClaims removes rows from the AgentActivity table for the given agentID.
+// It is called when the MCP server shuts down (the MCP session has ended) so that
+// the exiting agent's own spinners do not linger in the TUI beyond the process's lifetime.
+// Unlike PruneStaleWork, this does not filter by WorkTTL — it clears all of the agent's
+// claims regardless of staleness because the process that made them is going away.
+//
+// Decision 1: scoped by agent_id. Two concurrent sessions running under the same
+// CRUSH_AGENT tag still clear each other's claims on exit.
+func (s *Store) ReleaseAgentClaims(agentID string) (int, error) {
+	if agentID == "" {
+		return 0, fmt.Errorf("release agent claims: agent_id must not be empty")
+	}
+	res, err := s.db.Exec(`DELETE FROM AgentActivity WHERE agent_id = ?`, agentID)
 	if err != nil {
-		return 0, fmt.Errorf("release all claims: %w", err)
+		return 0, fmt.Errorf("release agent claims: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {

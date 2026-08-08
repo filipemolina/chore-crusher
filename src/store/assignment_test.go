@@ -273,7 +273,7 @@ func TestCompleteClearsAssignmentOnPromotedAncestor(t *testing.T) {
 	}
 }
 
-func TestAssignmentSurvivesReleaseAllClaims(t *testing.T) {
+func TestAssignmentSurvivesReleaseAgentClaims(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")
 	id := mustTask(t, s, lid, "task", nil)
@@ -281,19 +281,19 @@ func TestAssignmentSurvivesReleaseAllClaims(t *testing.T) {
 	if err := s.AssignTask(id, "alpha", false); err != nil {
 		t.Fatalf("AssignTask: %v", err)
 	}
-	// A live presence claim next to the assignment, so ReleaseAllClaims has
+	// A live presence claim next to the assignment, so ReleaseAgentClaims has
 	// something real to clear — the assertion is about the assignment
 	// surviving an actual purge, not a no-op one.
 	if _, err := s.ClaimWork("task", id, "alpha", ActivityWorking); err != nil {
 		t.Fatalf("ClaimWork: %v", err)
 	}
 
-	n, err := s.ReleaseAllClaims()
+	n, err := s.ReleaseAgentClaims("alpha")
 	if err != nil {
-		t.Fatalf("ReleaseAllClaims: %v", err)
+		t.Fatalf("ReleaseAgentClaims: %v", err)
 	}
 	if n != 1 {
-		t.Fatalf("ReleaseAllClaims cleared %d claims, want 1", n)
+		t.Fatalf("ReleaseAgentClaims cleared %d claims, want 1", n)
 	}
 
 	got, err := s.GetTask(id)
@@ -301,7 +301,7 @@ func TestAssignmentSurvivesReleaseAllClaims(t *testing.T) {
 		t.Fatalf("GetTask: %v", err)
 	}
 	if got.Assignee != "alpha" {
-		t.Fatalf("assignment lost after ReleaseAllClaims: assignee=%q, want alpha", got.Assignee)
+		t.Fatalf("assignment lost after ReleaseAgentClaims: assignee=%q, want alpha", got.Assignee)
 	}
 }
 

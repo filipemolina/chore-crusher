@@ -2004,14 +2004,14 @@ func TestMCPAddListRejectsBadTag(t *testing.T) {
 }
 
 // TestMCPPendingClaimsClearedOnSessionEnd verifies H13: when the MCP session
-// ends, ReleaseAllClaims (called by Run after server.Run returns) clears every
-// claim so the TUI shows no stale spinners. The test seeds assignment and
-// claims, then calls ReleaseAllClaims on a separate store handle to the same
-// DB (mirroring what Run does after server.Run returns), and confirms the
-// TUI sees an empty work view while the assignment survives - cleanup is
-// presence-only (docs/DESIGN.md §3).
+// ends, ReleaseAgentClaims (called by Run after server.Run returns) clears the
+// agent's own claims so the TUI shows no stale spinners for that agent.
+// The test seeds assignment and claims for two agents, then calls
+// ReleaseAgentClaims for one agent's identity, and confirms the TUI sees
+// only that agent's claims cleared while the other agent's claims remain -
+// cleanup is presence-only (docs/DESIGN.md §3).
 func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
-	session := setupMCP(t)
+	session := setupMCPAs(t, "pi") // Set up as "pi" agent
 
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
@@ -2043,25 +2043,28 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	}
 
 	// Simulate session-end cleanup: open a handle to the same DB (as Run does
-	// via the shared *store.Store) and clear all claims.
+	// via the shared *store.Store) and clear the pi agent's claims.
 	cleanup, err := store.Open(config.DBPath())
 	if err != nil {
 		t.Fatalf("store.Open for cleanup: %v", err)
 	}
 	t.Cleanup(func() { cleanup.Close() })
 
-	n, err := cleanup.ReleaseAllClaims()
+	n, err := cleanup.ReleaseAgentClaims("pi")
 	if err != nil {
-		t.Fatalf("ReleaseAllClaims: %v", err)
+		t.Fatalf("ReleaseAgentClaims: %v", err)
 	}
-	if n != 2 {
-		t.Fatalf("expected 2 claims released, got %d", n)
+	if n != 1 {
+		t.Fatalf("expected 1 claim released for agent pi, got %d", n)
 	}
 
-	// The work view is now empty — the TUI has no spinners to show.
+	// The work view should now show only claude's claim
 	mustUnmarshal(t, workJSON(t, session), &work)
-	if len(work) != 0 {
-		t.Fatalf("expected 0 claims after session-end cleanup, got %d", len(work))
+	if len(work) != 1 {
+		t.Fatalf("expected 1 claim after session-end cleanup (claude's), got %d", len(work))
+	}
+	if work[0].AgentID != "claude" {
+		t.Fatalf("expected claude's claim to remain, got %v", work)
 	}
 
 	// Session-end cleanup clears claims but not assignments: the human can
@@ -2073,6 +2076,139 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &still)
 	if len(still) != 1 || still[0].Assignee == "" {
 		t.Fatalf("assignment must survive session-end cleanup, got %+v", still)
+	}
+}
+
+// TestMCPAgentLivePresenceSurvivesOtherAgentSessionEnd verifies the
+// user-visible symptom from the session-end claim release scoping:
+// when agent A's session ends, agent B's assignee_live remains true
+// for tasks B holds.
+func TestMCPAgentLivePresenceSurvivesOtherAgentSessionEnd(t *testing.T) {
+	// Set up two agents sharing the same data directory
+	dataDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+
+	// Session A: agent "pi"
+	sessionA := sessionAs(t, dataDir, "pi")
+	defer sessionA.Close()
+
+	var listA map[string]string
+	mustUnmarshal(t, callTool(t, sessionA, "add_list", map[string]any{"name": "Work"}), &listA)
+
+	var taskA map[string]string
+	mustUnmarshal(t, callTool(t, sessionA, "add_task", map[string]any{
+		"list_id": listA["id"],
+		"title":   "Write docs",
+	}), &taskA)
+
+	// Agent pi assigns and works on the task
+	callTool(t, sessionA, "assign_task", map[string]any{"ids": []string{taskA["id"]}})
+	callTool(t, sessionA, "set_status", map[string]any{
+		"ids":    []string{taskA["id"]},
+		"status": "in_progress",
+	})
+
+	// Session B: agent "claude"
+	sessionB := sessionAs(t, dataDir, "claude")
+	defer sessionB.Close()
+
+	// Agent claude works on a different task (to avoid conflicts)
+	var listB map[string]string
+	mustUnmarshal(t, callTool(t, sessionB, "add_list", map[string]any{"name": "Work2"}), &listB)
+
+	var taskB map[string]string
+	mustUnmarshal(t, callTool(t, sessionB, "add_task", map[string]any{
+		"list_id": listB["id"],
+		"title":   "Read specs",
+	}), &taskB)
+
+	// Agent claude assigns and works on their task
+	callTool(t, sessionB, "assign_task", map[string]any{"ids": []string{taskB["id"]}})
+	callTool(t, sessionB, "set_status", map[string]any{
+		"ids":    []string{taskB["id"]},
+		"status": "in_progress",
+	})
+
+	// Verify both agents show as live before session end
+	var workBefore []struct {
+		AgentID      string `json:"agent_id"`
+		AssigneeLive bool   `json:"assignee_live"`
+		Assignee     string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, sessionA, "show_task", map[string]any{"ids": []string{taskA["id"]}}), &workBefore)
+	if len(workBefore) != 1 {
+		t.Fatalf("expected 1 task result, got %d", len(workBefore))
+	}
+	if !workBefore[0].AssigneeLive {
+		t.Fatalf("expected agent pi's task to show assignee_live=true before session end, got %v", workBefore[0])
+	}
+	if workBefore[0].Assignee != "pi" {
+		t.Fatalf("expected agent pi to be assignee, got %s", workBefore[0].Assignee)
+	}
+
+	var workBeforeB []struct {
+		AgentID      string `json:"agent_id"`
+		AssigneeLive bool   `json:"assignee_live"`
+		Assignee     string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, sessionB, "show_task", map[string]any{"ids": []string{taskB["id"]}}), &workBeforeB)
+	if len(workBeforeB) != 1 {
+		t.Fatalf("expected 1 task result for claude, got %d", len(workBeforeB))
+	}
+	if !workBeforeB[0].AssigneeLive {
+		t.Fatalf("expected agent claude's task to show assignee_live=true before session end, got %v", workBeforeB[0])
+	}
+	if workBeforeB[0].Assignee != "claude" {
+		t.Fatalf("expected agent claude to be assignee, got %s", workBeforeB[0].Assignee)
+	}
+
+	// Simulate agent pi's session ending: open cleanup handle and release pi's claims
+	cleanup, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open for cleanup: %v", err)
+	}
+	defer cleanup.Close()
+
+	n, err := cleanup.ReleaseAgentClaims("pi")
+	if err != nil {
+		t.Fatalf("ReleaseAgentClaims: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 claim released for agent pi, got %d", n)
+	}
+
+	// Verify agent pi's task now shows as not live (spinner gone)
+	var workAfterA []struct {
+		AgentID      string `json:"agent_id"`
+		AssigneeLive bool   `json:"assignee_live"`
+		Assignee     string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, sessionA, "show_task", map[string]any{"ids": []string{taskA["id"]}}), &workAfterA)
+	if len(workAfterA) != 1 {
+		t.Fatalf("expected 1 task result after pi's session end, got %d", len(workAfterA))
+	}
+	if workAfterA[0].AssigneeLive {
+		t.Fatalf("expected agent pi's task to show assignee_live=false after session end, got %v", workAfterA[0])
+	}
+	if workAfterA[0].Assignee != "pi" {
+		t.Fatalf("expected agent pi to still be assignee, got %s", workAfterA[0].Assignee)
+	}
+
+	// CRITICAL: Verify agent claude's task STILL shows as live (their session continues)
+	var workAfterB []struct {
+		AgentID      string `json:"agent_id"`
+		AssigneeLive bool   `json:"assignee_live"`
+		Assignee     string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, sessionB, "show_task", map[string]any{"ids": []string{taskB["id"]}}), &workAfterB)
+	if len(workAfterB) != 1 {
+		t.Fatalf("expected 1 task result for claude after pi's session end, got %d", len(workAfterB))
+	}
+	if !workAfterB[0].AssigneeLive {
+		t.Fatalf("expected agent claude's task to STILL show assignee_live=true after pi's session end, got %v", workAfterB[0])
+	}
+	if workAfterB[0].Assignee != "claude" {
+		t.Fatalf("expected agent claude to still be assignee, got %s", workAfterB[0].Assignee)
 	}
 }
 

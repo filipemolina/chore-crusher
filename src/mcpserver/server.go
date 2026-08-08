@@ -28,6 +28,16 @@ const ownerTagPattern = "^[A-Za-z0-9_-]{1,32}$"
 // lives.
 var createdByRE = regexp.MustCompile(ownerTagPattern)
 
+// serverIdentity returns the agent tag this server acts as, reading from
+// the CRUSH_AGENT environment variable with a fallback to "agent".
+func serverIdentity() string {
+	identity := os.Getenv("CRUSH_AGENT")
+	if identity == "" {
+		identity = "agent"
+	}
+	return identity
+}
+
 // progressJSON is the derived-progress shape shared by task rows.
 type progressJSON struct {
 	Kind            string `json:"kind"`
@@ -123,10 +133,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 	// refresh a live claim held by this identity (a presence heartbeat,
 	// docs/plan/agent-presence-heartbeat.md §3.3). Ownership enforcement
 	// (docs/plan/list-ownership-enforcement.md) will reuse the same read.
-	identity := os.Getenv("CRUSH_AGENT")
-	if identity == "" {
-		identity = "agent"
-	}
+	identity := serverIdentity()
 
 	// The Instructions doc is delivered to clients in the initialize result and
 	// is how an agent discovers this API without trial-and-error (query it with
@@ -193,13 +200,16 @@ func Run(ctx context.Context) error {
 	}
 	defer s.Close()
 
+	// Get the server's identity for scoping the claim release
+	identity := serverIdentity()
+
 	err = server.Run(ctx, &mcp.StdioTransport{})
 	// H13: when the MCP session ends (client disconnected or context
-	// cancelled), release every claim so the TUI does not show stale
-	// spinners for a disconnected agent. The enhancement plan
-	// (docs/plan/mcp-server-enhancement.md §3.1) promised this on session
-	// end but it was never wired; the 120s TTL covered the gap.
-	if _, rErr := s.ReleaseAllClaims(); rErr != nil {
+	// cancelled), release the agent's own claims so the TUI does not show
+	// stale spinners for a disconnected agent. Other agents' claims are
+	// unaffected (they will be cleaned up by their own session ends or
+	// the WorkTTL mechanism).
+	if _, rErr := s.ReleaseAgentClaims(identity); rErr != nil {
 		fmt.Fprintf(os.Stderr, "releasing claims on session end: %v\n", rErr)
 	}
 	return err
