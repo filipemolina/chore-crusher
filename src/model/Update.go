@@ -493,6 +493,51 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
 		}
 
+	case cmds.UnassignTaskMsg:
+		// The tree's u binding. The release is forced: this is the human's
+		// escape hatch for an abandoned grab, and a stale assignment is by
+		// definition held by an agent that is not the person at the keyboard.
+		// force makes the holder tag irrelevant, which is why "" is passed for
+		// it rather than the TUI inventing an agent identity of its own
+		// (docs/plan/mcp-assignment-and-priorities.md decision 2).
+		if msg.TaskID != "" {
+			if err := m.store.UnassignTask(msg.TaskID, "", true); err != nil {
+				m.lastError = err.Error()
+				break
+			}
+			if m.activeListID != "" {
+				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			}
+		}
+
+	case cmds.ReleaseListMsg:
+		// The tree's U binding. Unlike u this can free work several agents are
+		// holding at once, so it goes through the same confirm modal every
+		// other bulk or destructive TUI action uses (docs/DESIGN.md §9), and
+		// the dialog counts what is about to be released — read from the rows
+		// the tasks panel already holds, not a second store query.
+		if msg.ListID != "" {
+			listID := msg.ListID
+			held := 0
+			if tasks, ok := m.components.TaskPanel.(interface{ Rows() []apptypes.Row }); ok {
+				held = assignedCount(tasks.Rows())
+			}
+			body := "Release every assignment in this list? Nothing else about the tasks changes."
+			if held > 0 {
+				unit := "assignments"
+				if held == 1 {
+					unit = "assignment"
+				}
+				body = fmt.Sprintf("Release %d %s in this list? Nothing else about the tasks changes.", held, unit)
+			}
+			m.activeModal = confirmmodal.New("Release list", body, func() tea.Msg {
+				if _, err := m.store.UnassignList(listID); err != nil {
+					return nil
+				}
+				return cmds.RefreshTasks(m.store, listID)()
+			})
+		}
+
 	case cmds.MoveTaskMsg:
 		if err := m.store.MoveTask(msg.TaskID, msg.AfterID); err != nil {
 			m.lastError = err.Error()
@@ -755,6 +800,19 @@ func findRowByID(rows []apptypes.Row, id string) *apptypes.Row {
 		}
 	}
 	return nil
+}
+
+// assignedCount counts the rows carrying a durable assignee, for the
+// release-list confirmation. It reads the rows already on screen rather than
+// re-querying, so the number the dialog quotes is the number the user can see.
+func assignedCount(rows []apptypes.Row) int {
+	n := 0
+	for i := range rows {
+		if rows[i].Task.Assignee != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // descendantCount returns the number of descendants of the row whose id is

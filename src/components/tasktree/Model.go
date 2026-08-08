@@ -77,6 +77,13 @@ type Model struct {
 	// work is keyed by entity_id for EntityType=="task" claims.
 	work      map[string]apptypes.AgentActivity
 	animFrame int
+	// liveAgents is the set of agent tags holding ANY live presence claim,
+	// task or list. It is what turns a durable assignee into the stale tier:
+	// assignee != "" and no live claim by that agent means the work is
+	// abandoned (docs/DESIGN.md §3, the same join the MCP layer's
+	// assignee_live does). Built once per refresh from the one activity set
+	// the poll already carries — never re-derived per row.
+	liveAgents map[string]bool
 
 	// scrollOffset is the index of the first rendered line of the task-tree
 	// line plan (see View.go). It is selection-driven: a Bubble Tea update
@@ -262,11 +269,17 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			return m, nil
 		}
-		// Build the work map for spinner rendering.
+		// Build the work map for spinner rendering, and the live-agent set the
+		// stale-assignment tier joins against — one pass over the activities
+		// this refresh already carries, not a lookup per rendered row.
 		m.work = make(map[string]apptypes.AgentActivity, len(msg.Activities))
+		m.liveAgents = make(map[string]bool, len(msg.Activities))
 		for _, a := range msg.Activities {
 			if a.EntityType == "task" {
 				m.work[a.EntityID] = a
+			}
+			if a.AgentID != "" {
+				m.liveAgents[a.AgentID] = true
 			}
 		}
 		if m.activeListID != msg.ListID {
@@ -404,6 +417,17 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.handleStructural(gestureMoveUp)
 		case key.Matches(msg, keys.Tree.MoveDown):
 			return m, m.handleStructural(gestureMoveDown)
+		case key.Matches(msg, keys.Tree.Unassign):
+			// Releasing one task's assignment. No confirm: nothing is
+			// destroyed and re-assigning restores it — unlike U below,
+			// which can free work several agents hold at once.
+			if m.selectedID != "" {
+				return m, cmds.UnassignTask(m.selectedID)
+			}
+		case key.Matches(msg, keys.Tree.ReleaseList):
+			if m.activeListID != "" {
+				return m, cmds.ReleaseList(m.activeListID)
+			}
 		}
 
 		// If selection changed, broadcast it to add-input

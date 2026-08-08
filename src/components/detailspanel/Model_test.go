@@ -223,6 +223,7 @@ func focusCommentZone(t *testing.T, m *Model) *Model {
 	t.Helper()
 	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"}) // notes
 	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"}) // progress
+	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"}) // priority
 	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"}) // comments
 	return m
 }
@@ -471,13 +472,11 @@ func TestCommentCopyYanksSelectedID(t *testing.T) {
 	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
 	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 24)())
 
-	// Tab title → notes → progress → comments (the thread is non-empty, so the
-	// comments zone is in the cycle).
-	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"})
-	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"})
-	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"})
+	// Tab title → notes → progress → priority → comments (the thread is
+	// non-empty, so the comments zone is in the cycle).
+	m = focusCommentZone(t, m)
 	if m.focus != focusComments {
-		t.Fatalf("focus = %d, want focusComments after tab,tab,tab with comments present", m.focus)
+		t.Fatalf("focus = %d, want focusComments after four tabs with comments present", m.focus)
 	}
 
 	// Move the highlight to the second card, then copy it.
@@ -723,9 +722,14 @@ func TestMultilineNotesOpenOnTheFirstLine(t *testing.T) {
 // The row budget is derived from the note's line count, so it has to be
 // computed after the note is written — otherwise a long note opens at the
 // height the previous (empty) task needed and grows a tick later.
+//
+// The box is 30 rows rather than 24: the Priority zone added two fixed rows
+// (detailsFixedRows), and at 24 the flexible budget is exactly minNotesRows,
+// so the note could not grow past the floor no matter how the budget was
+// computed — which would make this test pass for the wrong reason.
 func TestNotesSizedToTheNoteOnOpen(t *testing.T) {
 	m, _, _ := loaded(t, longNote)
-	m, _ = updateModel(m, cmds.SetDetailsLayout(60, 24)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(60, 30)())
 
 	view := ansi.Strip(m.View().Content)
 	rows := strings.Count(view, m.notes.Prompt)

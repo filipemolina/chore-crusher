@@ -155,7 +155,7 @@ func TestStatusLabelShedsBeforeTheTitleFloor(t *testing.T) {
 func TestTitleFloorIsHonouredWhileTheStatusLabelIsShown(t *testing.T) {
 	const checkbox = 1
 	for width := 1; width <= 120; width++ {
-		cols := computeTaskRowCols(width, checkbox, "IN PROGRESS", "45%", "")
+		cols := computeTaskRowCols(width, checkbox, "IN PROGRESS", "45%", "", "", "")
 		if cols.status != 0 && cols.title-cols.gutter < titleFloor {
 			t.Errorf("table width %d: status label kept with only %d title columns, want >= %d",
 				width, cols.title-cols.gutter, titleFloor)

@@ -69,6 +69,15 @@ type TaskTreeKeys struct {
 	// VS Code converge on for moving a line.
 	MoveUp   key.Binding
 	MoveDown key.Binding
+	// Unassign (u) releases the selected task's durable assignment;
+	// ReleaseList (U) releases every assignment in the active list. They are
+	// the human's only escape hatch for an abandoned grab: assignment has no
+	// TTL and no sweeper, so nothing else ever frees a task whose agent died
+	// (docs/DESIGN.md §3, docs/plan/mcp-assignment-and-priorities.md decision
+	// 2). The shifted form takes the whole-list action, the same way L takes
+	// the panel-wide one over the tree's own l.
+	Unassign    key.Binding
+	ReleaseList key.Binding
 	// GoToStart/GoToEnd jump the cursor to the first or last visible row.
 	// PageUp/PageDown move it one viewport height up/down, clamped to the
 	// row bounds (docs/DESIGN.md §5). Key choices match ListKeyMap() so the
@@ -118,6 +127,11 @@ type DetailsKeys struct {
 	NextField     key.Binding
 	CycleMode     key.Binding
 	CycleModeBack key.Binding
+	// CyclePriority cycles the Priority zone through none → low → medium →
+	// high and back. One binding carries both directions, like PercentNudge:
+	// ←/h step down the rank and →/l step up, and a help entry that named
+	// only one of them would be advertising half the control.
+	CyclePriority key.Binding
 	PercentNudge  key.Binding
 	PercentType   key.Binding
 	DiscardPrompt key.Binding
@@ -161,12 +175,16 @@ var Tree = TaskTreeKeys{
 	OpenDetails: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
 	// New is handled at AppModel level (context = focused panel); kept here
 	// so the tree's handler can match it until the wiring moves in step 2.
-	New:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
-	Delete:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
-	Outdent:   key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
-	Indent:    key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
-	MoveUp:    key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
-	MoveDown:  key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
+	New:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+	Delete:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Outdent:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "outdent")),
+	Indent:   key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "indent")),
+	MoveUp:   key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
+	MoveDown: key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
+
+	Unassign:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "release task")),
+	ReleaseList: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "release list")),
+
 	GoToStart: key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "first")),
 	GoToEnd:   key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "last")),
 	PageUp:    key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
@@ -240,6 +258,11 @@ var Details = DetailsKeys{
 	NextField:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),
 	CycleMode:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next mode")),
 	CycleModeBack: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev mode")),
+	// Priority-zone only: the same ←/→ handshape the Progress zone uses for
+	// its modes, one zone down. Both directions in one binding — the value is
+	// a four-step rank, so "cycle" without a way back is a control the user
+	// has to loop three times to undo.
+	CyclePriority: key.NewBinding(key.WithKeys("left", "right", "h", "l"), key.WithHelp("←/→", "cycle priority")),
 	// Percentage-mode progress only: ↑/↓ step the value by 5, clamped to
 	// 0–100. Live only while the Progress field has focus and the mode is
 	// percentage, so the modal advertises it only there.
@@ -328,7 +351,8 @@ func Active(ctx Context) []key.Binding {
 		// save/next/mode/cancel keys must survive that shedding.
 		return []key.Binding{
 			Details.Save, Details.NextField, Details.CycleMode,
-			Details.CycleModeBack, Overlay.Cancel, Details.CopyTaskID,
+			Details.CycleModeBack, Overlay.Cancel, Details.CyclePriority,
+			Details.CopyTaskID,
 			Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID,
 			Details.CommentDelete,
 		}
@@ -360,6 +384,7 @@ func Active(ctx Context) []key.Binding {
 				Tree.Navigate, Tree.Toggle, Tree.OpenDetails,
 				Tree.Expand, Tree.Collapse, Tree.Delete, Tree.New,
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
+				Tree.Unassign, Tree.ReleaseList,
 				Tree.GoToStart, Tree.GoToEnd, Tree.PageUp, Tree.PageDown,
 				Global.NextPanel, Global.Quit,
 			}
@@ -443,7 +468,9 @@ func Catalog(ctx Context) []Scope {
 				Tree.PageUp, Tree.PageDown, Tree.Expand, Tree.Collapse,
 				Tree.Toggle, Tree.OpenDetails, Tree.New, Tree.Delete,
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
+				Tree.Unassign, Tree.ReleaseList,
 			),
+			Note: "u releases the selected task's assignment and U releases every assignment in the list — an assignment has no expiry, so this is the only thing that frees a task whose agent went away.",
 		},
 		{
 			Title:   "Creating a task",
@@ -467,7 +494,7 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Details",
-			Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID, Details.CommentDelete),
+			Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.CyclePriority, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID, Details.CommentDelete),
 		},
 		{
 			Title:   "Overlays",

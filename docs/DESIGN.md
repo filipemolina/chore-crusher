@@ -375,6 +375,23 @@ Code's `alt+↑`/`alt+↓` uses for moving lines) — one key with a modifier,
 not a second unmodified key that would steal a character vim users expect
 to type.
 
+**`u` releases the selected task's assignment, and `U` releases every
+assignment in the active list.** Assignment is durable and has **no TTL, no
+sweeper and no auto-expiry** (§3), so these two keys are the only thing in the
+app that frees a task whose agent went away — which is why the stale tier
+(§12) marks such a task rather than the app quietly reclaiming it. The
+release is **unconditional**: it clears an assignment held by any agent, since
+a stale one is by definition held by someone who is not the person at the
+keyboard, and a release that refused a foreign holder would leave abandoned
+work stuck forever. `u` prompts for nothing — nothing is destroyed and
+re-assigning restores it — while `U` goes through the same confirm modal every
+other bulk action uses (§9), with the dialog counting the assignments it is
+about to clear; it can free work several agents hold at once. The shifted form
+takes the whole-list action, the same way `L` takes the panel-wide one over
+the tree's own `l`. The tree only asks (`UnassignTaskMsg` / `ReleaseListMsg`);
+AppModel calls `store.UnassignTask` / `store.UnassignList` and refreshes,
+the same request/response split `space` and `d` use.
+
 **`space` toggles complete/pending** on the selected task, from wherever the
 tree has focus — it does not open anything and does not move the cursor.
 **`enter`** on a selected tree row opens the Details modal — so it can't
@@ -386,10 +403,11 @@ than a tool. Note the asymmetry with stack-stitcher, which binds `Select` to
 they must mean two different things, so they are two different bindings from
 the start rather than one alias split apart later.
 
-Inside the Details modal: **`ctrl+s`** saves title, notes and progress changes,
+Inside the Details modal: **`ctrl+s`** saves title, notes, progress and
+priority changes,
 closes the modal, returns focus to the task tree, and refreshes its rows;
 **`tab`**/**`shift+tab`** cycle between the title editor, the notes editor, the
-progress selector, and the comment thread (every zone is always in the cycle —
+progress selector, the priority selector, and the comment thread (every zone is always in the cycle —
 the comment thread is reachable even while empty, since `c` adds the first
 comment from there); **`←`/`→`** (or `h`/`l`) cycle through the three progress
 modes (`simple`/`subtasks`/`percentage`) while the progress selector is focused —
@@ -400,6 +418,18 @@ MCP vocabulary (§9); in `percentage` mode **digits** type the value directly an
 error instead of clamping — the user can see what they typed, unlike a held
 arrow key), and both affordances are advertised in the modal's hint line only
 while that mode is selected, since neither does anything in the other two;
+**`←`/`→`** (or `h`/`l`) cycle the **priority** through the four values §2
+locks while the priority selector is focused — in rank order
+(`none` → `low` → `medium` → `high`), wrapping, so `→` always means "more
+important" until it comes back round; it is one binding
+(`keys.Details.CyclePriority`) carrying both directions, because a four-step
+rank with no way back is a control the user has to loop three times to undo.
+The zone shows `none` where the task row's badge shows nothing (§12): a field
+being edited has to display the value it holds. The rank is written through
+`store.SetPriority` on `ctrl+s` and **only when it changed** — that store
+function rejects the zero value and bumps `updated_at`, so a save that touched
+only the title must not write the priority at all
+(`docs/plan/mcp-assignment-and-priorities.md` §6.5);
 **`↑`/`↓`** move the comment highlight, **`y`** copies the highlighted
 comment's id to the system clipboard, and **`d`** deletes it — routed through
 the same confirm modal every other destructive action uses (§9), with the
@@ -1453,8 +1483,12 @@ Two rules follow from that ordering:
 - **A title floor of 12 columns** (`titleFloor`). When the reserved cells
   would squeeze the title below it, the passengers shed whole — never as
   fragments — in this order: the **status+icon block first**, then the
-  agent-spinner unit, and the **percentage last**, which sheds only to stop
-  the row overflowing. That order is deliberate and is the reverse of what
+  agent-spinner unit, then the **assignee badge**, then the **priority
+  badge**, and the **percentage last**, which sheds only to stop
+  the row overflowing. Priority outlives the assignee deliberately: at 40
+  columns the question "what should I pick up next" outlives "who has it",
+  and the assignee is still readable in the Details modal and over every CLI
+  and MCP read (§9). That order is deliberate and is the reverse of what
   `docs/plan/mcp-server-enhancement.md` §3.7 and
   `docs/plan/task-row-redesign-and-inline-creation.md` originally specified:
   those budgeted for overflow alone, with no notion of a floor, so a narrow
@@ -1510,12 +1544,15 @@ one is needed, it's added here first.
 | Add-input level: child | `+` | §4. |
 | Add-input level: parent-of-selection | `^` | §4. |
 | Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered in the row's right-aligned block immediately before the status; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3) — never rendered as `(0%)` in that case. |
+| Task priority | ` HIGH` / ` MED` / ` LOW` | All caps, like the status label, in a content-width cell in the right-aligned block immediately left of the assignee badge. **`none` renders nothing at all** — most tasks are `none` and a badge on every row is noise, not information — so the cell is not reserved and rows do not align on it, unlike the fixed status column. The rank is drawn as a *text tier* rather than a colour of its own: `high` in `TextPrimary`, `medium` in `TextMuted`, `low` in `TextDim`. The ladder is the signal; it spends no new theme token and deliberately borrows no status colour, since the row already spends `StatusInProgress`/`StatusComplete` on its status and `StatusOverdue` on a stale assignee. `tasktree.priorityLabel`/`priorityFg`. |
+| Task assignee | ` @tag` | The durable holder of a task (§3), in the right-aligned block immediately left of the agent spinner — the two are adjacent on purpose, because "assigned, but nobody is here" is only legible as a gap between them. The tag is clipped through `chrome.Truncate` to seven cells so one long agent identity cannot push the right block across the row, and an unassigned task renders nothing. `tasktree.assigneeBadge`. |
+| Task assignee: stale | ` @tag` in `StatusOverdue` | The **stale-assignment tier**: `assignee != ""` **and** no live presence claim by that agent (§3). Assignment has no TTL and no sweeper, so this badge is the only thing on screen that distinguishes abandoned work from work merely owned, and the human's `u`/`U` release keys (§5) are the only thing that clears it. `StatusOverdue` is reused rather than a new token added — it is the same "a human needs to look at this" tier the Details modal and the search picker already draw their error lines in. The live-agent set is read **once per refresh** from the activity set the poll already carries, never per row. `tasktree.assigneeFg`. |
 | Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg` (§3.5 of `mcp-server-enhancement.md`); draws `Accent` when the row is focused/selected, `TextDim` otherwise. Appended to the right-aligned block after the status label when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
 | List is collaborative | ` · shared` | Appended to a lists-panel row's count line (`N pending · M done`) when `List.Collaborative` is true — plain text in the same `TextDim` tier the count line already renders in, not a new glyph, so it needs no dedicated symbol here. `src/components/listspanel/View.go`'s `listDelegate.Render`. The rename modal's collaborative toggle (below) reuses the task row's own `◻`/`◼` checkbox glyphs for the same flag, rather than inventing a `[ ]`/`[x]` of its own. |
 
 **Task rows are full-width cards** (docs/plan/task-row-cards-and-status.md):
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the
-left and the right-aligned `{progress}{space}{status}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
+left and the right-aligned `{progress}{priority}{assignee}{agent spinner}{status}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
 the line's end — the bar and checkbox sit flush, and every level of depth
 indents the *whole card* by two columns, so a subtask's bar steps right and no
 continuous vertical bar line forms. A parent's title carries the

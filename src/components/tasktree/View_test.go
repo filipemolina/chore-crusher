@@ -45,7 +45,7 @@ func TestComputeTaskRowColsDropOrder(t *testing.T) {
 	progressFull := len(progress) + 1
 
 	for width := 1; width <= 120; width++ {
-		cols := computeTaskRowCols(width, checkbox, status, progress, "")
+		cols := computeTaskRowCols(width, checkbox, status, progress, "", "", "")
 
 		// checkbox is fixed identity, never shed
 		if cols.checkbox != checkbox {
@@ -428,7 +428,7 @@ func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
 	agentFull := len(agent) + 1
 
 	for width := 1; width <= 120; width++ {
-		cols := computeTaskRowCols(width, checkbox, status, progress, agent)
+		cols := computeTaskRowCols(width, checkbox, status, progress, agent, "", "")
 
 		if cols.progress != 0 && cols.progress != progressFull {
 			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)

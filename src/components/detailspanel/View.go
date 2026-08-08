@@ -40,6 +40,8 @@ func (m *Model) View() tea.View {
 		"",
 		m.fieldLabel("Progress", focusProgress),
 		m.renderProgressZone(),
+		m.fieldLabel("Priority", focusPriority),
+		m.renderPriorityZone(),
 		m.renderStatusLine(),
 		"",
 		m.renderComments(),
@@ -260,6 +262,27 @@ func (m *Model) renderPercentField() string {
 		style = style.Background(appstyles.Active.BackgroundElevated)
 	}
 	return style.Render(" " + value + "% ")
+}
+
+// renderPriorityZone renders the task's rank as an editable field, the same
+// shape renderPercentField uses: TextPrimary text that lifts onto
+// BackgroundElevated while the zone holds the keyboard, which is how this app
+// says "this value takes input" (docs/DESIGN.md §12) — there is no caret
+// glyph to invent. `none` is spelled out here, unlike the task row's badge,
+// which renders nothing for it: a field the user is editing has to show the
+// value it currently holds, where a row badge reading "NONE" on most rows
+// would be noise.
+func (m *Model) renderPriorityZone() string {
+	style := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
+	if m.focus == focusPriority {
+		style = style.Background(appstyles.Active.BackgroundElevated)
+	}
+	value := style.Render(" " + string(m.priority) + " ")
+	if m.focus != focusPriority {
+		return value
+	}
+	return value + " " +
+		lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Render("←/→ cycle")
 }
 
 // renderStatusLine is the single reserved row below the progress zone: an error
@@ -540,6 +563,14 @@ func (m *Model) zoneHints() []chrome.KeyHint {
 			chrome.HintFor(keys.Details.CycleModeBack),
 			chrome.HintFor(keys.Details.CopyTaskID),
 		)
+	case m.focus == focusPriority:
+		return []chrome.KeyHint{
+			chrome.HintFor(keys.Details.NextField),
+			chrome.HintFor(keys.Overlay.Cancel),
+			chrome.HintFor(keys.Details.Save),
+			chrome.HintFor(keys.Details.CyclePriority),
+			chrome.HintFor(keys.Details.CopyTaskID),
+		}
 	case m.focus == focusComments:
 		return []chrome.KeyHint{
 			chrome.HintFor(keys.Details.NextField),

@@ -152,7 +152,8 @@ func TestActiveReturnsDetailsBindingsWhenDetailsVisible(t *testing.T) {
 
 	want := []key.Binding{
 		Details.Save, Details.NextField, Details.CycleMode,
-		Details.CycleModeBack, Details.CopyTaskID, Details.CommentNew,
+		Details.CycleModeBack, Details.CyclePriority, Details.CopyTaskID,
+		Details.CommentNew,
 		Details.CommentSubmit, Details.CopyCommentID, Details.CommentDelete,
 		Overlay.Cancel,
 	}

@@ -179,8 +179,8 @@ func TestCommentDeleteConfirmQuotesTheComment(t *testing.T) {
 	}
 	m = refresh(t, m, cmds.RefreshDetails(m.store, taskID)())
 
-	// Tab from Title into Notes, Progress, then Comments.
-	for i := 0; i < 3; i++ {
+	// Tab from Title into Notes, Progress, Priority, then Comments.
+	for i := 0; i < 4; i++ {
 		m = stepKey(t, m, tea.KeyPressMsg{Text: "tab"})
 	}
 
@@ -206,7 +206,7 @@ func TestCommentDeleteConfirmRemovesComment(t *testing.T) {
 		t.Fatalf("AddComment: %v", err)
 	}
 	m = refresh(t, m, cmds.RefreshDetails(m.store, taskID)())
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		m = stepKey(t, m, tea.KeyPressMsg{Text: "tab"})
 	}
 	m = refresh(t, m, tea.KeyPressMsg{Text: "d", Code: 'd'})

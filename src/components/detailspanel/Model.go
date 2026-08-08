@@ -34,10 +34,17 @@ const focusedZoneID = constants.COMPONENT_DETAILS_PANEL
 
 const (
 	// focusTitle is the single-line title editor; it is the first field so the
-	// tab cycle reads top-to-bottom (Title → Notes → Progress → Comments).
+	// tab cycle reads top-to-bottom (Title → Notes → Progress → Priority →
+	// Comments).
 	focusTitle = iota
 	focusNotes
 	focusProgress
+	// focusPriority is the priority rank. It sits next to Progress because the
+	// two are the task's two scalar fields, and it is a zone rather than a
+	// modal-wide shortcut so the one way to reach an editable field stays tab
+	// (docs/DESIGN.md §5). ←/→ cycle it and ctrl+s persists it, like every
+	// other field here.
+	focusPriority
 	// focusComments is the comment thread: the cards are selectable and ↑/↓
 	// move the highlight, y copies the highlighted comment's id, and c opens the
 	// inline compose card. Unlike the other zones it is always in the cycle even
@@ -81,10 +88,11 @@ const (
 	// than the notes textarea and the comment cards: the "Task details" heading
 	// with its margin and the flush-right task id on one line (2), the Title
 	// label and value (2), a blank, the Notes label, a blank after the textarea,
-	// the Progress label and value (2), the error/flash line, a blank, the
-	// Comments label, a blank, and the footer — 14 rows. The textarea and the
-	// comment cards share whatever height is left (flexRows).
-	detailsFixedRows = 14
+	// the Progress label and value (2), the Priority label and value (2), the
+	// error/flash line, a blank, the Comments label, a blank, and the footer —
+	// 16 rows. The textarea and the comment cards share whatever height is
+	// left (flexRows).
+	detailsFixedRows = 16
 )
 
 // Model is the Task details modal. It starts unloaded; a RefreshDetailsMsg
@@ -110,6 +118,15 @@ type Model struct {
 
 	progressKind     apptypes.ProgressKind
 	origProgressKind apptypes.ProgressKind
+
+	// priority is the draft rank; origPriority is what the store held when the
+	// task was hydrated, so a save writes only a rank the user actually
+	// changed. store.SetPriority rejects the zero value, and a rename must
+	// never clear a priority as a side effect
+	// (docs/plan/mcp-assignment-and-priorities.md §6.5).
+	priority     apptypes.Priority
+	origPriority apptypes.Priority
+
 	percentInput     string
 	origPercentInput string
 	derivedPct       int
@@ -267,6 +284,15 @@ func (m *Model) hydrate(msg cmds.RefreshDetailsMsg, resetFocus bool) {
 	m.percentInput = percentInput
 	m.origPercentInput = percentInput
 
+	// An unset column reads as none: the store defaults it there, and the zone
+	// has to show one of the four values whatever the row carries.
+	priority := msg.Task.Priority
+	if priority == "" {
+		priority = apptypes.PriorityNone
+	}
+	m.priority = priority
+	m.origPriority = priority
+
 	m.derivedPct = msg.DerivedPct
 	m.displayAsSimple = msg.DisplayAsSimple
 
@@ -384,6 +410,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case focusProgress:
 		return m.handleProgressKey(msg)
+	case focusPriority:
+		return m.handlePriorityKey(msg)
 	case focusComments:
 		return m.handleCommentsKey(msg)
 	case focusNotes:
@@ -418,7 +446,7 @@ func (m *Model) handleComposeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // cycleFocus moves focus one step in dir (+1 tab, -1 shift+tab) through
-// Title → Notes → Progress → Comments, blurring the outgoing text input and
+// Title → Notes → Progress → Priority → Comments, blurring the outgoing text input and
 // focusing the incoming one so the cursor is never live in two inputs at once.
 // Every zone is always in the cycle: the comments zone stays reachable even
 // with an empty thread so c can add the first comment.
@@ -510,6 +538,9 @@ func (m *Model) TitleValue() string { return m.titleInput.Value() }
 // CommentInputValue returns the comment compose input's current value, for
 // tests.
 func (m *Model) CommentInputValue() string { return m.commentInput.Value() }
+
+// Priority returns the draft priority rank, for tests.
+func (m *Model) Priority() apptypes.Priority { return m.priority }
 
 // Composing reports whether the inline compose card is open, for tests.
 func (m *Model) Composing() bool { return m.composing }
@@ -634,6 +665,41 @@ func (m *Model) nudgePercent(delta int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handlePriorityKey drives the Priority zone: ←/h step the rank down and
+// →/l step it up, wrapping at both ends (keys.Details.CyclePriority). Nothing
+// is written here — the draft persists on ctrl+s with the rest of the fields.
+func (m *Model) handlePriorityKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "right", "l":
+		m.cyclePriority(1)
+	case "left", "h":
+		m.cyclePriority(-1)
+	}
+	return m, nil
+}
+
+// cyclePriority steps the draft rank delta places through the four values
+// docs/DESIGN.md §2 locks, wrapping. The order is the rank order the MCP
+// next_task tool sorts by, not alphabetical, so → always means "more
+// important" until it wraps back to none.
+func (m *Model) cyclePriority(delta int) {
+	ranks := []apptypes.Priority{
+		apptypes.PriorityNone,
+		apptypes.PriorityLow,
+		apptypes.PriorityMedium,
+		apptypes.PriorityHigh,
+	}
+	idx := 0
+	for i, r := range ranks {
+		if r == m.priority {
+			idx = i
+			break
+		}
+	}
+	m.priority = ranks[(idx+delta+len(ranks))%len(ranks)]
+	m.errMsg = ""
+}
+
 func (m *Model) cycleMode(delta int) {
 	modes := []apptypes.ProgressKind{
 		apptypes.ProgressSimple,
@@ -670,6 +736,9 @@ func (m *Model) hasDirtyFields() bool {
 	if m.percentInput != m.origPercentInput {
 		return true
 	}
+	if m.priority != m.origPriority {
+		return true
+	}
 	return false
 }
 
@@ -693,6 +762,17 @@ func (m *Model) save() (tea.Model, tea.Cmd) {
 	if m.notes.Value() != m.origNotes {
 		if err := m.store.SetNotes(m.taskID, m.notes.Value()); err != nil {
 			m.errMsg = fmt.Sprintf("failed to save notes: %v", err)
+			return m, nil
+		}
+	}
+
+	// Only a changed rank is written: store.SetPriority rejects the zero value
+	// and bumps updated_at, so a save that touched only the title must not
+	// re-write a priority nobody edited
+	// (docs/plan/mcp-assignment-and-priorities.md §6.5).
+	if m.priority != m.origPriority {
+		if err := m.store.SetPriority(m.taskID, store.Priority(m.priority)); err != nil {
+			m.errMsg = fmt.Sprintf("failed to save priority: %v", err)
 			return m, nil
 		}
 	}
