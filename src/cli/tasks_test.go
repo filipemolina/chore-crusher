@@ -462,3 +462,208 @@ func TestShowIncludesCommentsArray(t *testing.T) {
 		t.Errorf("new task should have 0 comments, got %d", len(details.Comments))
 	}
 }
+
+// TestAssignJSONShapes pins the step-5 acceptance criterion for `crush
+// assign` (docs/DESIGN.md §9): exactly one JSON value on stdout, success or
+// failure. Success echoes the caller's own tag; a conflict without --force
+// is the §9 error shape naming the holder; --force takes the task and
+// echoes the new holder.
+func TestAssignJSONShapes(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("CRUSH_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	var res assignResultJSON
+	mustJSONCLI(t, data, &res, "assign", tid, "--json")
+	if !res.OK || res.Assignee != "pi" {
+		t.Fatalf("assign --json = %+v, want ok:true assignee:pi", res)
+	}
+
+	// The assignment landed: show carries the assignee and a non-null
+	// assigned_at.
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if details.Assignee != "pi" || details.AssignedAt == nil {
+		t.Errorf("show after assign: assignee %q assigned_at %v", details.Assignee, details.AssignedAt)
+	}
+
+	// A second agent's assign without --force fails with exactly one JSON
+	// error value naming the holder.
+	t.Setenv("CRUSH_AGENT", "claude")
+	code, out, errOut := runCLI(t, data, "assign", tid, "--json")
+	if code != 1 || errOut != "" {
+		t.Fatalf("conflicting assign: exit %d stderr %q, want exit 1 with empty stderr", code, errOut)
+	}
+	var errPayload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &errPayload); err != nil {
+		t.Fatalf("stdout %q is not one JSON value: %v", out, err)
+	}
+	if !strings.Contains(errPayload.Error, "pi") {
+		t.Errorf("conflict error %q should name the holder", errPayload.Error)
+	}
+
+	// --force takes it, echoing the new holder.
+	mustJSONCLI(t, data, &res, "assign", tid, "--force", "--json")
+	if !res.OK || res.Assignee != "claude" {
+		t.Fatalf("assign --force --json = %+v, want ok:true assignee:claude", res)
+	}
+}
+
+// TestUnassignJSONShapes pins `crush unassign <task-id>`: the holder's
+// release emits {"ok":true,"assignee":""} and clears assigned_at; releasing
+// another agent's task is the §9 error shape.
+func TestUnassignJSONShapes(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("CRUSH_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+	mustCLI(t, data, "assign", tid)
+
+	// Another agent cannot release it.
+	t.Setenv("CRUSH_AGENT", "claude")
+	code, out, _ := runCLI(t, data, "unassign", tid, "--json")
+	if code != 1 {
+		t.Fatalf("foreign unassign: exit %d, want 1", code)
+	}
+	var errPayload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &errPayload); err != nil {
+		t.Fatalf("stdout %q is not one JSON value: %v", out, err)
+	}
+
+	// The holder's release succeeds and clears both fields.
+	t.Setenv("CRUSH_AGENT", "pi")
+	var res assignResultJSON
+	mustJSONCLI(t, data, &res, "unassign", tid, "--json")
+	if !res.OK || res.Assignee != "" {
+		t.Fatalf("unassign --json = %+v, want ok:true assignee:\"\"", res)
+	}
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if details.Assignee != "" || details.AssignedAt != nil {
+		t.Errorf("show after unassign: assignee %q assigned_at %v", details.Assignee, details.AssignedAt)
+	}
+
+	// No task id and no --list is a usage error (exit 2).
+	if code, _, _ := runCLI(t, data, "unassign"); code != 2 {
+		t.Errorf("unassign with no target: exit %d, want 2", code)
+	}
+}
+
+// TestUnassignListJSONShape pins `crush unassign --list`: one JSON value
+// reporting how many assignments were cleared — 0 on a list holding none is
+// a success, not an error (docs/DESIGN.md §9).
+func TestUnassignListJSONShape(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("CRUSH_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
+	t2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "two"))
+	mustCLI(t, data, "add", lid, "unassigned")
+	mustCLI(t, data, "assign", t1)
+	mustCLI(t, data, "assign", t2)
+
+	var rel releasedJSON
+	mustJSONCLI(t, data, &rel, "unassign", "--list", lid, "--json")
+	if !rel.OK || rel.Released != 2 {
+		t.Fatalf("unassign --list --json = %+v, want ok:true released:2", rel)
+	}
+
+	var rows []taskRowJSON
+	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	for _, r := range rows {
+		if r.Assignee != "" {
+			t.Errorf("row %s still assigned after unassign --list: %+v", r.ID, r)
+		}
+	}
+
+	// A list with nothing assigned releases 0 — success, not an error.
+	mustJSONCLI(t, data, &rel, "unassign", "--list", lid, "--json")
+	if !rel.OK || rel.Released != 0 {
+		t.Fatalf("second unassign --list --json = %+v, want ok:true released:0", rel)
+	}
+}
+
+// TestPriorityJSONShapes pins `crush priority`: the echoed level on success,
+// the §9 error shape for an invalid level, and — the §6.5 trap — an omitted
+// --level failing as an error rather than defaulting to none.
+func TestPriorityJSONShapes(t *testing.T) {
+	data := t.TempDir()
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	var res priorityResultJSON
+	mustJSONCLI(t, data, &res, "priority", tid, "--level", "high", "--json")
+	if !res.OK || res.Priority != "high" {
+		t.Fatalf("priority --json = %+v, want ok:true priority:high", res)
+	}
+
+	// The level landed where both read surfaces report it.
+	var details showJSON
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if details.Priority != "high" {
+		t.Errorf("show priority = %q, want high", details.Priority)
+	}
+	var rows []taskRowJSON
+	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	if len(rows) != 1 || rows[0].Priority != "high" {
+		t.Errorf("tasks rows = %+v, want priority high", rows)
+	}
+
+	// An invalid level is the §9 error shape, exit 1.
+	code, out, _ := runCLI(t, data, "priority", tid, "--level", "urgent", "--json")
+	if code != 1 {
+		t.Fatalf("invalid level: exit %d, want 1", code)
+	}
+	var errPayload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &errPayload); err != nil {
+		t.Fatalf("stdout %q is not one JSON value: %v", out, err)
+	}
+	if !strings.Contains(errPayload.Error, "invalid priority") {
+		t.Errorf("invalid-level error = %q, want store's invalid-priority message", errPayload.Error)
+	}
+
+	// An omitted --level fails with the §9 error shape and does not default
+	// to none (docs/plan/mcp-assignment-and-priorities.md §6.5).
+	code, out, _ = runCLI(t, data, "priority", tid, "--json")
+	if code != 1 {
+		t.Fatalf("missing --level: exit %d, want 1", code)
+	}
+	if err := json.Unmarshal([]byte(out), &errPayload); err != nil {
+		t.Fatalf("stdout %q is not one JSON value: %v", out, err)
+	}
+	if !strings.Contains(errPayload.Error, "--level") {
+		t.Errorf("missing-level error = %q, want it to name --level", errPayload.Error)
+	}
+	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	if details.Priority != "high" {
+		t.Errorf("priority after refused writes = %q, want high unchanged", details.Priority)
+	}
+}
+
+// TestTasksRowsCarryAssignment pins the new fields on `crush tasks --json`
+// rows: assignee is "" when unassigned and the holder's tag once assigned.
+func TestTasksRowsCarryAssignment(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("CRUSH_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	var rows []taskRowJSON
+	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	if len(rows) != 1 || rows[0].Assignee != "" || rows[0].Priority != "none" {
+		t.Fatalf("new task rows = %+v, want assignee \"\" and priority none", rows)
+	}
+
+	mustCLI(t, data, "assign", tid)
+	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	if rows[0].Assignee != "pi" {
+		t.Errorf("assigned row = %+v, want assignee pi", rows[0])
+	}
+}

@@ -56,6 +56,8 @@ type taskRowJSON struct {
 	Progress  progressJSON `json:"progress"`
 	Depth     int          `json:"depth"`
 	ListOwner string       `json:"list_owner"`
+	Assignee  string       `json:"assignee"`
+	Priority  string       `json:"priority"`
 }
 
 // taskView is one flattened row with its derived progress computed once, so
@@ -169,8 +171,45 @@ func taskCommands() []*cobra.Command {
 	commentRmCmd.Flags().Bool("force", false, "delete without confirmation")
 	commentCmd.AddCommand(commentRmCmd)
 
+	assignCmd := &cobra.Command{
+		Use:   "assign <task-id>",
+		Short: "assign the task to the current agent; --force takes it from another",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runAssign,
+	}
+	assignCmd.Flags().Bool("force", false, "take the task from its current holder")
+
+	unassignCmd := &cobra.Command{
+		Use:   "unassign <task-id>",
+		Short: "release the current agent's assignment, or every task with --list",
+		Args: func(cmd *cobra.Command, args []string) error {
+			listID, _ := cmd.Flags().GetString("list")
+			if listID != "" {
+				if len(args) != 0 {
+					return fmt.Errorf("--list takes no task-id argument")
+				}
+				return nil
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("requires a task id or --list <list-id>")
+			}
+			return nil
+		},
+		RunE: runUnassign,
+	}
+	unassignCmd.Flags().String("list", "", "release the assignment on every task in this list (prefix accepted)")
+
+	priorityCmd := &cobra.Command{
+		Use:   "priority <task-id>",
+		Short: "set a task's priority: none, low, medium, or high",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runPriority,
+	}
+	priorityCmd.Flags().String("level", "", "none, low, medium, or high (required)")
+
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
-		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd}
+		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd,
+		assignCmd, unassignCmd, priorityCmd}
 }
 
 func validStatusFilter(s string) bool {
@@ -269,6 +308,8 @@ func runTasks(cmd *cobra.Command, args []string) error {
 				Progress:  v.prog,
 				Depth:     v.row.Depth,
 				ListOwner: l.CreatedBy,
+				Assignee:  v.row.Task.Assignee,
+				Priority:  string(v.row.Task.Priority),
 			})
 		}
 
@@ -384,6 +425,9 @@ type showJSON struct {
 	CreatedAt   int64         `json:"created_at"`
 	UpdatedAt   int64         `json:"updated_at"`
 	CompletedAt *int64        `json:"completed_at"`
+	Assignee    string        `json:"assignee"`
+	AssignedAt  *int64        `json:"assigned_at"`
+	Priority    string        `json:"priority"`
 	Children    []taskRowJSON `json:"children"`
 	Comments    []commentJSON `json:"comments"`
 }
@@ -427,6 +471,8 @@ func runShow(cmd *cobra.Command, args []string) error {
 				Progress:  v.prog,
 				Depth:     v.row.Depth,
 				ListOwner: l.CreatedBy,
+				Assignee:  v.row.Task.Assignee,
+				Priority:  string(v.row.Task.Priority),
 			})
 		}
 
@@ -477,6 +523,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 			CreatedAt:   t.CreatedAt,
 			UpdatedAt:   t.UpdatedAt,
 			CompletedAt: t.CompletedAt,
+			Assignee:    t.Assignee,
+			AssignedAt:  t.AssignedAt,
+			Priority:    string(t.Priority),
 			Children:    children,
 			Comments:    commentJSONs,
 		})
@@ -692,6 +741,115 @@ func runMv(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		printResult(jsonMode, func() {}, okPayload{true})
+		return nil
+	})
+}
+
+// agentIdentity is the agent tag this CLI invocation assigns under:
+// CRUSH_AGENT, defaulting to "agent" — the same env var and default the MCP
+// server reads (docs/DESIGN.md §9), so a shell that exports CRUSH_AGENT
+// owns tasks under the same tag over either surface.
+func agentIdentity() string {
+	if id := os.Getenv("CRUSH_AGENT"); id != "" {
+		return id
+	}
+	return "agent"
+}
+
+// assignResultJSON is the success shape of assign and single-task unassign:
+// it echoes the assignee the task now carries ("" after an unassign), so a
+// caller never needs a follow-up show to confirm what landed (docs/DESIGN.md
+// §9).
+type assignResultJSON struct {
+	OK       bool   `json:"ok"`
+	Assignee string `json:"assignee"`
+}
+
+// releasedJSON is `unassign --list`'s success shape: the count of tasks
+// whose assignment was cleared — 0 when the list held none, which is not an
+// error (docs/DESIGN.md §9).
+type releasedJSON struct {
+	OK       bool `json:"ok"`
+	Released int  `json:"released"`
+}
+
+// priorityResultJSON is `priority`'s success shape: it echoes the level
+// that landed (docs/DESIGN.md §9).
+type priorityResultJSON struct {
+	OK       bool   `json:"ok"`
+	Priority string `json:"priority"`
+}
+
+func runAssign(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	force, _ := cmd.Flags().GetBool("force")
+	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("task", args[0])
+		if err != nil {
+			return err
+		}
+		agent := agentIdentity()
+		if err := s.AssignTask(id, agent, force); err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {}, assignResultJSON{OK: true, Assignee: agent})
+		return nil
+	})
+}
+
+func runUnassign(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	listPrefix, _ := cmd.Flags().GetString("list")
+	return runStore(cmd, func(s *store.Store) error {
+		if listPrefix != "" {
+			listID, err := s.ResolveID("list", listPrefix)
+			if err != nil {
+				return err
+			}
+			n, err := s.UnassignList(listID)
+			if err != nil {
+				return err
+			}
+			printResult(jsonMode, func() {}, releasedJSON{OK: true, Released: n})
+			return nil
+		}
+		id, err := s.ResolveID("task", args[0])
+		if err != nil {
+			return err
+		}
+		if err := s.UnassignTask(id, agentIdentity(), false); err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {}, assignResultJSON{OK: true, Assignee: ""})
+		return nil
+	})
+}
+
+// runPriority rejects an empty --level with the §9 error shape rather than
+// defaulting it to none: store.SetPriority refuses the zero value, so an
+// omitted flag must surface as a failure, not a silent re-prioritisation
+// (docs/plan/mcp-assignment-and-priorities.md §6.5). The level's value
+// itself is store.SetPriority's validation, like runProgress's mode.
+func runPriority(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	level, _ := cmd.Flags().GetString("level")
+	if level == "" {
+		err := fmt.Errorf("--level is required: none, low, medium, or high")
+		printError(jsonMode, err)
+		return domainError(err)
+	}
+	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("task", args[0])
+		if err != nil {
+			return err
+		}
+		if err := s.SetPriority(id, store.Priority(level)); err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {}, priorityResultJSON{OK: true, Priority: level})
 		return nil
 	})
 }
