@@ -569,11 +569,15 @@ func TestMCPShowTaskIncludesChildren(t *testing.T) {
 	var detailsArr []struct {
 		ID       string `json:"id"`
 		Title    string `json:"title"`
+		Assignee string `json:"assignee"`
+		Priority string `json:"priority"`
 		Children []struct {
-			ID     string `json:"id"`
-			Title  string `json:"title"`
-			Depth  int    `json:"depth"`
-			Status string `json:"status"`
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			Depth    int    `json:"depth"`
+			Status   string `json:"status"`
+			Assignee string `json:"assignee"`
+			Priority string `json:"priority"`
 		} `json:"children"`
 	}
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
@@ -587,12 +591,23 @@ func TestMCPShowTaskIncludesChildren(t *testing.T) {
 	if details.ID != parent["id"] || details.Title != "Renovation" {
 		t.Fatalf("show_task root = %+v", details)
 	}
+	// The assignment/priority fields land on the root and every descendant
+	// row (docs/plan/mcp-assignment-and-priorities.md §8); nothing is
+	// assigned here, so they report their zero values.
+	if details.Assignee != "" || details.Priority != "none" {
+		t.Fatalf("show_task root assignee/priority = %q/%q, want \"\"/none",
+			details.Assignee, details.Priority)
+	}
 	if len(details.Children) != 2 {
 		t.Fatalf("want 2 children (child + grandchild), got %+v", details.Children)
 	}
 	byID := make(map[string]int)
 	for _, c := range details.Children {
 		byID[c.ID] = c.Depth
+		if c.Assignee != "" || c.Priority != "none" {
+			t.Fatalf("child %s assignee/priority = %q/%q, want \"\"/none",
+				c.ID, c.Assignee, c.Priority)
+		}
 	}
 	if byID[child["id"]] != 1 {
 		t.Fatalf("child depth = %d, want 1", byID[child["id"]])
@@ -684,17 +699,24 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	defer db.Close()
 	theirTaskID := store.NewID()
 	now := time.Now().Unix()
+	// Seed the task already assigned to claude at high priority, so the read
+	// shapes' assignee/assigned_at/assignee_live/priority fields have real
+	// values to carry (docs/plan/mcp-assignment-and-priorities.md §8).
 	if _, err := db.Exec(
-		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
-		 VALUES (?, ?, NULL, ?, '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
-		theirTaskID, theirList["id"], "Their task", now, now,
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at, assignee, assigned_at, priority)
+		 VALUES (?, ?, NULL, ?, '', 'pending', 'none', NULL, 0, ?, ?, NULL, 'claude', ?, 'high')`,
+		theirTaskID, theirList["id"], "Their task", now, now, now,
 	); err != nil {
 		t.Fatalf("seed task on claude's list: %v", err)
 	}
 
-	// show_task carries list_owner on the task.
+	// show_task carries list_owner and the assignment fields on the task.
 	var detailsArr []struct {
-		ListOwner string `json:"list_owner"`
+		ListOwner    string `json:"list_owner"`
+		Assignee     string `json:"assignee"`
+		AssignedAt   *int64 `json:"assigned_at"`
+		AssigneeLive bool   `json:"assignee_live"`
+		Priority     string `json:"priority"`
 	}
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
 		"ids": []string{theirTaskID},
@@ -705,11 +727,21 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	if detailsArr[0].ListOwner != "claude" {
 		t.Fatalf("show_task list_owner = %q, want claude", detailsArr[0].ListOwner)
 	}
+	if detailsArr[0].Assignee != "claude" || detailsArr[0].AssignedAt == nil || detailsArr[0].Priority != "high" {
+		t.Fatalf("show_task assignment fields = %+v, want assignee claude with assigned_at and priority high", detailsArr[0])
+	}
+	// claude has no live presence claim yet: the assignment is stale.
+	if detailsArr[0].AssigneeLive {
+		t.Fatal("show_task assignee_live = true, want false with no live claim")
+	}
 
-	// list_tasks carries list_owner on every row.
+	// list_tasks carries list_owner and the assignment fields on every row.
 	var rows []struct {
-		ID        string `json:"id"`
-		ListOwner string `json:"list_owner"`
+		ID           string `json:"id"`
+		ListOwner    string `json:"list_owner"`
+		Assignee     string `json:"assignee"`
+		AssigneeLive bool   `json:"assignee_live"`
+		Priority     string `json:"priority"`
 	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": theirList["id"],
@@ -717,13 +749,20 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	if len(rows) == 0 || rows[0].ListOwner != "claude" {
 		t.Fatalf("list_tasks list_owner = %+v, want claude on every row", rows)
 	}
+	if rows[0].Assignee != "claude" || rows[0].AssigneeLive || rows[0].Priority != "high" {
+		t.Fatalf("list_tasks assignment fields = %+v, want claude / stale / high", rows[0])
+	}
 
-	// search_tasks carries list_owner per result (results span both lists).
+	// search_tasks carries list_owner and the assignment fields per result
+	// (results span both lists).
 	var results []struct {
-		ID        string `json:"id"`
-		ListID    string `json:"list_id"`
-		ListOwner string `json:"list_owner"`
-		Title     string `json:"title"`
+		ID           string `json:"id"`
+		ListID       string `json:"list_id"`
+		ListOwner    string `json:"list_owner"`
+		Title        string `json:"title"`
+		Assignee     string `json:"assignee"`
+		AssigneeLive bool   `json:"assignee_live"`
+		Priority     string `json:"priority"`
 	}
 	mustUnmarshal(t, callTool(t, session, "search_tasks", map[string]any{"query": "task"}), &results)
 	var foundAgent, foundClaude bool
@@ -731,12 +770,36 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 		switch r.ListOwner {
 		case "agent":
 			foundAgent = true
+			if r.Assignee != "" || r.Priority != "none" {
+				t.Fatalf("search_tasks own row assignment fields = %+v, want unassigned/none", r)
+			}
 		case "claude":
 			foundClaude = true
+			if r.Assignee != "claude" || r.AssigneeLive || r.Priority != "high" {
+				t.Fatalf("search_tasks assignment fields = %+v, want claude / stale / high", r)
+			}
 		}
 	}
 	if !foundAgent || !foundClaude {
 		t.Fatalf("search_tasks list_owner results = %+v, want both agent and claude", results)
+	}
+
+	// Light a live presence claim under claude: assignee_live flips without
+	// the assignment itself changing — presence and assignment stay distinct
+	// axes (docs/DESIGN.md §3).
+	callTool(t, session, "claim_work", map[string]any{
+		"entity_type": "task",
+		"entity_id":   theirTaskID,
+		"agent_id":    "claude",
+	})
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{theirTaskID},
+	}), &detailsArr)
+	if !detailsArr[0].AssigneeLive {
+		t.Fatal("show_task assignee_live = false after claude claimed work, want true")
+	}
+	if detailsArr[0].Assignee != "claude" {
+		t.Fatalf("claim_work changed the assignee to %q — presence must not touch assignment", detailsArr[0].Assignee)
 	}
 
 	// The own list's task also has the right list_owner.
@@ -1966,6 +2029,13 @@ func TestShowTasksBatch(t *testing.T) {
 	if got[0]["title"] != "A" || got[0]["notes"] != "aa" {
 		t.Errorf("row 0: %#v", got[0])
 	}
+	// The assignment/priority fields are present on every row
+	// (docs/plan/mcp-assignment-and-priorities.md §8); nothing is assigned
+	// here, so they report their zero values.
+	if got[0]["assignee"] != "" || got[0]["priority"] != "none" || got[0]["assignee_live"] != false {
+		t.Errorf("row 0 assignment fields = assignee %#v priority %#v assignee_live %#v, want \"\"/none/false",
+			got[0]["assignee"], got[0]["priority"], got[0]["assignee_live"])
+	}
 	if got[1]["title"] != "B" {
 		t.Errorf("row 1: %#v", got[1])
 	}
@@ -1980,6 +2050,91 @@ func TestShowTasksBatch(t *testing.T) {
 	}
 	if _, hasErr := got[2]["error"]; !hasErr {
 		t.Errorf("row 2 must be an error row, got %#v", got[2])
+	}
+}
+
+// TestMCPShowTaskReturnsDescendantNotesAndComments pins step 6 of the
+// assignment plan: show_task is self-contained — every descendant row comes
+// back with its FULL notes and its comments, uncapped. The child's notes are
+// deliberately longer than list_tasks' notesTruncationLimit to prove the
+// subtree path never cuts a body mid-text (decision 8).
+func TestMCPShowTaskReturnsDescendantNotesAndComments(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+
+	var parent map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Renovation",
+	}), &parent)
+
+	longNotes := strings.Repeat("paint spec ", 300) // ~3.3 KB, past any truncation limit
+	var child map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Buy paint",
+		"parent":  parent["id"],
+		"notes":   longNotes,
+	}), &child)
+
+	var grand map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Pick colour",
+		"parent":  child["id"],
+	}), &grand)
+
+	callTool(t, session, "add_comment", map[string]any{
+		"task_id": child["id"],
+		"note":    "checking in",
+	})
+
+	var detailsArr []struct {
+		ID       string `json:"id"`
+		Children []struct {
+			ID       string `json:"id"`
+			Notes    string `json:"notes"`
+			HasNotes bool   `json:"has_notes"`
+			NotesLen int    `json:"notes_len"`
+			Comments []struct {
+				Note string `json:"note"`
+			} `json:"comments"`
+		} `json:"children"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{parent["id"]},
+	}), &detailsArr)
+	if len(detailsArr) != 1 {
+		t.Fatalf("show_task returned %d rows, want 1", len(detailsArr))
+	}
+
+	rows := make(map[string]int)
+	for i, c := range detailsArr[0].Children {
+		rows[c.ID] = i
+	}
+	childIdx, ok := rows[child["id"]]
+	if !ok {
+		t.Fatalf("child row missing from show_task children: %+v", detailsArr[0].Children)
+	}
+	crow := detailsArr[0].Children[childIdx]
+	if crow.Notes != longNotes {
+		t.Fatalf("child notes came back %d chars, want the full %d uncapped", len(crow.Notes), len(longNotes))
+	}
+	if !crow.HasNotes || crow.NotesLen != len(longNotes) {
+		t.Fatalf("child has_notes/notes_len = %v/%d, want true/%d", crow.HasNotes, crow.NotesLen, len(longNotes))
+	}
+	if len(crow.Comments) != 1 || crow.Comments[0].Note != "checking in" {
+		t.Fatalf("child comments = %+v, want the one comment", crow.Comments)
+	}
+
+	grandIdx, ok := rows[grand["id"]]
+	if !ok {
+		t.Fatalf("grandchild row missing from show_task children: %+v", detailsArr[0].Children)
+	}
+	if gcomments := detailsArr[0].Children[grandIdx].Comments; len(gcomments) != 0 {
+		t.Fatalf("grandchild comments = %+v, want none", gcomments)
 	}
 }
 
@@ -2681,4 +2836,136 @@ func TestMain(m *testing.M) {
 	// Tests set XDG_DATA_HOME explicitly; make sure the default HOME-based
 	// path is not accidentally used when t.Setenv is active.
 	os.Exit(m.Run())
+}
+
+// TestInboxAssigneeLiveAcrossLists pins that assignee_live is correct on
+// every list in the inbox, not just the first. The inbox calls sectionRows
+// once per list, so the presence map is read once by the resource and passed
+// down; reading it inside sectionRows instead would run one ListWork query
+// per list (docs/plan/mcp-assignment-and-priorities.md §8).
+//
+// Liveness is a property of the AGENT, not the task, so the two rows need two
+// different assignees: pi (writing, therefore present) on its own list, and a
+// tag that never appears in AgentActivity on the foreign one. The second is
+// the stale-assignment tier (§3), and it has to stay false across the
+// mine/foreign_lists split.
+func TestInboxAssigneeLiveAcrossLists(t *testing.T) {
+	data := t.TempDir()
+	piSession := sessionAs(t, data, "pi")
+	claudeSession := sessionAs(t, data, "claude")
+
+	var mineList, foreignList map[string]string
+	mustUnmarshal(t, callTool(t, piSession, "add_list", map[string]any{"name": "pi: Board"}), &mineList)
+	mustUnmarshal(t, callTool(t, claudeSession, "add_list", map[string]any{"name": "claude: Board"}), &foreignList)
+
+	var liveTask, staleTask map[string]string
+	mustUnmarshal(t, callTool(t, piSession, "add_task", map[string]any{
+		"list_id": mineList["id"], "title": "Held by a live agent",
+	}), &liveTask)
+	mustUnmarshal(t, callTool(t, claudeSession, "add_task", map[string]any{
+		"list_id": foreignList["id"], "title": "Held by a dead agent",
+	}), &staleTask)
+
+	db, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := db.AssignTask(liveTask["id"], "pi", false); err != nil {
+		t.Fatalf("AssignTask pi: %v", err)
+	}
+	// "ghost" never holds a presence claim, so this row is the stale tier.
+	if err := db.AssignTask(staleTask["id"], "ghost", false); err != nil {
+		t.Fatalf("AssignTask ghost: %v", err)
+	}
+	if _, err := db.ClaimWork("task", liveTask["id"], "pi", store.ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	db.Close()
+
+	type row struct {
+		ID           string `json:"id"`
+		Assignee     string `json:"assignee"`
+		AssigneeLive bool   `json:"assignee_live"`
+	}
+	type block struct {
+		Tasks []row `json:"tasks"`
+	}
+	var inbox struct {
+		Mine    block   `json:"mine"`
+		Foreign []block `json:"foreign_lists"`
+	}
+	mustUnmarshal(t, readResourceText(t, piSession, "crush:///inbox"), &inbox)
+
+	seen := map[string]row{}
+	for _, b := range append([]block{inbox.Mine}, inbox.Foreign...) {
+		for _, r := range b.Tasks {
+			seen[r.ID] = r
+		}
+	}
+
+	got, ok := seen[liveTask["id"]]
+	if !ok {
+		t.Fatal("inbox missing the task on pi's own list")
+	}
+	if got.Assignee != "pi" || !got.AssigneeLive {
+		t.Errorf("live row: assignee=%q live=%v, want pi/true", got.Assignee, got.AssigneeLive)
+	}
+
+	got, ok = seen[staleTask["id"]]
+	if !ok {
+		t.Fatal("inbox missing the task on the foreign list")
+	}
+	if got.Assignee != "ghost" || got.AssigneeLive {
+		t.Errorf("stale row: assignee=%q live=%v, want ghost/false — the stale tier would never fire", got.Assignee, got.AssigneeLive)
+	}
+}
+
+// TestUnassignedRowIsNeverLive pins that an unassigned row reports
+// assignee_live false even while another agent is demonstrably live. The
+// field answers "is THIS row's holder at the keyboard", and a row with no
+// holder has no answer but false — the TUI's stale tier reads
+// assignee != "" && !assignee_live, so a true here would be invisible there
+// but wrong everywhere else.
+func TestUnassignedRowIsNeverLive(t *testing.T) {
+	data := t.TempDir()
+	session := sessionAs(t, data, "pi")
+
+	var list, held, free map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "pi: Board"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "Owned",
+	}), &held)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "Nobody owns this",
+	}), &free)
+
+	db, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err := db.AssignTask(held["id"], "pi", false); err != nil {
+		t.Fatalf("AssignTask: %v", err)
+	}
+	if _, err := db.ClaimWork("task", held["id"], "pi", store.ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	db.Close()
+
+	var details []struct {
+		Assignee     string `json:"assignee"`
+		AssigneeLive bool   `json:"assignee_live"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{held["id"], free["id"]},
+	}), &details)
+
+	if details[0].Assignee != "pi" || !details[0].AssigneeLive {
+		t.Fatalf("held task: assignee=%q live=%v, want pi/true", details[0].Assignee, details[0].AssigneeLive)
+	}
+	if details[1].Assignee != "" {
+		t.Fatalf("free task assignee = %q, want empty", details[1].Assignee)
+	}
+	if details[1].AssigneeLive {
+		t.Error("unassigned task reports assignee_live true while another agent is live")
+	}
 }

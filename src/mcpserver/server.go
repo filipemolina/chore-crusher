@@ -47,22 +47,32 @@ type taskRowJSON struct {
 	NotesLen       int           `json:"notes_len"`
 	Notes          string        `json:"notes,omitempty"`           // populated only when include=notes; see step B
 	NotesTruncated bool          `json:"notes_truncated,omitempty"` // true when inlined notes were trimmed to notesTruncationLimit; see step B
+	Assignee       string        `json:"assignee"`                  // "" when unassigned
+	AssignedAt     *int64        `json:"assigned_at"`               // null when unassigned
+	AssigneeLive   bool          `json:"assignee_live"`             // live presence claim by the assignee
+	Priority       string        `json:"priority"`                  // none|low|medium|high
+	ContextOnly    bool          `json:"context_only,omitempty"`    // ancestor skeleton row
+	Comments       []commentJSON `json:"comments,omitempty"`        // descendant rows in show_task; include=['comments'] in list_tasks
 }
 
 // taskDetailsJSON is the payload for the show_task tool.
 type taskDetailsJSON struct {
-	ID          string        `json:"id"`
-	ListID      string        `json:"list_id"`
-	ListOwner   string        `json:"list_owner"`
-	Title       string        `json:"title"`
-	Notes       string        `json:"notes"`
-	Status      string        `json:"status"`
-	Progress    progressJSON  `json:"progress"`
-	CreatedAt   int64         `json:"created_at"`
-	UpdatedAt   int64         `json:"updated_at"`
-	CompletedAt *int64        `json:"completed_at"`
-	Children    []taskRowJSON `json:"children"`
-	Comments    []commentJSON `json:"comments"`
+	ID           string        `json:"id"`
+	ListID       string        `json:"list_id"`
+	ListOwner    string        `json:"list_owner"`
+	Title        string        `json:"title"`
+	Notes        string        `json:"notes"`
+	Status       string        `json:"status"`
+	Progress     progressJSON  `json:"progress"`
+	CreatedAt    int64         `json:"created_at"`
+	UpdatedAt    int64         `json:"updated_at"`
+	CompletedAt  *int64        `json:"completed_at"`
+	Assignee     string        `json:"assignee"`      // "" when unassigned
+	AssignedAt   *int64        `json:"assigned_at"`   // null when unassigned
+	AssigneeLive bool          `json:"assignee_live"` // live presence claim by the assignee
+	Priority     string        `json:"priority"`      // none|low|medium|high
+	Children     []taskRowJSON `json:"children"`
+	Comments     []commentJSON `json:"comments"`
 }
 
 // commentJSON mirrors store.Comment for the MCP surface (docs/plan/task-comments.md
@@ -77,13 +87,17 @@ type commentJSON struct {
 
 // searchResultJSON is one row of the search_tasks result.
 type searchResultJSON struct {
-	ID        string       `json:"id"`
-	ListID    string       `json:"list_id"`
-	ListName  string       `json:"list_name"`
-	ListOwner string       `json:"list_owner"`
-	Title     string       `json:"title"`
-	Status    string       `json:"status"`
-	Progress  progressJSON `json:"progress"`
+	ID           string       `json:"id"`
+	ListID       string       `json:"list_id"`
+	ListName     string       `json:"list_name"`
+	ListOwner    string       `json:"list_owner"`
+	Title        string       `json:"title"`
+	Status       string       `json:"status"`
+	Progress     progressJSON `json:"progress"`
+	Assignee     string       `json:"assignee"`      // "" when unassigned
+	AssignedAt   *int64       `json:"assigned_at"`   // null when unassigned
+	AssigneeLive bool         `json:"assignee_live"` // live presence claim by the assignee
+	Priority     string       `json:"priority"`      // none|low|medium|high
 }
 
 // NewServer opens the default store, registers every MCP tool, and returns
@@ -279,7 +293,11 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		rows, err := sectionRows(s, tasks, in.Status, list.CreatedBy)
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		rows, err := sectionRows(s, tasks, in.Status, list.CreatedBy, live)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -327,7 +345,11 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		rows, err := sectionRows(s, all, "all", list.CreatedBy)
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		rows, err := sectionRows(s, all, "all", list.CreatedBy, live)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -387,7 +409,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "show_task",
-		Description: "Show full details (notes, children, comments) for 1..50 tasks. Example: show_task(ids=['01ABC','01DEF']). Returns an array in the same order as ids; an id that cannot be resolved comes back as {id,error}.",
+		Description: "Show full details for 1..50 tasks: notes, comments, and the entire subtree — every descendant row carries its own full notes and comments, uncapped, so one call replaces N. Example: show_task(ids=['01ABC','01DEF']). Returns an array in the same order as ids; an id that cannot be resolved comes back as {id,error}.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		IDs []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
 	}) (*mcp.CallToolResult, any, error) {
@@ -402,6 +424,13 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			Error string `json:"error"`
 		}
 		out := make([]any, 0, len(in.IDs))
+		// One presence read for the whole batch: assignee_live on every row
+		// joins against this map instead of querying per row
+		// (docs/plan/mcp-assignment-and-priorities.md §8).
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		for _, raw := range in.IDs {
 			id, err := s.ResolveID("task", raw)
 			if err != nil {
@@ -428,7 +457,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				out = append(out, errRow{ID: raw, Error: err.Error()})
 				continue
 			}
-			children, err := descendantRows(s, all, id, l.CreatedBy)
+			children, err := descendantRows(s, all, id, l.CreatedBy, live)
 			if err != nil {
 				out = append(out, errRow{ID: raw, Error: err.Error()})
 				continue
@@ -438,20 +467,13 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				out = append(out, errRow{ID: raw, Error: err.Error()})
 				continue
 			}
-			commentJSONs := make([]commentJSON, 0, len(comments))
-			for _, c := range comments {
-				commentJSONs = append(commentJSONs, commentJSON{
-					ID:        c.ID,
-					Author:    c.Author,
-					Note:      c.Note,
-					CreatedAt: c.CreatedAt,
-				})
-			}
 			out = append(out, taskDetailsJSON{
 				ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
 				Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
-				UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt, Children: children,
-				Comments: commentJSONs,
+				UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt,
+				Assignee: t.Assignee, AssignedAt: t.AssignedAt,
+				AssigneeLive: assigneeLive(live, t.Assignee), Priority: string(t.Priority),
+				Children: children, Comments: commentsJSON(comments),
 			})
 		}
 		return jsonResult(out)
@@ -682,6 +704,11 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			listOwners[l.List.ID] = l.List.CreatedBy
 		}
 
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+
 		out := make([]searchResultJSON, len(tasks))
 		for i, t := range tasks {
 			prog, err := taskProgressJSON(s, t.ID)
@@ -689,13 +716,17 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				return errorResult(err), nil, nil
 			}
 			out[i] = searchResultJSON{
-				ID:        t.ID,
-				ListID:    t.ListID,
-				ListName:  listNames[t.ListID],
-				ListOwner: listOwners[t.ListID],
-				Title:     t.Title,
-				Status:    string(t.Status),
-				Progress:  prog,
+				ID:           t.ID,
+				ListID:       t.ListID,
+				ListName:     listNames[t.ListID],
+				ListOwner:    listOwners[t.ListID],
+				Title:        t.Title,
+				Status:       string(t.Status),
+				Progress:     prog,
+				Assignee:     t.Assignee,
+				AssignedAt:   t.AssignedAt,
+				AssigneeLive: assigneeLive(live, t.Assignee),
+				Priority:     string(t.Priority),
 			}
 		}
 		return jsonResult(out)
@@ -806,7 +837,12 @@ func requireOwnComment(s *store.Store, identity, commentID string) (store.Commen
 
 // sectionRows returns the preorder task rows for a status filter, mirroring
 // the CLI's sectionRows logic (docs/DESIGN.md §6, §9).
-func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner string) ([]taskRowJSON, error) {
+//
+// live is read once per request by the caller and passed in, exactly like
+// descendantRows: the inbox resource calls this once per list, so reading
+// presence in here would run one ListWork query per list rather than one per
+// request (docs/plan/mcp-assignment-and-priorities.md §8).
+func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner string, live map[string]bool) ([]taskRowJSON, error) {
 	converted := apptypes.FromStoreTasks(tasks)
 	rows := apptypes.Flatten(converted)
 	byID := make(map[string]apptypes.Task, len(converted))
@@ -841,14 +877,18 @@ func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner st
 		}
 		notes := r.Task.Notes
 		row := taskRowJSON{
-			ID:        r.Task.ID,
-			ParentID:  r.Task.ParentID,
-			Title:     r.Task.Title,
-			Status:    string(r.Task.Status),
-			Depth:     r.Depth,
-			ListOwner: listOwner,
-			HasNotes:  len(notes) > 0,
-			NotesLen:  len(notes),
+			ID:           r.Task.ID,
+			ParentID:     r.Task.ParentID,
+			Title:        r.Task.Title,
+			Status:       string(r.Task.Status),
+			Depth:        r.Depth,
+			ListOwner:    listOwner,
+			HasNotes:     len(notes) > 0,
+			NotesLen:     len(notes),
+			Assignee:     r.Task.Assignee,
+			AssignedAt:   r.Task.AssignedAt,
+			AssigneeLive: assigneeLive(live, r.Task.Assignee),
+			Priority:     string(r.Task.Priority),
 		}
 		if !(prog.Kind == "none" && prog.Percent == nil && prog.DisplayAsSimple) {
 			p := prog
@@ -880,7 +920,13 @@ func taskProgressJSON(s *store.Store, id string) (progressJSON, error) {
 // through apptypes.Flatten, but Flatten only emits ParentID==nil rows, so a
 // pure-descendant set (no list root) flattened to nothing and "children"
 // was always empty.
-func descendantRows(s *store.Store, tasks []store.Task, rootID string, listOwner string) ([]taskRowJSON, error) {
+//
+// Every row carries its full notes and comments, uncapped: a task's subtree
+// is bounded, so one show_task call must be self-contained
+// (docs/plan/mcp-assignment-and-priorities.md §4, decision 8). live maps
+// agent tags to a live presence claim and is read once per request by the
+// caller — do not query presence per row here.
+func descendantRows(s *store.Store, tasks []store.Task, rootID string, listOwner string, live map[string]bool) ([]taskRowJSON, error) {
 	rows := apptypes.DescendantsOf(apptypes.FromStoreTasks(tasks), rootID)
 	out := make([]taskRowJSON, 0, len(rows))
 	for _, r := range rows {
@@ -888,16 +934,26 @@ func descendantRows(s *store.Store, tasks []store.Task, rootID string, listOwner
 		if err != nil {
 			return nil, err
 		}
+		comments, err := s.ListComments(r.Task.ID)
+		if err != nil {
+			return nil, err
+		}
 		notes := r.Task.Notes
 		row := taskRowJSON{
-			ID:        r.Task.ID,
-			ParentID:  r.Task.ParentID,
-			Title:     r.Task.Title,
-			Status:    string(r.Task.Status),
-			Depth:     r.Depth,
-			ListOwner: listOwner,
-			HasNotes:  len(notes) > 0,
-			NotesLen:  len(notes),
+			ID:           r.Task.ID,
+			ParentID:     r.Task.ParentID,
+			Title:        r.Task.Title,
+			Status:       string(r.Task.Status),
+			Depth:        r.Depth,
+			ListOwner:    listOwner,
+			HasNotes:     len(notes) > 0,
+			NotesLen:     len(notes),
+			Notes:        notes,
+			Assignee:     r.Task.Assignee,
+			AssignedAt:   r.Task.AssignedAt,
+			AssigneeLive: assigneeLive(live, r.Task.Assignee),
+			Priority:     string(r.Task.Priority),
+			Comments:     commentsJSON(comments),
 		}
 		if !(prog.Kind == "none" && prog.Percent == nil && prog.DisplayAsSimple) {
 			p := prog
@@ -906,6 +962,47 @@ func descendantRows(s *store.Store, tasks []store.Task, rootID string, listOwner
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// commentsJSON converts store comments to the MCP shape. Used for both the
+// root task and every descendant row in show_task so the two cannot drift.
+func commentsJSON(comments []store.Comment) []commentJSON {
+	out := make([]commentJSON, 0, len(comments))
+	for _, c := range comments {
+		out = append(out, commentJSON{
+			ID:        c.ID,
+			Author:    c.Author,
+			Note:      c.Note,
+			CreatedAt: c.CreatedAt,
+		})
+	}
+	return out
+}
+
+// liveAgents returns the set of agent tags holding a live presence claim.
+// store.ListWork already filters to claims within WorkTTL, so membership is
+// exactly "at the keyboard right now" (docs/DESIGN.md §3). Read once per
+// request and joined against row assignees to compute assignee_live — the
+// stale-assignment tier is assignee != "" && !assignee_live.
+// assigneeLive reports whether an assigned task's holder is at the keyboard.
+// An unassigned row is never live: without the empty-string guard a stray
+// AgentActivity row with an empty agent_id would light up assignee_live on
+// every unassigned task in the response, and the TUI's stale tier reads this
+// field as "assignee != ” && !assignee_live" (docs/DESIGN.md §3).
+func assigneeLive(live map[string]bool, assignee string) bool {
+	return assignee != "" && live[assignee]
+}
+
+func liveAgents(s *store.Store) (map[string]bool, error) {
+	work, err := s.ListWork()
+	if err != nil {
+		return nil, err
+	}
+	live := make(map[string]bool, len(work))
+	for _, w := range work {
+		live[w.AgentID] = true
+	}
+	return live, nil
 }
 
 func validStatusFilter(status string) bool {
@@ -1096,6 +1193,12 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 			Collaborative bool          `json:"collaborative,omitempty"`
 			Tasks         []taskRowJSON `json:"tasks"`
 		}
+		// Hoisted out of the loop: one presence read for the whole inbox, not
+		// one per list (docs/plan/mcp-assignment-and-priorities.md §8).
+		live, err := liveAgents(s)
+		if err != nil {
+			return nil, err
+		}
 		var mine block
 		foreign := make([]block, 0)
 		for _, l := range lists {
@@ -1103,7 +1206,7 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 			if err != nil {
 				return nil, err
 			}
-			rows, err := sectionRows(s, tasks, "pending", l.CreatedBy)
+			rows, err := sectionRows(s, tasks, "pending", l.CreatedBy, live)
 			if err != nil {
 				return nil, err
 			}
