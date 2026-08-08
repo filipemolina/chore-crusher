@@ -25,8 +25,7 @@
   other sees within a second.
 
 - **Tree-structured with derived progress.** Nest tasks to any depth and watch
-  percentages compute automatically (`completed / total`). Long tasks naturally
-  break down while you work.
+  percentages compute automatically (`completed / total`).
 
 ---
 
