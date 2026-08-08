@@ -30,13 +30,18 @@ Set Theme "Dracula"
 Set CursorBlink false
 Set TypingSpeed 45ms
 
+# Build the binary first, then seed the store with deterministic data.
+Hide
+Type "make build && ./demo/seed.sh && clear"
+Enter
+Sleep 3s
+Show
+
 # Same throwaway dirs the seed used: recording neither depends on nor
 # overwrites the recorder's real store or config.
-Hide
 Type "export XDG_DATA_HOME=/tmp/chore-crusher-demo/data XDG_CONFIG_HOME=/tmp/chore-crusher-demo/config && clear"
 Enter
 Sleep 800ms
-Show
 
 Type "./crush"
 Enter
