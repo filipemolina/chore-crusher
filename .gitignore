@@ -15,3 +15,17 @@
 /demo/*.gif
 /demo/*.png
 chore-crusher
+
+# Agent-drafting artefacts. Plans are working documents for whoever (or
+# whatever) is implementing a change; they are not product documentation and
+# they go stale in ways the code does not. The surviving content lives in
+# docs/DESIGN.md and docs/ROADMAP.md. The originals are kept outside the repo,
+# at ~/Documents/projects/plans/chore-crusher/.
+/docs/plan/
+/docs/plans/
+/MCP_COMFORT_PLAN.md
+
+# Local tooling state, machine-specific and not part of the project.
+/.token-optimizer/
+/.pi/
+/.claude/
