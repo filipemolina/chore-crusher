@@ -11,9 +11,7 @@
 *.db-wal
 *.db-shm
 
-# Screenshots and demo recordings staged for README/docs but not yet committed.
-/demo/*.gif
-/demo/*.png
+
 chore-crusher
 
 # Agent-drafting artefacts. Plans are working documents for whoever (or
