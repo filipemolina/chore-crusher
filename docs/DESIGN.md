@@ -83,7 +83,7 @@ Task
                  -- and used by next_task's ordering (§9) — and by nothing
                  -- else: priority does NOT re-sort the tree, which stays
                  -- ordered by `position` alone.
-                 -- Migration: 0006 (docs/plan/mcp-assignment-and-priorities.md)
+                 -- Migration: 0006
 ```
 
 Why ULIDs and not autoincrement integers: task and list ids are handed to the
@@ -176,7 +176,7 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAgentClaims` when the MCP session ends (client disconnect), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected (hardening plan H13).
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat; they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAgentClaims` when the MCP session ends (client disconnect), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected.
 
 **Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) has no TTL and no background sweeper — it changes only when someone explicitly assigns, unassigns or completes the task (§9 `assign_task` / `next_task`), **or when the session holding it ends**. It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. **An assignment lives for the session that made it.** An MCP session's identity is unique to its process unless `CRUSH_AGENT` pins it (§9), so a tag that will never return must not hold work forever: on shutdown the server releases its own claims and its own assignments, and removes the Inbox it auto-created if that Inbox is empty. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget.
 
@@ -422,8 +422,7 @@ The zone shows `none` where the task row's badge shows nothing (§12): a field
 being edited has to display the value it holds. The rank is written through
 `store.SetPriority` on `ctrl+s` and **only when it changed** — that store
 function rejects the zero value and bumps `updated_at`, so a save that touched
-only the title must not write the priority at all
-(`docs/plan/mcp-assignment-and-priorities.md` §6.5);
+only the title must not write the priority at all;
 **`↑`/`↓`** move the comment highlight, **`y`** copies the highlighted
 comment's id to the system clipboard, and **`d`** deletes it — routed through
 the same confirm modal every other destructive action uses (§9), with the
@@ -475,7 +474,7 @@ sides take that tier from one place so they cannot drift apart.
 **`enter`** posts it and **`esc`** cancels (a terminal cannot reliably
 distinguish `ctrl+enter` from `enter`, so `enter` is the submit key — `ctrl+enter`
 is accepted as an alias). Comments are short status/handoff notes, so one line is
-sufficient (`docs/plan/task-comments.md` §6). The compose draft is **transient**:
+sufficient. The compose draft is **transient**:
 it is not part of the task's saved fields, so `ctrl+s` never posts it and `esc`
 on the modal (outside the card) needs no discard prompt for it. While the card is
 open the draft survives a poll refresh — the input is cleared only when the card
@@ -731,8 +730,8 @@ makes concurrent readers and a writer not block each other; do not disable it.
 
 **modernc.org/sqlite** — pure Go, no CGO. This preserves stack-stitcher's
 build story unchanged: `CGO_ENABLED=0`, cross-compiled linux/darwin ×
-amd64/arm64 by the same GoReleaser shape (`docs/plans/phase-0-scaffolding.md`
-carries the exact config forward). A CGO-based SQLite driver would be the
+amd64/arm64 by the same GoReleaser shape (`.goreleaser.yaml` carries the
+exact config forward). A CGO-based SQLite driver would be the
 more common choice by download count, but it would make this the one thing
 in the whole toolchain that needs a C compiler to cross-compile, for no
 capability this app uses that the pure-Go driver lacks.
@@ -840,8 +839,8 @@ equals the calling session's identity, with the same error shape the list
 ownership gate (`requireWritable`) uses — `comment <id> is owned by <author>
 — you may only delete your own comments`. The `comment` tool also merges
 the old `add_comment`; deletion alone stays gated by
-`requireOwnComment`, and posting a comment is never blocked by assignment
-(`docs/plan/mcp-assignment-and-priorities.md` §4). This is a narrower rule than list
+`requireOwnComment`, and posting a comment is never blocked by assignment.
+This is a narrower rule than list
 ownership: it keys off the individual comment's author, not the list's
 `created_by`, so an agent can always delete its own comment even on a list
 it does not own.
@@ -914,8 +913,8 @@ is `false` for the stale-assignment tier (§3).
 returns (`mine` + `foreign_lists`). **The read-only resources no longer
 mirror the tools.** Five resources that duplicated a tool row-for-row —
 `crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
-`crush:///tasks/{id}` and `crush:///search/{query}` — were deleted
-(`docs/plan/mcp-assignment-and-priorities.md` §8): keeping them meant every
+`crush:///tasks/{id}` and `crush:///search/{query}` — were deleted:
+keeping them meant every
 field added to a task had to be added in three places or the surfaces
 drifted, and MCP hosts do not auto-read resources, so they cost maintenance
 and bought nothing at runtime. Only `crush:///inbox` (a composed shape with
@@ -963,7 +962,7 @@ from the durable `assign_task` that replaces `claim_work`. Every other task
 write — `add_task`, `comment`, `edit_task` — auto-claims the touched task too;
 `delete_task` does not (the task no longer exists), and `DeleteTask` clears
 any claim rows on the deleted subtree so a removed task cannot keep a spinner
-alive. Full rationale: `docs/plan/mcp-presence-on-all-writes.md`. The
+alive. The
 `crush:///inbox` resource and `crush_inbox` prompt
 deliver all of the above as a single read for start-of-session triage.
 
@@ -993,11 +992,19 @@ so it is refused on a list the caller does not own, exactly like a rename.
 An **omitted** `priority` on `edit_task` leaves the stored value alone: the
 parameter's *presence* is what means "set it", never its emptiness, because
 `store.SetPriority` rejects `""` and a rename must not silently clear a
-`high` someone set (`docs/plan/mcp-assignment-and-priorities.md` §6.5). The
+`high` someone set. The
 value is validated before either tool writes anything, so a rejected priority
-never leaves a created task or a completed rename behind an error. Full rationale: `docs/plan/mcp-batch-writes.md` and
-`docs/plan/mcp-tool-consolidation.md`, with the merged-tool design in
-`docs/plan/mcp-assignment-and-priorities.md` §4.
+never leaves a created task or a completed rename behind an error.
+
+**Why the surface merges tools rather than adding them.** `set_status`
+absorbed the separate status, progress and batch-update tools; `edit_task`
+absorbed rename, set-notes and move; `comment` absorbed add-comment and
+delete-comment. Each pair differed only in which field it wrote, and every
+extra tool is a permanent cost — it sits in the agent's context on every
+single turn, whether or not it is used, and it is one more name the agent has
+to choose correctly. The count that actually matters is *calls*: an agent
+touching fifty tasks should make one call, not fifty. The surface therefore
+trades tool count against call count, and call count wins.
 
 **`assign_task` is the durable grab.** `assign_task(ids, release?, force?)`
 takes 1–50 ids and assigns each to the calling session's identity. An
@@ -1033,8 +1040,7 @@ two calls; as one atomic conditional update it cannot be raced at all —
 which matters because the store file is shared across processes (TUI, CLI,
 and every MCP session), where in-process serialisation buys nothing. With
 `my_list` it makes session open two calls: what boards exist, then here is
-your task and everything about it. Full model:
-`docs/plan/mcp-assignment-and-priorities.md` §3 and §4.
+your task and everything about it.
 
 **Change-detection is folded into `list_tasks` via `since`.**
 `list_tasks(list_id, since=<unix>)` returns only tasks whose `updated_at`
@@ -1047,11 +1053,10 @@ The rows use the exact same shape as `list_tasks` (`has_notes`/`notes_len`,
 omitted-empty `progress`), so `include=['notes']` inlines bodies identically.
 Deletions are not representable by a row filter — a removed task is simply
 absent; an agent that must detect deletions diffs id sets against its last
-`list_tasks`. `updated_at` now means "last activity, including comments"
-(`docs/plan/mcp-list-changes-since.md` §1). The standalone `list_changes`
-tool no longer exists — the `since` parameter is now part of `list_tasks`.
-Full rationale: `docs/plan/mcp-list-changes-since.md` and
-`docs/plan/mcp-assignment-and-priorities.md` §4.
+`list_tasks`. `updated_at` now means "last activity, including comments".
+The standalone `list_changes` tool no longer exists — the `since` parameter
+is now part of `list_tasks`, by the merge rule above: it returned the same
+rows, filtered.
 
 **List ownership, and what the MCP server refuses.** Every `List` carries a
 `created_by` tag (§2). The MCP server resolves its own identity once at start
@@ -1090,14 +1095,14 @@ status/progress only for all agents, and only a human can restructure it.
 `add_list` defaults `created_by` to the session identity and accepts an
 explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `my_list` reports `created_by`
 on every row. Ownership is adopted from the `<tag>: <name>`
-naming convention in two places (hardening plan §4.6–4.7): a rename into a
+naming convention in two places: a rename into a
 tag adopts the owner **in the same write** (`store.RenameList` — the human's
 `crush lists rename Groceries "pi: Groceries"` handoff path takes effect
 immediately), and `crush lists add --owner <tag>` provisions an owned list
 from the start. One idempotent backfill pass at `store.Open` catches
 anything that predates both. The adoption cannot tell intent: any `^tag:`
 prefix is adopted, so a human list named `Note: buy milk` becomes owned by
-tag `Note` — an accepted false-positive class (hardening plan §4.10). The
+tag `Note` — an accepted false-positive class. The
 inverse is deliberately *not* done: `GetOrCreateAgentList` and
 `my_list` match `created_by` only, never the name, so an untagged
 `pi: ...` list is never silently adopted.
@@ -1122,13 +1127,11 @@ the store stays a dumb data layer and the CLI and TUI stay unenforced, which
 is the deliberate front-end divergence CONTRIBUTING rule 5 asks to be written
 down. Identity is self-declared and unauthenticated: this is cooperative
 trust between agents, not a security boundary. When comments arrive they join
-the owner-only bucket behind the same `requireWritable` helper. Full
-rationale and the rejected alternatives:
-`docs/plan/list-ownership-enforcement.md`.
+the owner-only bucket behind the same `requireWritable` helper.
 
 **Output shapes, pinned.** The subcommand list above fixes *which* commands
 and flags exist; this fixes *what each prints*. The shapes below were
-settled in phase 2 (docs/plans/phase-2-cli.md) and are part of the contract,
+settled in phase 2 and are part of the contract,
 so an agent that has read one command's `--help` predicts the shape of the
 rest; the tests in `src/cli` (lists_test.go, tasks_test.go, search_test.go)
 pin them. Two contested calls, and the alternatives rejected: **`tasks` and
@@ -1365,8 +1368,8 @@ unstyled spaces that must themselves carry a background or the terminal's
 own color shows through. Seal innermost first: a tree row seals itself,
 then the panel it sits in seals what's left, then (if a tier-2 frame exists)
 the outermost pass seals last. Port stack-stitcher's
-`appstyles.HasBackgroundBleed` assertion and its background test suite
-(`docs/plans/phase-3-tui-shell.md` step 9's verification) — this is not
+`appstyles.HasBackgroundBleed` assertion and its background test suite —
+this is not
 optional polish, it's the mechanical check that catches a missing
 `Background()` call before it ships.
 
@@ -1445,7 +1448,7 @@ add a title, frame, elevation, or local padding.
 ### Truncation: one function, built in phase 3, used everywhere from the start
 
 **`chrome.Truncate(s string, width int) string`** exists by the end of phase
-3 (`docs/plans/phase-3-tui-shell.md`), not phase 9 — every component that
+3, not phase 9 — every component that
 renders user-supplied text (a task title, a list name, a note preview) calls
 it from the moment that component exists, so there is never a window where
 different components truncate differently because "polish comes later."
@@ -1491,10 +1494,9 @@ Two rules follow from that ordering:
   the row overflowing. Priority outlives the assignee deliberately: at 40
   columns the question "what should I pick up next" outlives "who has it",
   and the assignee is still readable in the Details modal and over every CLI
-  and MCP read (§9). That order is deliberate and is the reverse of what
-  `docs/plan/mcp-server-enhancement.md` §3.7 and
-  `docs/plan/task-row-redesign-and-inline-creation.md` originally specified:
-  those budgeted for overflow alone, with no notion of a floor, so a narrow
+  and MCP read (§9). That order is deliberate and is the reverse of what the
+  row layout originally specified: the first version budgeted for overflow
+  alone, with no notion of a floor, so a narrow
   row spent eleven columns on `IN PROGRESS` while the title shrank to a stub.
   Dropping the label costs the user nothing — the row still carries its status
   in the `◻`/`◼` glyph, in its foreground colour, and in the Pending/Complete
@@ -1541,7 +1543,7 @@ one is needed, it's added here first.
 | Node has children, collapsed | `▸` | Same column, same position — the marker never occupies a leading column, so a parent's title starts at its own depth. |
 | Node is a leaf | *(no glyph)* | Nothing appended; the title simply has no trailing marker. |
 | Task has detail text | `🗎` | U+1F5CE DOCUMENT, left half of the fixed two-cell trailing icon column, immediately right of the status column, in `TextMuted`; the column is reserved on every row and the notes cell is rendered blank when `Notes` is empty, so noted and un-noted rows keep the same right edge. The column is two cells because it pairs with the comments glyph (below). Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
-| Task has comments | `🗨` | U+1F5E8 LEFT SPEECH BUBBLE, right half of the fixed two-cell trailing icon column, in `TextMuted`; the cell is blank when the task has no comments. `💬` (U+1F4AC) was the natural choice but measures two cells in go-runewidth (v0.0.23), which would have widened the column past its partner glyph — `🗨` is the one-cell form (2026-08-06). Absent a comment the cell is blank. `HasComments` is set per-row by `RefreshTasks` from `store.TaskIDsWithComments` (Commit 4 of `docs/plan/task-comments.md`). |
+| Task has comments | `🗨` | U+1F5E8 LEFT SPEECH BUBBLE, right half of the fixed two-cell trailing icon column, in `TextMuted`; the cell is blank when the task has no comments. `💬` (U+1F4AC) was the natural choice but measures two cells in go-runewidth (v0.0.23), which would have widened the column past its partner glyph — `🗨` is the one-cell form (2026-08-06). Absent a comment the cell is blank. `HasComments` is set per-row by `RefreshTasks` from `store.TaskIDsWithComments`. |
 | Row card: active bar | `▌` | Left edge marker on lists and task rows. Accent when the row is selected (or the inline input is active), otherwise the row's own status color — see Row layout below. |
 | Add-input level: sibling (default) | `-` | §4. |
 | Add-input level: child | `+` | §4. |
@@ -1550,10 +1552,10 @@ one is needed, it's added here first.
 | Task priority | ` HIGH` / ` MED` / ` LOW` | All caps, like the status label, in a content-width cell in the right-aligned block immediately left of the assignee badge. **`none` renders nothing at all** — most tasks are `none` and a badge on every row is noise, not information — so the cell is not reserved and rows do not align on it, unlike the fixed status column. The rank is drawn as a *text tier* rather than a colour of its own: `high` in `TextPrimary`, `medium` in `TextMuted`, `low` in `TextDim`. The ladder is the signal; it spends no new theme token and deliberately borrows no status colour, since the row already spends `StatusInProgress`/`StatusComplete` on its status and `StatusOverdue` on a stale assignee. `tasktree.priorityLabel`/`priorityFg`. |
 | Task assignee | ` @tag` | The durable holder of a task (§3), in the right-aligned block immediately left of the agent spinner — the two are adjacent on purpose, because "assigned, but nobody is here" is only legible as a gap between them. The tag is clipped through `chrome.Truncate` to seven cells so one long agent identity cannot push the right block across the row, and an unassigned task renders nothing. `tasktree.assigneeBadge`. |
 | Task assignee: stale | ` @tag` in `StatusOverdue` | The **stale-assignment tier**: `assignee != ""` **and** no live presence claim by that agent (§3). Assignment has no TTL and no background sweeper, and a session releases its own work as it exits, so this badge marks the one case left: a session killed before it could clean up. It is the only thing on screen that distinguishes abandoned work from work merely owned, and the human's `u`/`U` release keys (§5) are the only thing that clears it. Rare by design, not routine. `StatusOverdue` is reused rather than a new token added — it is the same "a human needs to look at this" tier the Details modal and the search picker already draw their error lines in. The live-agent set is read **once per refresh** from the activity set the poll already carries, never per row. `tasktree.assigneeFg`. |
-| Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg` (§3.5 of `mcp-server-enhancement.md`); draws `Accent` when the row is focused/selected, `TextDim` otherwise. Appended to the right-aligned block after the status label when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
+| Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg`; draws `Accent` when the row is focused/selected, `TextDim` otherwise. Appended to the right-aligned block after the status label when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
 | List is collaborative | ` · shared` | Appended to a lists-panel row's count line (`N pending · M done`) when `List.Collaborative` is true — plain text in the same `TextDim` tier the count line already renders in, not a new glyph, so it needs no dedicated symbol here. `src/components/listspanel/View.go`'s `listDelegate.Render`. The rename modal's collaborative toggle (below) reuses the task row's own `◻`/`◼` checkbox glyphs for the same flag, rather than inventing a `[ ]`/`[x]` of its own. |
 
-**Task rows are full-width cards** (docs/plan/task-row-cards-and-status.md):
+**Task rows are full-width cards**:
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the
 left and the right-aligned `{progress}{priority}{assignee}{agent spinner}{status}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
 the line's end — the bar and checkbox sit flush, and every level of depth
@@ -1653,7 +1655,7 @@ of text uses is a rule, not a per-component judgment call:
   `StatusInProgress`, `COMPLETE` in `StatusComplete` (the same tokens the
   checkbox already draws). The three text tiers carry no semantic
   success/warning color, which is why the theme holds these tokens
-  separately (docs/plan/task-row-cards-and-status.md).
+  separately.
 
 Do not introduce a fourth informal tier (a hand-picked opacity, a literal
 gray hex) for "something in between" — if the three don't cover a case,
