@@ -3928,6 +3928,118 @@ func TestMCPNextTaskEmptyBoard(t *testing.T) {
 	}
 }
 
+// TestMCPGrabClaimsPresence pins that a grab is a write for presence
+// purposes, on both grab paths. docs/DESIGN.md §3 defines assignee != "" with
+// assignee_live false as ABANDONED work, so an agent that has just grabbed a
+// task and is demonstrably alive must not read back that way — otherwise the
+// TUI's stale tier lights up on work nobody has let go of, and the §4 conflict
+// text tells a second agent "no live session" about an agent still holding the
+// keyboard. Asserted from a SECOND identity's read, so it pins the claim in
+// the store rather than a value patched into the returned payload.
+func TestMCPGrabClaimsPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		grab func(t *testing.T, session *mcp.ClientSession, listID, taskID string)
+	}{
+		{"assign_task", func(t *testing.T, session *mcp.ClientSession, _, taskID string) {
+			callTool(t, session, "assign_task", map[string]any{"ids": []string{taskID}})
+		}},
+		{"next_task", func(t *testing.T, session *mcp.ClientSession, listID, _ string) {
+			callTool(t, session, "next_task", map[string]any{"list_id": listID})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			alice := sessionAs(t, dataDir, "alice")
+
+			var list map[string]string
+			mustUnmarshal(t, callTool(t, alice, "add_list", map[string]any{"name": "Work"}), &list)
+			var task map[string]string
+			mustUnmarshal(t, callTool(t, alice, "add_task", map[string]any{
+				"list_id": list["id"], "title": "Write docs",
+			}), &task)
+
+			// add_task already claimed under alice; drop it so the only claim
+			// this test can observe is the one the grab itself makes.
+			releaseWork(t, "task", task["id"], "alice")
+
+			tc.grab(t, alice, list["id"], task["id"])
+
+			// bob is a different session against the same store.
+			bob := sessionAs(t, dataDir, "bob")
+			var got []struct {
+				Assignee     string `json:"assignee"`
+				AssigneeLive bool   `json:"assignee_live"`
+			}
+			mustUnmarshal(t, callTool(t, bob, "show_task", map[string]any{
+				"ids": []string{task["id"]},
+			}), &got)
+			if len(got) != 1 || got[0].Assignee != "alice" {
+				t.Fatalf("%s: task should be held by alice, got %+v", tc.name, got)
+			}
+			if !got[0].AssigneeLive {
+				t.Fatalf("%s: assignee_live = false right after the grab — a live "+
+					"holder reads as abandoned (docs/DESIGN.md §3)", tc.name)
+			}
+
+			// And the claim is a real row on crush://work, under alice.
+			var work []struct {
+				AgentID  string `json:"agent_id"`
+				EntityID string `json:"entity_id"`
+			}
+			mustUnmarshal(t, workJSON(t, bob), &work)
+			found := false
+			for _, w := range work {
+				if w.AgentID == "alice" && w.EntityID == task["id"] {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("%s: no crush://work claim by alice on the grabbed task, got %+v",
+					tc.name, work)
+			}
+		})
+	}
+}
+
+// TestMCPAssignReleaseDoesNotClaimPresence is the other half of the rule above:
+// releasing is letting go, so it must not light a spinner on a task the agent
+// no longer holds. Uses the release-when-nobody-held-it path, which succeeds
+// silently (§4), so no earlier grab can have left a claim behind.
+func TestMCPAssignReleaseDoesNotClaimPresence(t *testing.T) {
+	dataDir := t.TempDir()
+	alice := sessionAs(t, dataDir, "alice")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_list", map[string]any{"name": "Work"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_task", map[string]any{
+		"list_id": list["id"], "title": "Write docs",
+	}), &task)
+	releaseWork(t, "task", task["id"], "alice")
+
+	bob := sessionAs(t, dataDir, "bob")
+	var rel []struct {
+		OK bool `json:"ok"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "assign_task", map[string]any{
+		"ids": []string{task["id"]}, "release": true,
+	}), &rel)
+	if len(rel) != 1 || !rel[0].OK {
+		t.Fatalf("release of an unheld task = %+v, want a silent success", rel)
+	}
+
+	var work []struct {
+		AgentID string `json:"agent_id"`
+	}
+	mustUnmarshal(t, workJSON(t, bob), &work)
+	for _, w := range work {
+		if w.AgentID == "bob" {
+			t.Fatalf("release opened a presence claim under bob: %+v", work)
+		}
+	}
+}
+
 // TestMCPAssignSubtreeConflict guards decision 4: a task whose ancestor or
 // descendant is held by a different agent is refused EVEN with force, and
 // the error names the blocker and the release escape hatch - the exact

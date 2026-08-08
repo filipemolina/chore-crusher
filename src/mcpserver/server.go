@@ -618,6 +618,17 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				out = append(out, errRow{ID: id, Error: assignmentConflict(s, id, err, live).Error()})
 				continue
 			}
+			// A grab is a write, so it refreshes presence like every other
+			// write. Without this the agent that just grabbed the task reads
+			// back assignee_live:false, which docs/DESIGN.md §3 defines as
+			// abandoned — the stale tier would light up on work nobody has
+			// let go of. `live` was snapshotted before the grab (it has to
+			// be: the takeover comment reports the PREVIOUS holder's
+			// liveness), so record our own claim in it rather than paying a
+			// second ListWork — we just made it, so it is live by
+			// construction, and §8's one-presence-read-per-request holds.
+			autoClaim(s, "task", id, identity)
+			live[identity] = true
 			if prev != "" && prev != identity {
 				if _, err := s.AddComment(id, identity, takeoverComment(identity, prev, prevAt, live)); err != nil {
 					out = append(out, errRow{ID: id, Error: err.Error()})
@@ -658,6 +669,10 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			}
 			return errorResult(err), nil, nil
 		}
+		// Same as assign_task: the grab is a write, so it claims presence,
+		// and the payload this call returns must already show it.
+		autoClaim(s, "task", t.ID, identity)
+		live[identity] = true
 		details, err := taskDetailsJSONFor(s, t.ID, live)
 		if err != nil {
 			return errorResult(err), nil, nil
