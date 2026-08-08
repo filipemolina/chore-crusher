@@ -142,6 +142,14 @@ current 12 tools and 2 resources. Its §13 end-to-end verification has been run
 against live sessions, and found two real defects that its own test suite had
 missed — both since fixed.
 
+**`mcp-presence-on-all-writes.md`** — closed without ever being run. It asked
+for `autoClaim` on comment, add, rename, notes and move so that any write, not
+just a status change, lights the TUI spinner. The consolidation merged
+rename/notes/move into `edit_task` and `add_comment` into `comment`, and those
+merged handlers already carried the call; grabs were taught to claim
+separately. Verified behaviourally against a running server, including the
+deliberate carve-out that `delete_task` claims nothing.
+
 **`session-end-claim-release-scoping.md`** — a verification finding. Session-end
 cleanup deleted *every* agent's presence claims, not just the exiting one's, so
 one agent disconnecting made every other live agent read as abandoned.
@@ -166,12 +174,6 @@ benefits from if its instructions tell it to use them.
 partly done: session end already removes that Inbox when it is *empty*. What
 remains is the harder case — an Inbox holding completed work — which needs a
 product decision about what "done with it" means.
-
-**`mcp-presence-on-all-writes.md`** — **believed already satisfied.** It asked
-for `autoClaim` on comment, add, rename, notes and move; those all now claim,
-partly because `edit_task` absorbed rename/notes/move and partly because grabs
-were taught to claim. Worth a read-through to confirm and close rather than
-implement.
 
 **`rename-lists-to-projects.md`** — the "Lists" → "Projects" rename across DB,
 store, CLI, MCP tool names, TUI and docs. Breaking, touches everything, and
