@@ -1,6 +1,6 @@
 # Chore Crusher
 
-**A terminal to-do list you can watch — and your coding agent can drive.**
+**A terminal to-do list you can watch, and your coding agent can drive.**
 
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
@@ -12,30 +12,29 @@
 
 ---
 
-## Why this exists
+## Features
 
-Terminal to-do managers already exist, and most of them are good at what they do.
-None of them are good at **this**:
-
-- **You want to watch an agent work** — Leave the TUI open in a pane while
+- **You want to watch an agent work.** Leave the TUI open in a pane while
   Claude Code, Pi, or a shell script adds, completes, and updates tasks.
   Watch it happen live. When an agent claims a task, the TUI draws a spinner
-  on that row — you see **which** row, not just that something changed.
+  on that row. You see **which** row, not just that something changed.
 
-- **A UI that serves both humans and agents** — No agent-specific plumbing
+- **A UI that serves both humans and agents.** No agent-specific plumbing
   bolted onto a human app, or a human UI bolted onto an agent tool. The TUI
-  and the CLI are two views of **one store**, and any state change one makes
-  the other sees within a second.
+  and the CLI are two views of **one store**. Any state change one makes, the
+  other sees within a second.
 
-- **Tree-structured with derived progress** — nest tasks to any depth and watch
-  percentages compute automatically (`completed / total`), so long tasks
-  naturally break down while you work.
-
-Chore Crusher **delivers the combination**: a keyboard-driven terminal UI with
-a server that speaks JSON and MCP, both accessing the same SQLite store,
-updated live in both views.
+- **Tree-structured with derived progress.** Nest tasks to any depth and watch
+  percentages compute automatically (`completed / total`). Long tasks naturally
+  break down while you work.
 
 ---
+
+## Origin story
+
+This project started from a real workflow problem. When I work with AI coding agents, I found myself jumping between windows constantly. Open a todo app. Add a task when an idea pops into my head. Wait for the agent to finish what it was doing. Check the todo app. Talk to the agent about the next thing. Then manually check that task off my list. As more tasks piled up, that loop got messy fast.
+
+There had to be a better way to do this (I'm absolutely certain there is. Well, anyways...). But building this was fun, and I learned a lot about Go along the way. These are the things I think Chore Crusher actually brings to the table, beyond being a fast terminal todo list:
 
 ## What it does
 
@@ -45,37 +44,16 @@ updated live in both views.
 | **Vim + arrow keys** | navigate, `space` toggle, `/` fuzzy search, `F` global search |
 | **Nested tasks** | `]` to add a child, `[` to add a sibling of parent |
 | **Status model** | `pending`, `in_progress`, `complete` with user % or derived % |
-| **Live agent presence** | Animated spinner lights on task writes — you see exactly what's working |
+| **Live agent presence** | Animated spinner lights on task writes. You see exactly what's working. |
 | **4-value priority** | `high` > `medium` > `low` > `none` (drives `next_task` ordering) |
 | **MCP server** | 12 tools + 2 resources + 3 prompts for discoverable agent integration |
 | **Themes** | 14 themes ported from [stack-stitcher](https://github.com/filipemolina/stack-stitcher) |
-
-**A note about design** — This project is a sister to
-[stack-stitcher](https://github.com/filipemolina/stack-stitcher): same
-language, same UI toolkit, same visual language (the theme registry is ported
-near verbatim), same architectural discipline: one keymap package, one Theme
-in effect, panels sized by a broadcast layout. Read
-[`docs/DESIGN.md`](docs/DESIGN.md) before writing code — it is this project's
-DESIGN.md, written the same way stack-stitcher's is: it records *why*, not
-just what.
 
 ---
 
 ## Demo
 
-Watch the app create a list, add a root task plus a nested subtask, then
-preview the theme picker live — all in a few seconds.
-
 ![Chore Crusher Demo](demo/demo.gif)
-
-**What you're seeing:**
-1. Open the lists panel (`L`) and navigate the lists (`↑`/`↓`)
-2. Create a new list (`n` → type name → `Enter`) — the panel auto-closes on it
-3. Add a root task (type title → `Enter`) — rapid entry keeps the input live
-4. Indent the next task as a child (`]`) → type title → `Enter`
-5. Drop the create input (`Esc`) and open the theme picker (`T` → `↓` ×4 → `Esc`)
-
-See the [VHS tape](demo/demo.tape) for the exact keystrokes.
 
 ### Screenshots
 
@@ -121,23 +99,22 @@ On first launch, Chore Crusher creates:
 - Data: `~/.local/share/chore-crusher/chore-crusher.db` (SQLite store)
 - Config: `~/.config/chore-crusher/config.yaml` (theme, layout)
 
-The default list `Inbox` is created automatically under `gruvbox-dark`
-theme.
+The default list `Inbox` is created automatically under `gruvbox-dark` theme.
 
 ---
 
 ## Usage
 
-### The TUI (terminal UI)
+### The TUI
 
 | Keystroke | Action |
 |-----------|--------|
 | `↑` / `↓` | Navigate tasks |
-| `←` / `→` | Collapse / expand the task tree |
-| `tab` / `shift+tab` | Cycle panels (tasks ↔ lists) |
+| `←` / `→` | Collapse or expand the task tree |
+| `tab` / `shift+tab` | Cycle panels (tasks and lists) |
 | `space` | Toggle task complete (cascades to descendants) |
 | `enter` | Show task details |
-| `esc` | Close details / picker / cancel |
+| `esc` | Close details, picker, or cancel |
 | `n` | Start adding a new task (inline) |
 | `]` | Set next added task as **child** of selected |
 | `[` | Set next added task as **sibling of parent** |
@@ -148,7 +125,7 @@ theme.
 | `?` | Show help overlay |
 | `q` / `Ctrl+C` | Quit |
 
-### The CLI (command line interface)
+### The CLI
 
 Every TUI operation is available via CLI commands (`crush --help` lists them all):
 
@@ -213,36 +190,12 @@ Run `crush mcp` to start an MCP server that agents can discover and use:
 }
 ```
 
-### For coding agents
-
-Chore Crusher doubles as an agent's todo store. Every MCP tool maps to a CLI
-command, exposing:
-
-- **12 tools** — `list_tasks`, `show_task`, `assign_task`, `next_task`,
-  `set_status`, `edit_task`, `add_task`, `delete_task`, `comment`,
-  `search_tasks`, `add_list`, `my_list`
-- **2 resources** — `crush:///inbox`, `crush://work`
-- **3 prompts** — `crush_inbox`, `crush_breakdown`, `crush_daily_agenda`
-
-The agent acts under an identity tag (configured via `CRUSH_AGENT`). Each
-agent gets its own automatically-named list (`<tag>: Inbox`) and can only
-modify lists it owns — reads are open across all lists.
-
-**Working loop:**
-1. `my_list` — get your list plus all others with counts
-2. `list_tasks` on your list
-3. `next_task(<list_id>)` — atomically grab the top-priority task
-4. `set_status(ids, progress=...)` — start working (lights your spinner)
-5. Update as you go — progress writes keep your claim alive
-
-Full MCP contract: [`docs/DESIGN.md`](docs/DESIGN.md) §7 and §9.
-
 ---
 
 ## Project status
 
- Alpha shipped — phases 0–9 of [`docs/ROADMAP.md`](docs/ROADMAP.md) are
-complete (tagged `v0.1.0`); post-alpha work is at `v0.2.0`.
+Alpha shipped. Phases 0–9 of [`docs/ROADMAP.md`](docs/ROADMAP.md) are
+complete (tagged `v0.1.0`). Post-alpha work is at `v0.2.0`.
 
 See [`docs/STATUS.md`](docs/STATUS.md) for what each phase changed and why.
 
@@ -250,12 +203,12 @@ See [`docs/STATUS.md`](docs/STATUS.md) for what each phase changed and why.
 
 ## Built with
 
-- [Go](https://go.dev) — the language
+- [Go](https://go.dev)
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) /
-  [Lip Gloss](https://github.com/charmbracelet/lipgloss) — the TUI toolkit
-- [Cobra](https://github.com/spf13/cobra) — the CLI surface
-- [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) — pure Go, no CGO
-- [Model Context Protocol Go SDK](https://github.com/modelcontextprotocol/go-sdk) — MCP server
+  [Lip Gloss](https://github.com/charmbracelet/lipgloss)
+- [Cobra](https://github.com/spf13/cobra)
+- [modernc.org/sqlite](https://gitlab.com/cznic/sqlite): pure Go, no CGO
+- [Model Context Protocol Go SDK](https://github.com/modelcontextprotocol/go-sdk)
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the architectural rationale.
 
@@ -265,7 +218,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architectural rationale.
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before writing code. It is
 stricter than typical because this project expects unsupervised agents to
-work from the docs alone — no back-and-forth review.
+work from the docs alone. No back-and-forth review needed.
 
 ---
 
