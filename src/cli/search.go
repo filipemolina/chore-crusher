@@ -22,6 +22,8 @@ type searchResultJSON struct {
 	Title     string       `json:"title"`
 	Status    string       `json:"status"`
 	Progress  progressJSON `json:"progress"`
+	Assignee  string       `json:"assignee"`
+	Priority  string       `json:"priority"`
 }
 
 func newSearchCmd() *cobra.Command {
@@ -129,5 +131,7 @@ func searchResultOf(s *store.Store, t store.Task, names map[string]string, owner
 		Title:     t.Title,
 		Status:    string(t.Status),
 		Progress:  p,
+		Assignee:  t.Assignee,
+		Priority:  string(t.Priority),
 	}, nil
 }

@@ -78,3 +78,48 @@ func TestSearchJSONCarriesListOwner(t *testing.T) {
 		t.Errorf("list_owner = %q, want 'pi'", payload[0].ListOwner)
 	}
 }
+
+// TestSearchJSONCarriesAssignmentAndPriority pins the two fields
+// docs/DESIGN.md §9 lists in the `search --json` row shape. They are easy to
+// miss: `search` builds its own row type rather than reusing taskRowJSON, so
+// a field added to the tasks/show rows does not reach search for free.
+func TestSearchJSONCarriesAssignmentAndPriority(t *testing.T) {
+	data := t.TempDir()
+	l := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Backlog"))
+	id := strings.TrimSpace(mustCLI(t, data, "add", l, "Plan migration"))
+	mustCLI(t, data, "assign", id)
+	mustCLI(t, data, "priority", id, "--level", "high")
+
+	var payload []searchResultJSON
+	mustJSONCLI(t, data, &payload, "search", "migration", "--json")
+	if len(payload) != 1 {
+		t.Fatalf("search: %d hits, want 1", len(payload))
+	}
+	if payload[0].Assignee != "agent" {
+		t.Errorf("assignee = %q, want 'agent'", payload[0].Assignee)
+	}
+	if payload[0].Priority != "high" {
+		t.Errorf("priority = %q, want 'high'", payload[0].Priority)
+	}
+}
+
+// TestSearchJSONUnassignedRowsAreExplicit pins the default shape: an
+// untouched task reports assignee "" and priority "none", not an omitted
+// field — a caller reads the row, never the absence of a key.
+func TestSearchJSONUnassignedRowsAreExplicit(t *testing.T) {
+	data := t.TempDir()
+	l := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Backlog"))
+	mustCLI(t, data, "add", l, "Plan migration")
+
+	var payload []searchResultJSON
+	mustJSONCLI(t, data, &payload, "search", "migration", "--json")
+	if len(payload) != 1 {
+		t.Fatalf("search: %d hits, want 1", len(payload))
+	}
+	if payload[0].Assignee != "" {
+		t.Errorf("assignee = %q, want empty", payload[0].Assignee)
+	}
+	if payload[0].Priority != "none" {
+		t.Errorf("priority = %q, want 'none'", payload[0].Priority)
+	}
+}
