@@ -180,8 +180,7 @@ can discover without reading source. Two jobs, one board:
   claim set). Five others — `crush:///lists`, `crush:///lists/{id}`,
   `crush:///lists/{id}/tasks`, `crush:///tasks/{id}` and
   `crush:///search/{query}` — were removed as row-for-row duplicates of
-  `my_list` / `list_tasks` / `show_task` / `search_tasks`
-  (`docs/plan/mcp-assignment-and-priorities.md` §8).
+  `my_list` / `list_tasks` / `show_task` / `search_tasks`.
 - **2 prompts** — canned workflows with current state already filled in:
   `crush_inbox` (one-shot opener: read `crush:///inbox` and pick the next
   task — fewer round-trips than `my_list` + `list_tasks` + `show_task`
@@ -227,15 +226,11 @@ Full contract:
 
 ### Plans and next steps
 
-MCP work is tracked as its own track on the roadmap:
-
-| Status | Plan |
-| --- | --- |
-| ✅ Done | [`docs/plan/mcp-server-enhancement.md`](docs/plan/mcp-server-enhancement.md) — presence, resources, prompts |
-| ✅ Done | [`docs/plan/agent-presence-heartbeat.md`](docs/plan/agent-presence-heartbeat.md) — write-heartbeat + lists-panel aggregation |
-| ✅ Done | [`MCP_COMFORT_PLAN.md`](MCP_COMFORT_PLAN.md) — busy-fix, children, `my_list`, always-on instructions |
-| ✅ Done | [`docs/plan/list-ownership-enforcement.md`](docs/plan/list-ownership-enforcement.md) — `created_by` enforcement |
-| ✅ Done | [`docs/plan/mcp-agent-todo-hardening.md`](docs/plan/mcp-agent-todo-hardening.md) — identity/claim defaults, `my_list` owner match, CLI handoff |
+The MCP server is its own track on the roadmap, from the first discovery work
+through ownership enforcement, batching, tool consolidation, and durable
+assignment. What each round changed and why is in
+[`docs/ROADMAP.md` §MCP server track](docs/ROADMAP.md#mcp-server-track-agent-todo-store),
+along with what is still ahead.
 
 ## Status
 
@@ -248,12 +243,11 @@ active post-alpha focus (agent todo store + human dispatch).
   keybinding and focus contract, theming, storage, the CLI contract, and the
   MCP server. *Why* things are shaped the way they are.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — the shipped alpha, the MCP track, and
-  the live post-alpha backlog.
-- [`docs/plans/`](docs/plans/) — one file per shipped alpha phase.
-- [`docs/plan/`](docs/plan/) — post-alpha feature plans (MCP, UI, …).
+  the live post-alpha backlog. Each piece of work gets a paragraph on what it
+  changed and what it found.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — the build/test loop and the rules
   that keep a contributor (especially an unsupervised one) from drifting from
-  the plan above.
+  the contract above.
 
 ## Built with
 
