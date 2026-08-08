@@ -86,75 +86,102 @@ equivalent list asks for:
 ## MCP server track (agent todo store)
 
 The founding use case after alpha: **agents use Chore Crusher as their todo
-list, and humans create tasks for agents to work on**, with the TUI as the
-live dashboard. Plans live under `docs/plan/` (and the comfort plan at the
-repo root). Do not add MCP tools past the ~20 ceiling without revisiting
-comfort S4.
+list, and humans create tasks for agents to work on**, with the TUI as the live
+dashboard. Plans live under `docs/plan/` (and the comfort plan at the repo
+root).
+
+**Surface today:** `crush mcp` — **12 tools, 2 resources, 2 prompts**. The
+identity an agent acts under comes from `CRUSH_AGENT` when set, and is
+otherwise generated per process; ownership is cooperative trust, not auth. Full
+contract: `docs/DESIGN.md` §9. The tool count is a deliberate ceiling: it trades
+tool count against *call* count, and call count wins.
 
 ### Shipped
 
-| Plan | What landed | Status |
-| --- | --- | --- |
-| [`docs/plan/mcp-server-enhancement.md`](plan/mcp-server-enhancement.md) | Discovery (resources + prompts), agent presence (`claim_work` / spinner), tightened tool descriptions | ✅ Complete (A–L) |
-| [`docs/plan/agent-presence-heartbeat.md`](plan/agent-presence-heartbeat.md) | Write-heartbeat on status/progress; lists-panel spinner for any claimed task inside a list; `CRUSH_AGENT` identity | ✅ Complete (A–F) |
-| [`MCP_COMFORT_PLAN.md`](../MCP_COMFORT_PLAN.md) | `SQLITE_BUSY` fix, `show_task` children, prefixed `Instructions` names, always-on todo rule, `my_list` | ✅ Complete (S1–S6) |
-| [`docs/plan/list-ownership-enforcement.md`](plan/list-ownership-enforcement.md) | `created_by` on lists; MCP refuses structural writes on foreign/untagged lists; status/progress stay open | ✅ Complete (A–F) |
-| [`docs/plan/mcp-batch-writes.md`](plan/mcp-batch-writes.md) | `update_tasks(ids, op, mode, percent)`: batch status/progress on up to 50 tasks with partial results; destructive/structural edits excluded; auto-claim per touched task. Batch reads already shipped. | ✅ Complete |
+**`mcp-server-enhancement.md`** — the foundation. Added discovery so an agent
+could learn the API without trial and error (resources and prompts), presence
+claims with the TUI spinner, and tightened every tool description.
 
-**Surface today:** `crush mcp` — **23 tools**, **6 resources**, **2 prompts**;
-identity from `CRUSH_AGENT` (default `agent`); cooperative-trust ownership
-(not auth). Full contract: `docs/DESIGN.md` §9.
+**`agent-presence-heartbeat.md`** — made presence self-maintaining. Any status
+or progress write refreshes the writing agent's claim, so the spinner tracks
+real work instead of an explicit claim call, and a list shows a spinner when
+anything inside it is claimed.
 
-### Next (do this before new MCP features)
+**`MCP_COMFORT_PLAN.md`** — the round of fixes that made the server usable in
+anger: the `SQLITE_BUSY` failure under concurrent access, `show_task` returning
+children, prefixed names in the `Instructions` blob, and `my_list` as a
+one-call session opener.
 
-| Plan | Why it is next | Status |
-| --- | --- | --- |
-| [`docs/plan/mcp-agent-todo-hardening.md`](plan/mcp-agent-todo-hardening.md) | Closes P0 bugs left by the four plans above: hardcoded `"pi"` in `Instructions`, `claim_work` defaulting `agent_id` to `"agent"` (breaks the write-heartbeat when `CRUSH_AGENT≠agent`), `my_list` returning an untagged name-prefixed list, CLI `crush show` empty children, missing `created_by` on list resources, no clean human→agent handoff (`--owner` / rename-adopt), `list_owner` on task read shapes | ✅ Complete (A–I + §10.5) |
+**`list-ownership-enforcement.md`** — gave lists a `created_by` tag and taught
+the server to refuse structural writes on lists it does not own, while leaving
+status and progress open to everyone. This is the rule the whole multi-agent
+story rests on.
 
-Recommended order inside that plan: **A → B → C** (presence + identity
-lies) before **D–I** (CLI parity, handoff, docs/tests).
+**`mcp-agent-fewer-roundtrips.md`** and **`mcp-batch-writes.md`** — batch reads
+and batch writes, so an agent touching fifty tasks makes one call rather than
+fifty. The write half (`update_tasks`) was later absorbed into `set_status`.
 
-### Chore Crusher list triage (2026-08-05)
+**`mcp-list-changes-since.md`** — a way to ask what changed since a timestamp
+instead of re-reading a whole list. Later folded into `list_tasks(since=…)`.
 
-Six new plan docs, written to close out every pending item in the
-"Chore Crusher" list (`crush show` on the parent Bugs/UI/Features/MCP
-Servers tasks). Recommended order — bugs first (small, no product
-decisions), then UI, then features, rename last (breaking, touches
-everything above it):
+**`mcp-agent-todo-hardening.md`** — closed the P0 bugs the four plans above
+left behind, most of them lies in agent-facing text: a hardcoded identity in
+the `Instructions` blob, presence defaulting to the wrong tag, `my_list`
+returning a list the agent could not write.
 
-| Plan | Covers | Status |
-| --- | --- | --- |
-| [`docs/plan/chore-crusher-bug-fixes.md`](plan/chore-crusher-bug-fixes.md) | 6 filed bugs (filter-esc, Lists-panel filter, paste, task indent, create-above-with-children, delete-empty-list) + per-user-DB doc note | 🔲 Planned |
-| [`docs/plan/ui-improvements.md`](plan/ui-improvements.md) | Loading animation, responsive Lists panel, document-icon column, scrollable panels, default theme (retargeted catppuccin mocha), + new Commit 6: list name in Tasks panel header | 🔲 Planned (retargeted + extended 2026-08-05) |
-| [`docs/plans/details-panel-title-editing.md`](plans/details-panel-title-editing.md) | Editable task title + `e` edit shortcut — depends on `docs/plans/details-as-sidepanel.md` landing first | 🔲 Planned |
-| [`docs/plan/tui-interaction-polish.md`](plan/tui-interaction-polish.md) | Enter/Esc panel-close behavior, select-new-list-closes-panel, copy-id-to-clipboard shortcut, collapse-semantics (needs confirmation) | 🔲 Planned |
-| [`docs/plan/task-comments.md`](plan/task-comments.md) | Comments on tasks — schema, store, CLI, MCP (raises tool ceiling to 21, needs sign-off), TUI icon + cards | 🔲 Planned |
-| [`docs/plan/agent-scratch-list-cleanup.md`](plan/agent-scratch-list-cleanup.md) | Agent's auto-created `<identity>: Inbox` list deleted at session end once fully complete — never a human-named list | 🔲 Planned |
-| [`docs/plan/rename-lists-to-projects.md`](plan/rename-lists-to-projects.md) | Full "Lists" → "Projects" rename: DB, store, CLI, MCP tool names, TUI, docs. Run **last**, after everything above | 🔲 Planned |
+**`mcp-tool-consolidation.md`** — cut the surface from 24 tools to 14 by
+merging tools that differed only in which field they wrote, and moved the
+working loop out of the always-on blob into a prompt.
 
-### MCP Servers subtask plans (2026-08-06)
+**`mcp-assignment-and-priorities.md`** — the largest plan in the track, thirteen
+steps. It added durable task assignment (`assign_task` / `next_task`, so two
+agents never research the same thing), a four-value priority that `next_task`
+sorts by, self-contained read payloads with a byte budget that never cuts a
+note mid-text, and the TUI surfaces for both. It also cut the surface to its
+current 12 tools and 2 resources. Its §13 end-to-end verification has been run
+against live sessions, and found two real defects that its own test suite had
+missed — both since fixed.
 
-The 2026-08-05 triage above planned only one of the "MCP Servers" parent's
-subtasks (agent-scratch-list-cleanup). The remaining pending subtasks now have
-plans. Three of them (`list_changes`, `update_tasks`, `batch-reads`) add MCP tools; `update_tasks` and the batch reads already shipped past the S4 ~20 ceiling (signed off during MCP_COMFORT_PLAN); `list_changes` was the 24th tool and was signed off separately (see `docs/plan/mcp-list-changes-since.md`). The consolidation plan (`mcp-tool-consolidation.md`) then *reduced* the surface to 14, back under the ceiling.
+**`session-end-claim-release-scoping.md`** — a verification finding. Session-end
+cleanup deleted *every* agent's presence claims, not just the exiting one's, so
+one agent disconnecting made every other live agent read as abandoned.
 
-| Plan | Chore Crusher subtask | Covers | Status |
-| --- | --- | --- | --- |
-| [`docs/plan/agent-working-loop-instructions.md`](plan/agent-working-loop-instructions.md) | "Instruct the agent to update himself" + "Improve the instructions to the agent" | Always-on `Instructions` + skill working-loop: update status as you go, set percentage scaled to task size, read notes+comments before/after, re-check the list between tasks. No new tools. | 🔲 Planned |
-| [`docs/plan/mcp-list-changes-since.md`](plan/mcp-list-changes-since.md) | "Create an endpoint that returns the changes on the list" | New `list_changes(list_id, since)` tool via `Task.updated_at`; bump `updated_at` on comment so new comments count as changes. | ✅ Shipped |
-| [`docs/plan/mcp-presence-on-all-writes.md`](plan/mcp-presence-on-all-writes.md) | "MCP triggers Agent animation" | Extend the existing `autoClaim` (status/progress only today) to `add_comment`/`add_task`/`rename_task`/`set_notes`/`move_task`. Server-managed presence; no new tools. | 🔲 Planned |
-| [`docs/plan/mcp-batch-writes.md`](plan/mcp-batch-writes.md) | "Add batch endpoints" (write half) | New `update_tasks(ids, op)` for batch status/progress with partial results. Batch **reads** already shipped by `mcp-agent-fewer-roundtrips`. | ✅ Complete |
-| [`docs/plan/mcp-tool-consolidation.md`](plan/mcp-tool-consolidation.md) | "Reduce the number of tools" | Collapse the 24-tool surface to 14: batch `ids` on `show_task`/`set_progress`/`complete_task`/`reopen_task`, merge `rename_task`+`set_notes`+`move_task` into `edit_task`, fold `release_work` into `claim_work`, drop `list_lists`/`show_tasks`/`toggle_task`/`update_tasks`/`rename_list`/`delete_list`/`list_work`, slim the `Instructions` blob, and move the working loop into the `crush_inbox` prompt. | ✅ Shipped |
+**`session-scoped-agent-identity.md`** — removed the setup burden. The identity
+used to default to the constant `"agent"`, so two unconfigured clients acted as
+one and overwrote each other with no refusal and no audit trail. Identity is now
+unique per process, and a session releases its claims, its assignments and its
+empty auto-created Inbox when it ends.
 
-"Setup the MCP Server" and "A loading animation on a task being worked on" (the
-two complete subtasks) are already shipped.
+### Ahead
 
-### Deferred MCP follow-ups (after hardening)
+**`agent-working-loop-instructions.md`** — better always-on guidance so an agent
+keeps the store current as it works without being asked: update status as you
+go, scale percentages to task size, read notes and comments before and after,
+re-check the list between tasks. No new tools. This is the highest-value item
+left in the track, because everything else here is machinery an agent only
+benefits from if its instructions tell it to use them.
 
-- ~~Session-end claim release (enhancement promised it; TTL covers it today).~~ **Done** — `Run` now calls `s.ReleaseAgentClaims(identity)` after `server.Run` returns, closing the gap between the enhancement plan §3.1 promise and the implementation (H13). The exiting agent's own claims clear on session disconnect so the TUI shows no stale spinners for it; other agents' claims are untouched, because one agent going away says nothing about whether another is still working (`docs/plan/session-end-claim-release-scoping.md`).
+**`agent-scratch-list-cleanup.md`** — deleting the agent's auto-created
+`<identity>: Inbox` when it is finished with, never a human-named list. Now
+partly done: session end already removes that Inbox when it is *empty*. What
+remains is the harder case — an Inbox holding completed work — which needs a
+product decision about what "done with it" means.
+
+**`mcp-presence-on-all-writes.md`** — **believed already satisfied.** It asked
+for `autoClaim` on comment, add, rename, notes and move; those all now claim,
+partly because `edit_task` absorbed rename/notes/move and partly because grabs
+were taught to claim. Worth a read-through to confirm and close rather than
+implement.
+
+**`rename-lists-to-projects.md`** — the "Lists" → "Projects" rename across DB,
+store, CLI, MCP tool names, TUI and docs. Breaking, touches everything, and
+should run **last**.
+
+### Deferred MCP follow-ups
+
 - Optional: show list owner in the TUI; comments gated by `requireWritable`.
-- Do **not** add an `adopt_list` MCP tool unless the hardening CLI path
-  proves insufficient — keep the tool-count ceiling.
+- Do **not** add an `adopt_list` MCP tool unless the hardening CLI path proves
+  insufficient — keep the tool-count ceiling.
 
 ---
 
@@ -168,11 +195,41 @@ decision it depends on.
 - **Due dates and a `StatusOverdue` that means something.** The theme
   registry already reserves the color (`docs/DESIGN.md` §11); nothing reads
   it until this lands.
-- **Priorities and assignees.** Two more optional columns on `Task`, cheap in
-  the schema, deferred because neither was part of the founding use case.
+- ~~**Priorities and assignees.**~~ **Shipped** — both landed with
+  `docs/plan/mcp-assignment-and-priorities.md` as `Task.priority` and
+  `Task.assignee`, along with the tools, CLI commands and TUI badges that
+  read them. The "Decisions already taken" note above deferring them was
+  scoped to the *first alpha* and stands as a record of that scope.
 - **Sync or export** (git-friendly export a la Backlog.md; a CalDAV bridge).
   Needs a decision about which, if either, before any code — see
   `docs/DESIGN.md` §1.
+
+### TUI and bug-fix plans
+
+These came out of a triage of the Chore Crusher list itself (2026-08-05) and
+are independent of the MCP track.
+
+**`chore-crusher-bug-fixes.md`** — *in progress.* Six filed bugs, each small
+and free of product decisions: filter-escape behaviour, the Lists-panel
+filter, paste handling, task indenting, creating a task above one that has
+children, and deleting an empty list.
+
+**`ui-improvements.md`** — *partly landed.* The catppuccin-mocha default is
+in; the remainder is a loading animation, a responsive Lists panel, a
+document-icon column, scrollable panels, and the list name in the Tasks
+header.
+
+**`tui-interaction-polish.md`** — *not started.* Five small independent
+interaction fixes: Enter/Esc panel-close behaviour, selecting a new list
+closing the panel, a copy-id shortcut, and collapse semantics (which still
+needs confirmation).
+
+**`task-comments.md`** — *in progress,* commits 1–3 done. Comments on tasks
+through schema, store, CLI and MCP; what remains is commit 4, the TUI icon
+column.
+
+**`agent-scratch-list-cleanup.md`** and **`agent-working-loop-instructions.md`**
+are tracked in the MCP track above.
 
 ### UI (post-alpha)
 
