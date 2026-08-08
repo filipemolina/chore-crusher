@@ -485,3 +485,93 @@ func TestSetPriorityBumpsUpdatedAt(t *testing.T) {
 		t.Fatalf("rejected SetPriority bumped updated_at to %d; a refused write must touch nothing", got.UpdatedAt)
 	}
 }
+
+// TestUnassignAgentClearsOnlyThatAgentsTasks pins session-end assignment
+// release: one agent's tasks go, every other agent's stay. The scoping is the
+// whole point — a session ending must not free work a concurrent session is
+// still doing (docs/plan/session-scoped-agent-identity.md decision 3).
+// updated_at is checked on both sides, because a release that does not move it
+// is invisible to list_tasks(since=...) and one that moves it on untouched
+// rows is a phantom change.
+func TestUnassignAgentClearsOnlyThatAgentsTasks(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	// Create two tasks.
+	idA := mustTask(t, s, lid, "taskA", nil)
+	idB := mustTask(t, s, lid, "taskB", nil)
+	// Assign idA to "alpha", idB to "beta".
+	if err := s.AssignTask(idA, "alpha", false); err != nil {
+		t.Fatalf("AssignTask(idA, alpha): %v", err)
+	}
+	if err := s.AssignTask(idB, "beta", false); err != nil {
+		t.Fatalf("AssignTask(idB, beta): %v", err)
+	}
+
+	// Backdate both rows so a bumped updated_at is detectable: it is unix
+	// seconds, and an assign-then-release inside one second shows no change
+	// at all (the same trap SetPriority's test documents).
+	const backdated = int64(1000000)
+	if _, err := s.db.Exec(
+		`UPDATE Task SET updated_at = ? WHERE id IN (?, ?)`, backdated, idA, idB,
+	); err != nil {
+		t.Fatalf("backdate updated_at: %v", err)
+	}
+
+	// Unassign agent "alpha".
+	n, err := s.UnassignAgent("alpha")
+	if err != nil {
+		t.Fatalf("UnassignAgent(alpha): %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("UnassignAgent(alpha) cleared %d tasks, want 1", n)
+	}
+	// Verify idA is unassigned, idB still assigned to beta.
+	gotA, err := s.GetTask(idA)
+	if err != nil {
+		t.Fatalf("GetTask(idA): %v", err)
+	}
+	if gotA.Assignee != "" || gotA.AssignedAt != nil {
+		t.Fatalf("taskA should be unassigned, got assignee=%q assigned_at=%v", gotA.Assignee, gotA.AssignedAt)
+	}
+	gotB, err := s.GetTask(idB)
+	if err != nil {
+		t.Fatalf("GetTask(idB): %v", err)
+	}
+	if gotB.Assignee != "beta" || gotB.AssignedAt == nil {
+		t.Fatalf("taskB should remain assigned to beta, got assignee=%q assigned_at=%v", gotB.Assignee, gotB.AssignedAt)
+	}
+
+	// The freed row's updated_at moved; the untouched one's did not.
+	if gotA.UpdatedAt == backdated {
+		t.Fatalf("release left taskA's updated_at at %d; the change would be invisible to list_tasks(since=...)", gotA.UpdatedAt)
+	}
+	if gotB.UpdatedAt != backdated {
+		t.Fatalf("release moved taskB's updated_at to %d; it freed nothing on that task", gotB.UpdatedAt)
+	}
+
+	// An empty agentID errors and clears nothing. Note the returns are NOT
+	// shadowed into the if-statement: reusing the outer n here would silently
+	// assert against the previous call's count instead of this one's.
+	emptyN, err := s.UnassignAgent("")
+	if err == nil {
+		t.Fatalf("UnassignAgent(\"\") should return an error, got (%d, nil)", emptyN)
+	}
+	if emptyN != 0 {
+		t.Fatalf("UnassignAgent(\"\") cleared %d tasks, want 0", emptyN)
+	}
+	// Verify no change.
+	gotA2, err := s.GetTask(idA)
+	if err != nil {
+		t.Fatalf("GetTask(idA) after empty unassign: %v", err)
+	}
+	if gotA2.Assignee != "" || gotA2.AssignedAt != nil {
+		t.Fatalf("taskA should still be unassigned, got assignee=%q assigned_at=%v", gotA2.Assignee, gotA2.AssignedAt)
+	}
+	gotB2, err := s.GetTask(idB)
+	if err != nil {
+		t.Fatalf("GetTask(idB) after empty unassign: %v", err)
+	}
+	if gotB2.Assignee != "beta" || gotB2.AssignedAt == nil {
+		t.Fatalf("taskB should still be assigned to beta, got assignee=%q assigned_at=%v", gotB2.Assignee, gotB2.AssignedAt)
+	}
+}

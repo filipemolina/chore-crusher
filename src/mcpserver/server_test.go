@@ -26,6 +26,15 @@ func setupMCP(t *testing.T) *mcp.ClientSession {
 	// Keep every test isolated on its own temp data directory.
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
+	// Pin the identity. Unset, CRUSH_AGENT now yields a per-process tag
+	// (docs/plan/session-scoped-agent-identity.md decision 1), which would make
+	// every assertion about the "agent" tag unrepeatable. These tests are about
+	// behaviour under a known identity, not about what the default is —
+	// TestServerIdentityIsUniquePerProcess covers the default itself.
+	if os.Getenv("CRUSH_AGENT") == "" {
+		t.Setenv("CRUSH_AGENT", "agent")
+	}
+
 	server, store, err := mcpserver.NewServer()
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -4268,5 +4277,241 @@ func TestMCPAssignRejectsAgentID(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &got)
 	if len(got) != 1 || got[0].Assignee != "" {
 		t.Fatalf("agent_id call must not assign anything, got %+v", got)
+	}
+}
+
+// TestTwoUnconfiguredSessionsCannotWriteEachOthersTasks is the core of the
+// step: the measured failure this plan exists to fix, inverted.
+//
+// Before per-session identity, two clients with CRUSH_AGENT unset both acted as
+// "agent", so B completed a task A held, renamed it, and deleted a task A
+// created — no refusal, no force, no takeover comment, and no trail for the
+// human. Every guard compares against identity, and equal tags compare equal.
+func TestTwoUnconfiguredSessionsCannotWriteEachOthersTasks(t *testing.T) {
+	dataDir := t.TempDir()
+
+	// Both sessions come up with CRUSH_AGENT unset, the default setup.
+	sessionUnset := func(t *testing.T) *mcp.ClientSession {
+		t.Helper()
+		t.Setenv("XDG_DATA_HOME", dataDir)
+		t.Setenv("CRUSH_AGENT", "")
+
+		server, st, err := mcpserver.NewServer()
+		if err != nil {
+			t.Fatalf("NewServer: %v", err)
+		}
+		t.Cleanup(func() { st.Close() })
+		ctx := context.Background()
+		ct, transport := mcp.NewInMemoryTransports()
+		ss, err := server.Connect(ctx, transport, nil)
+		if err != nil {
+			t.Fatalf("server.Connect: %v", err)
+		}
+		t.Cleanup(func() { ss.Close() })
+		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.0"}, nil)
+		cs, err := client.Connect(ctx, ct, nil)
+		if err != nil {
+			t.Fatalf("client.Connect: %v", err)
+		}
+		t.Cleanup(func() { cs.Close() })
+		return cs
+	}
+
+	a, b := sessionUnset(t), sessionUnset(t)
+
+	// A owns a list with a task, and grabs it.
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, a, "add_list", map[string]any{"name": "Work"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, a, "add_task", map[string]any{
+		"list_id": list["id"], "title": "Write docs",
+	}), &task)
+
+	var grabbed []struct {
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, a, "assign_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &grabbed)
+	holder := grabbed[0].Assignee
+	if holder == "" {
+		t.Fatal("assign_task left the task unassigned")
+	}
+
+	// B must be refused on all three writes. Before the fix every one landed.
+	var statusRows []struct {
+		Error string `json:"error"`
+	}
+	mustUnmarshal(t, callTool(t, b, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "status": "complete",
+	}), &statusRows)
+	if len(statusRows) != 1 || statusRows[0].Error == "" {
+		t.Fatalf("B's set_status on A's task must be refused, got %+v", statusRows)
+	}
+	if !strings.Contains(statusRows[0].Error, holder) {
+		t.Fatalf("the refusal must name the holder %q, got %q", holder, statusRows[0].Error)
+	}
+
+	if msg := callToolErr(t, b, "edit_task", map[string]any{
+		"id": task["id"], "title": "renamed by B",
+	}); msg == "" {
+		t.Fatal("B's edit_task on A's list must be refused")
+	}
+	if msg := callToolErr(t, b, "delete_task", map[string]any{
+		"id": task["id"], "force": true,
+	}); msg == "" {
+		t.Fatal("B's delete_task on A's task must be refused")
+	}
+
+	// The task is untouched: still pending, still A's.
+	var after []struct {
+		Title    string `json:"title"`
+		Status   string `json:"status"`
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, a, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &after)
+	if after[0].Status == "complete" || after[0].Title != "Write docs" || after[0].Assignee != holder {
+		t.Fatalf("A's task was modified by B despite the refusals: %+v", after[0])
+	}
+
+	// force still works across the two identities, and leaves the trail.
+	var forced []struct {
+		OK bool `json:"ok"`
+	}
+	mustUnmarshal(t, callTool(t, b, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "status": "complete", "force": true,
+	}), &forced)
+	if len(forced) != 1 || !forced[0].OK {
+		t.Fatalf("force must still work, got %+v", forced)
+	}
+	var withComments []struct {
+		Comments []struct {
+			Author string `json:"author"`
+			Note   string `json:"note"`
+		} `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, a, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &withComments)
+	var takeover string
+	for _, c := range withComments[0].Comments {
+		if strings.Contains(c.Note, "took this task from") {
+			takeover = c.Note
+		}
+	}
+	if takeover == "" {
+		t.Fatalf("force must record a takeover comment, got %+v", withComments[0].Comments)
+	}
+	if !strings.Contains(takeover, holder) {
+		t.Fatalf("the takeover comment must name the previous holder %q, got %q", holder, takeover)
+	}
+}
+
+// TestSessionEndReleasesAssignmentsAndEmptyInbox covers decisions 3 and 5. It
+// mirrors TestMCPPendingClaimsClearedOnSessionEnd's separate-handle simulation
+// of what Run does after server.Run returns.
+//
+// A per-session identity never comes back, so anything it still holds at exit
+// is stranded — no future session answers to that tag, and no other agent can
+// take the work without force.
+func TestSessionEndReleasesAssignmentsAndEmptyInbox(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	// my_list get-or-creates "pi: Inbox" — the auto-created list decision 5
+	// sweeps. It stays empty here.
+	var mine struct {
+		Mine struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"mine"`
+	}
+	mustUnmarshal(t, callTool(t, session, "my_list", map[string]any{}), &mine)
+	if mine.Mine.Name != "pi: Inbox" {
+		t.Fatalf("my_list = %q, want \"pi: Inbox\"", mine.Mine.Name)
+	}
+
+	// Work lives on a separate list, and pi holds it.
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "Write docs",
+	}), &task)
+	callTool(t, session, "assign_task", map[string]any{"ids": []string{task["id"]}})
+
+	cleanup, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open for cleanup: %v", err)
+	}
+	t.Cleanup(func() { cleanup.Close() })
+
+	n, err := cleanup.UnassignAgent("pi")
+	if err != nil {
+		t.Fatalf("UnassignAgent: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("UnassignAgent released %d tasks, want 1", n)
+	}
+	deleted, err := cleanup.DeleteEmptyAgentInbox("pi")
+	if err != nil {
+		t.Fatalf("DeleteEmptyAgentInbox: %v", err)
+	}
+	if !deleted {
+		t.Fatal("the empty auto-created Inbox should have been removed")
+	}
+
+	// The assignment is gone; the task and its list are not.
+	var after []struct {
+		Title    string `json:"title"`
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &after)
+	if after[0].Assignee != "" {
+		t.Fatalf("assignment survived session end: %+v", after[0])
+	}
+	if after[0].Title != "Write docs" {
+		t.Fatalf("session-end cleanup altered the task: %+v", after[0])
+	}
+	if _, err := cleanup.GetList(list["id"]); err != nil {
+		t.Fatalf("the work list must survive session end: %v", err)
+	}
+}
+
+// TestSessionEndKeepsAnInboxThatHasTasks is decision 5's safety rule. An Inbox
+// the agent actually put work in is left alone: sweeping it would destroy the
+// work as a side effect of tidying up, and the shutdown path has no business
+// deciding that.
+func TestSessionEndKeepsAnInboxThatHasTasks(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var mine struct {
+		Mine struct {
+			ID string `json:"id"`
+		} `json:"mine"`
+	}
+	mustUnmarshal(t, callTool(t, session, "my_list", map[string]any{}), &mine)
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": mine.Mine.ID, "title": "real work",
+	})
+
+	cleanup, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open for cleanup: %v", err)
+	}
+	t.Cleanup(func() { cleanup.Close() })
+
+	deleted, err := cleanup.DeleteEmptyAgentInbox("pi")
+	if err != nil {
+		t.Fatalf("DeleteEmptyAgentInbox: %v", err)
+	}
+	if deleted {
+		t.Fatal("an Inbox holding a task must not be swept at session end")
+	}
+	if _, err := cleanup.GetList(mine.Mine.ID); err != nil {
+		t.Fatalf("the Inbox must still exist: %v", err)
 	}
 }

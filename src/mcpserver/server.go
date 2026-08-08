@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,14 +29,38 @@ const ownerTagPattern = "^[A-Za-z0-9_-]{1,32}$"
 // lives.
 var createdByRE = regexp.MustCompile(ownerTagPattern)
 
-// serverIdentity returns the agent tag this server acts as, reading from
-// the CRUSH_AGENT environment variable with a fallback to "agent".
+// serverIdentity returns the agent tag this server acts as. CRUSH_AGENT wins
+// verbatim when set, so a human who wants a stable tag across sessions keeps
+// one. When it is unset the tag is unique to this PROCESS — "agent-" plus six
+// random hex digits — rather than the constant it used to be
+// (docs/plan/session-scoped-agent-identity.md decision 1).
+//
+// The constant was the bug: identity is what every cross-agent guard compares
+// on, so two unconfigured clients sharing one tag compared equal and wrote
+// over each other with no refusal, no force and no takeover comment. That was
+// the DEFAULT configuration, not an edge case.
+//
+// A per-process tag is only coherent because an assignment no longer outlives
+// the session that made it (decision 3) — Run releases this identity's claims
+// and assignments on the way out. The result must satisfy ownerTagPattern,
+// because it is written to list.created_by and validated there; "agent-7f3a2c"
+// does.
+//
+// WARNING: when CRUSH_AGENT is unset this returns a DIFFERENT value on every
+// call. Call it once per process and thread the result — Run does. Two calls
+// would leave the server releasing claims under a tag it never wrote.
 func serverIdentity() string {
-	identity := os.Getenv("CRUSH_AGENT")
-	if identity == "" {
-		identity = "agent"
+	if identity := os.Getenv("CRUSH_AGENT"); identity != "" {
+		return identity
 	}
-	return identity
+	var b [3]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand does not fail in practice; the pid keeps the tag
+		// unique among concurrent processes, which is the only property
+		// that actually matters here.
+		return fmt.Sprintf("agent-%d", os.Getpid())
+	}
+	return fmt.Sprintf("agent-%x", b)
 }
 
 // progressJSON is the derived-progress shape shared by task rows.
@@ -123,17 +148,22 @@ type searchResultJSON struct {
 
 // NewServer opens the default store, registers every MCP tool, and returns
 // the configured server. The caller owns the store and must close it.
+//
+// The identity is resolved here and is not reported back. Run needs the same
+// value to clean up under on the way out, and with an unset CRUSH_AGENT a
+// second serverIdentity() call would produce a different tag — so Run resolves
+// it once and uses newServer directly rather than calling this.
 func NewServer() (*mcp.Server, *store.Store, error) {
+	return newServer(serverIdentity())
+}
+
+// newServer is NewServer with the identity supplied, so a caller that needs to
+// know which tag the server acts as can resolve it once and pass it in.
+func newServer(identity string) (*mcp.Server, *store.Store, error) {
 	s, err := store.Open(config.DBPath())
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// identity is the agent tag this server acts as: status/progress writes
-	// refresh a live claim held by this identity (a presence heartbeat,
-	// docs/plan/agent-presence-heartbeat.md §3.3). Ownership enforcement
-	// (docs/plan/list-ownership-enforcement.md) will reuse the same read.
-	identity := serverIdentity()
 
 	// The Instructions doc is delivered to clients in the initialize result and
 	// is how an agent discovers this API without trial-and-error (query it with
@@ -144,9 +174,9 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		Version: constants.Version(),
 	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
 
-IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything, grab tasks (assign_task, next_task), change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: only the comment tool's delete mode (comment(id=..., delete=true, force=true)) removes a comment, and only one whose author is your own tag, regardless of who owns the list it's on.
+IDENTITY & OWNERSHIP. You act under the tag "` + identity + `" — CRUSH_AGENT when it is set, otherwise a tag unique to this session. Either way it is yours alone: no other running agent shares it, and anything you still hold is released when this session ends. Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything, grab tasks (assign_task, next_task), change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: only the comment tool's delete mode (comment(id=..., delete=true, force=true)) removes a comment, and only one whose author is your own tag, regardless of who owns the list it's on.
 
-ASSIGNMENT — grab a task before you research it. Three separate axes, do not confuse them: status is what the work IS; the TUI spinner is presence, a 120-second claim any write refreshes and the end of your session clears; assignee is durable ownership with NO TTL — it survives your disconnect and changes only when someone assigns, releases, or completes. Grabbing first is the point: next_task(list_id) or assign_task(ids=[...]) makes the task yours before you spend tokens on it, so a second agent does not research the same thing in parallel. Every task row you read carries assignee, assigned_at, assignee_live and priority. An assignee with assignee_live false is abandoned work, not free work — nothing auto-releases it. A write to a task another agent holds (set_status, edit_task, delete_task) is REFUSED; force=true performs it, reassigns the task to you and records a takeover comment. Commenting is never refused — leaving a note on another agent's task is how coordination works. Completing a task auto-unassigns it, every descendant the cascade completes, and every ancestor it promotes. Assignment reserves the subtree: a task whose ancestor or descendant is held by someone else is refused EVEN with force — release the blocker with assign_task(ids=[blocker], release=true, force=true), or ask the human to release the whole list from the TUI.
+ASSIGNMENT — grab a task before you research it. Three separate axes, do not confuse them: status is what the work IS; the TUI spinner is presence, a 120-second claim any write refreshes and the end of your session clears; assignee is ownership with NO TTL and no sweeper — it changes when someone assigns, releases or completes, and it is released for you when THIS session ends. Grabbing first is the point: next_task(list_id) or assign_task(ids=[...]) makes the task yours before you spend tokens on it, so a second agent does not research the same thing in parallel. Every task row you read carries assignee, assigned_at, assignee_live and priority. An assignee with assignee_live false is abandoned work, not free work: it means a session died before it could release, which is the only way an assignment outlives its owner. A write to a task another agent holds (set_status, edit_task, delete_task) is REFUSED; force=true performs it, reassigns the task to you and records a takeover comment. Commenting is never refused — leaving a note on another agent's task is how coordination works. Completing a task auto-unassigns it, every descendant the cascade completes, and every ancestor it promotes. Assignment reserves the subtree: a task whose ancestor or descendant is held by someone else is refused EVEN with force — release the blocker with assign_task(ids=[blocker], release=true, force=true), or ask the human to release the whole list from the TUI.
 
 PRIORITY. Four values, ranked high > medium > low > none (the default). next_task picks by priority first and tree order second, and every task row you read carries the field. Set it with add_task(priority=...) or edit_task(id, priority=...) — a structural edit, so only on a list you own; the human sets it from the TUI or the CLI (crush priority) on theirs. Omitting priority on edit_task leaves the current value alone, so a rename never silently clears a high someone set. Priority does not re-order the tree: it steers what to pick up next, nothing else.
 
@@ -175,7 +205,7 @@ KEEP THE BOARD LIVE (do this yourself, unasked):
 - Start a task = set_status(ids, progress=...) on it (flips it to in_progress and lights the spinner). Advance the percentage as you go, not only at the end — the human watches the TUI live.
 - On a list you do not own: read the whole list plus the task's notes and comments first; leave comments at decision points; never edit its content.
 - Finish = set_status(ids, status='complete'). A percentage of 100 does NOT auto-complete.
-- Stopping without finishing = assign_task(ids=[...], release=true), or the task stays yours forever.
+- Stopping without finishing = assign_task(ids=[...], release=true). Your session end releases it too, but release explicitly: it frees the task the moment you stop, not whenever your process happens to exit.
 - Between tasks: list_tasks(list_id, since=<your last call>) — priorities and comments move while you work.
 
 For the full working loop and a one-read session opener, use the crush_inbox prompt or read the crush:///inbox resource.
@@ -194,23 +224,44 @@ GOTCHAS: set_status(progress='subtasks') derives from children — on a shared t
 // Run starts the MCP server on the stdio transport. It blocks until the
 // client disconnects or the context is cancelled.
 func Run(ctx context.Context) error {
-	server, s, err := NewServer()
+	// Resolved ONCE, here, and threaded into the server: with CRUSH_AGENT
+	// unset serverIdentity returns a fresh tag per call, so asking twice would
+	// build the server under one identity and clean up under another, leaving
+	// this session's claims and assignments behind forever.
+	identity := serverIdentity()
+
+	server, s, err := newServer(identity)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
 
-	// Get the server's identity for scoping the claim release
-	identity := serverIdentity()
-
 	err = server.Run(ctx, &mcp.StdioTransport{})
-	// H13: when the MCP session ends (client disconnected or context
-	// cancelled), release the agent's own claims so the TUI does not show
-	// stale spinners for a disconnected agent. Other agents' claims are
-	// unaffected (they will be cleaned up by their own session ends or
-	// the WorkTTL mechanism).
+
+	// Session-end cleanup, in order. Every step is best-effort and reports to
+	// stderr: the session is already over, and failing the shutdown path would
+	// turn a tidy-up problem into a visible crash.
+	//
+	// H13: release this identity's presence claims so the TUI stops drawing a
+	// spinner for a process that is gone. Other agents' claims are untouched.
 	if _, rErr := s.ReleaseAgentClaims(identity); rErr != nil {
 		fmt.Fprintf(os.Stderr, "releasing claims on session end: %v\n", rErr)
+	}
+	// Then the assignments. A per-session identity never returns, so work it
+	// still holds would be stranded — no other session can take it without
+	// force, and no future session answers to this tag
+	// (docs/plan/session-scoped-agent-identity.md decision 3).
+	if _, rErr := s.UnassignAgent(identity); rErr != nil {
+		fmt.Fprintf(os.Stderr, "releasing assignments on session end: %v\n", rErr)
+	}
+	// Finally the auto-created Inbox, and only when empty. A unique identity
+	// per session means my_list mints a new "<identity>: Inbox" every run, so
+	// without this the lists panel fills with abandoned empties. An Inbox with
+	// tasks in it is left alone — the agent did work worth keeping, and
+	// deciding what to do with it is not the shutdown path's business
+	// (decision 5).
+	if _, rErr := s.DeleteEmptyAgentInbox(identity); rErr != nil {
+		fmt.Fprintf(os.Stderr, "removing empty inbox on session end: %v\n", rErr)
 	}
 	return err
 }
@@ -1742,7 +1793,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 			"4. Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).\n" +
 			"5. Starting a task: set_status(ids, progress=...) flips it to in_progress and auto-claims it (the spinner shows). Set a percentage scaled to the task: progress='percentage' with percent ~= fraction of steps done for multi-step work; progress='subtasks' when it has children; progress='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +
 			"6. Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave comment notes at decision points on tasks you do not own.\n" +
-			"7. After finishing: re-read the task's comments, then set_status(ids, status='complete') — completing auto-unassigns the task. If you stop without finishing, release it with assign_task(ids=[...], release=true): an assignment has no TTL and outlives your session.\n" +
+			"7. After finishing: re-read the task's comments, then set_status(ids, status='complete') — completing auto-unassigns the task. If you stop without finishing, release it with assign_task(ids=[...], release=true): an assignment has no TTL, and although your session end releases it too, an explicit release frees the task the moment you stop rather than whenever your process exits.\n" +
 			"8. Before the next task: check what changed since you last looked (list_tasks(list_id, since=<time of your last call>)) — priorities or comments may have moved.\n\n" +
 			"A task whose assignee is set but whose assignee_live is false is abandoned work, not free work: take it over with force=true (which records a takeover comment). Force never overrides a subtree reservation — when an ancestor or descendant is the blocker, release that task first (assign_task(ids=[blocker], release=true, force=true)) or ask the human to release the whole list from the TUI.\n\n" +
 			"Pick one pending task (prefer a foreign list), grab it with next_task (or assign_task for a specific one), and start working. Do not fan out to show_task for tasks whose has_notes is false."

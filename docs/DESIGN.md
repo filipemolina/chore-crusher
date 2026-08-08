@@ -85,7 +85,8 @@ Task
                  -- agent tag ("pi", "claude", …) holding this task;
                  -- '' = no assignment. NOT presence: AgentActivity (0002)
                  -- is a 120-second heartbeat; this column has no TTL and
-                 -- changes only on explicit assign/unassign/complete.
+                 -- changes on explicit assign/unassign/complete, or when
+                 -- the holding MCP session ends (§3).
   assigned_at    integer          -- unix seconds; null unless assignee != ''
   priority       text not null default 'none'
                  -- 'none' | 'low' | 'medium' | 'high'. Stored, displayed,
@@ -187,7 +188,9 @@ complete?). If this bites someone in practice, revisit it — but start from
 
 **Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on any task write; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat (docs/plan/agent-presence-heartbeat.md §3.2); they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table (§3.5 of `mcp-server-enhancement.md`) stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAgentClaims` when the MCP session ends (client disconnect), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected (hardening plan H13).
 
-**Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) is durable — no TTL, no sweeper, no auto-expiry — and changes only when someone explicitly assigns, unassigns, or completes the task (§9 `assign_task` / `next_task`). It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. Neither field alone can tell you an agent died — **`assignee != ''` and no live presence claim (`assignee_live: false`) means the work is abandoned**, and that is the only signal the TUI's stale-assignment tier needs. A stale assignment is **never** auto-released: reads report enough for a human to decide, and the human releases it from the TUI, per task or per list. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget. Full model and rationale: `docs/plan/mcp-assignment-and-priorities.md` §3.
+**Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) has no TTL and no background sweeper — it changes only when someone explicitly assigns, unassigns or completes the task (§9 `assign_task` / `next_task`), **or when the session holding it ends**. It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. **An assignment lives for the session that made it.** An MCP session's identity is unique to its process unless `CRUSH_AGENT` pins it (§9), so a tag that will never return must not hold work forever: on shutdown the server releases its own claims and its own assignments, and removes the Inbox it auto-created if that Inbox is empty. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget.
+
+That leaves exactly one way for an assignment to outlive its owner: a session killed hard enough that it never runs its shutdown path. That case is what the reads and the TUI still describe — **`assignee != ''` and no live presence claim (`assignee_live: false`) means the work is abandoned**, and it is the only signal the stale-assignment tier needs. Nothing auto-releases it: reads report enough for a human to decide, and the human releases it from the TUI, per task or per list. Expect that tier to be rare rather than routine.
 
 **The store owns every transition.** None of the above should be duplicated
 in both `store` and `cli` (or `store` and `components`). `store.Complete`,
@@ -376,9 +379,10 @@ not a second unmodified key that would steal a character vim users expect
 to type.
 
 **`u` releases the selected task's assignment, and `U` releases every
-assignment in the active list.** Assignment is durable and has **no TTL, no
-sweeper and no auto-expiry** (§3), so these two keys are the only thing in the
-app that frees a task whose agent went away — which is why the stale tier
+assignment in the active list.** Assignment has **no TTL and no background
+sweeper** (§3): a session releases its own work on the way out, so these two
+keys are the only thing in the app that frees a task whose agent went away
+*without* getting to run its shutdown path — which is why the stale tier
 (§12) marks such a task rather than the app quietly reclaiming it. The
 release is **unconditional**: it clears an assignment held by any agent, since
 a stale one is by definition held by someone who is not the person at the
@@ -1060,10 +1064,18 @@ Full rationale: `docs/plan/mcp-list-changes-since.md` and
 `docs/plan/mcp-assignment-and-priorities.md` §4.
 
 **List ownership, and what the MCP server refuses.** Every `List` carries a
-`created_by` tag (§2). The MCP server reads its own identity once at start
-from the `CRUSH_AGENT` environment variable (default `"agent"`); the *human*
-sets it per server in the MCP client config, so one stdio session is one
-identity and no tool lets an agent change it. A list is writable by that
+`created_by` tag (§2). The MCP server resolves its own identity once at start
+from the `CRUSH_AGENT` environment variable; the *human* may set it per server
+in the MCP client config to get a tag that is stable across runs. **When it is
+unset the identity is generated per process** — `agent-` plus six random hex
+digits — never a shared constant. A constant default was a real bug rather than
+a convenience: identity is what every cross-agent guard compares on, so two
+unconfigured clients acted as one agent and overwrote each other's work with no
+refusal, no `force` and no takeover comment. Either way one stdio session is one
+identity, and no tool lets an agent change it. A generated tag is only coherent
+because assignments do not outlive their session (§3), and it necessarily
+satisfies the `created_by` pattern below, since the server writes it there
+itself. A list is writable by that
 session when `created_by` equals the identity, **or** when the list's
 `collaborative` flag is set (below). The structural tools — `add_task`, `edit_task`, `delete_task` — resolve
 their id first (the §9 prefix rule still applies), then refuse a foreign list
@@ -1546,7 +1558,7 @@ one is needed, it's added here first.
 | Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered in the row's right-aligned block immediately before the status; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3) — never rendered as `(0%)` in that case. |
 | Task priority | ` HIGH` / ` MED` / ` LOW` | All caps, like the status label, in a content-width cell in the right-aligned block immediately left of the assignee badge. **`none` renders nothing at all** — most tasks are `none` and a badge on every row is noise, not information — so the cell is not reserved and rows do not align on it, unlike the fixed status column. The rank is drawn as a *text tier* rather than a colour of its own: `high` in `TextPrimary`, `medium` in `TextMuted`, `low` in `TextDim`. The ladder is the signal; it spends no new theme token and deliberately borrows no status colour, since the row already spends `StatusInProgress`/`StatusComplete` on its status and `StatusOverdue` on a stale assignee. `tasktree.priorityLabel`/`priorityFg`. |
 | Task assignee | ` @tag` | The durable holder of a task (§3), in the right-aligned block immediately left of the agent spinner — the two are adjacent on purpose, because "assigned, but nobody is here" is only legible as a gap between them. The tag is clipped through `chrome.Truncate` to seven cells so one long agent identity cannot push the right block across the row, and an unassigned task renders nothing. `tasktree.assigneeBadge`. |
-| Task assignee: stale | ` @tag` in `StatusOverdue` | The **stale-assignment tier**: `assignee != ""` **and** no live presence claim by that agent (§3). Assignment has no TTL and no sweeper, so this badge is the only thing on screen that distinguishes abandoned work from work merely owned, and the human's `u`/`U` release keys (§5) are the only thing that clears it. `StatusOverdue` is reused rather than a new token added — it is the same "a human needs to look at this" tier the Details modal and the search picker already draw their error lines in. The live-agent set is read **once per refresh** from the activity set the poll already carries, never per row. `tasktree.assigneeFg`. |
+| Task assignee: stale | ` @tag` in `StatusOverdue` | The **stale-assignment tier**: `assignee != ""` **and** no live presence claim by that agent (§3). Assignment has no TTL and no background sweeper, and a session releases its own work as it exits, so this badge marks the one case left: a session killed before it could clean up. It is the only thing on screen that distinguishes abandoned work from work merely owned, and the human's `u`/`U` release keys (§5) are the only thing that clears it. Rare by design, not routine. `StatusOverdue` is reused rather than a new token added — it is the same "a human needs to look at this" tier the Details modal and the search picker already draw their error lines in. The live-agent set is read **once per refresh** from the activity set the poll already carries, never per row. `tasktree.assigneeFg`. |
 | Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg` (§3.5 of `mcp-server-enhancement.md`); draws `Accent` when the row is focused/selected, `TextDim` otherwise. Appended to the right-aligned block after the status label when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
 | List is collaborative | ` · shared` | Appended to a lists-panel row's count line (`N pending · M done`) when `List.Collaborative` is true — plain text in the same `TextDim` tier the count line already renders in, not a new glyph, so it needs no dedicated symbol here. `src/components/listspanel/View.go`'s `listDelegate.Render`. The rename modal's collaborative toggle (below) reuses the task row's own `◻`/`◼` checkbox glyphs for the same flag, rather than inventing a `[ ]`/`[x]` of its own. |
 

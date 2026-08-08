@@ -341,3 +341,35 @@ func holderError(q querier, taskID string) error {
 	}
 	return fmt.Errorf("%w: task %q is held by %q", ErrAssigned, taskID, holder)
 }
+
+// UnassignAgent releases every task agentID holds and returns how many were
+// freed. It is the assignment half of session-end cleanup: an MCP session's
+// identity is unique per process (docs/plan/session-scoped-agent-identity.md
+// decision 1), so a tag that will never come back must not hold work forever.
+// The `assignee = ?` condition is what keeps it from touching another
+// session's grabs, exactly as ReleaseAgentClaims scopes presence.
+//
+// updated_at moves on the rows it frees, so the release surfaces in
+// list_tasks(since=...) the way SetPriority does. Status, progress and
+// completion are untouched — releasing is not finishing.
+//
+// An empty agentID is refused rather than matching every unassigned row: the
+// column stores ” for "nobody", so an unguarded empty tag would be a silent
+// table-wide no-op at best and a confusing count at worst.
+func (s *Store) UnassignAgent(agentID string) (int, error) {
+	if agentID == "" {
+		return 0, fmt.Errorf("unassign agent: agent_id must not be empty")
+	}
+	res, err := s.db.Exec(
+		`UPDATE Task SET assignee = '', assigned_at = NULL, updated_at = ? WHERE assignee = ?`,
+		time.Now().Unix(), agentID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
