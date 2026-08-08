@@ -1,4 +1,4 @@
-.PHONY: dev build
+.PHONY: dev build test demo
 
 # The version the binary reports. `git describe` gives the tag on a tagged
 # commit and tag-commits-hash between tags, so a build always says which
@@ -16,3 +16,19 @@ dev:
 # after `make build` — no sudo, no extra setup.
 build:
 	go build -ldflags "$(LDFLAGS)" -o "$(shell go env GOPATH)/bin/crush" .
+
+# Run the test suite
+test:
+	go test -count=1 ./...
+	go test -race ./src/mcpserver/ ./src/store/ ./src/cli/
+
+# Build and seed the demo, then record a new demo GIF.
+# Requires VHS (https://github.com/charmbracelet/vhs) and ffmpeg.
+demo:
+	go build -o /tmp/chore-crusher-demo/crush .
+	./demo/seed.sh /tmp/chore-crusher-demo/crush
+	vhs demo/demo.tape
+	@echo "Demo recorded. For smaller size, compress with:"
+	@echo '  FILT="mpdecimate,fps=10,scale=900:-1:flags=lanczos"'
+	@echo '  ffmpeg -i demo/demo.gif -vf "$$FILT,palettegen=max_colors=48" /tmp/pal.png'
+	@echo '  ffmpeg -i demo/demo.gif -i /tmp/pal.png -lavfi "$$FILT[x];[x][1:v]paletteuse=dither=none" -fps_mode vfr /tmp/demo.gif && mv /tmp/demo.gif demo/demo.gif'
