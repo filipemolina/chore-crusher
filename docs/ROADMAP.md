@@ -99,42 +99,42 @@ tool count against *call* count, and call count wins.
 
 ### Shipped
 
-**`mcp-server-enhancement.md`** — the foundation. Added discovery so an agent
-could learn the API without trial and error (resources and prompts), presence
-claims with the TUI spinner, and tightened every tool description.
+**Discovery, presence and better tool descriptions** — the foundation. Added
+discovery so an agent could learn the API without trial and error (resources
+and prompts), presence claims with the TUI spinner, and tightened every tool
+description.
 
-**`agent-presence-heartbeat.md`** — made presence self-maintaining. Any status
-or progress write refreshes the writing agent's claim, so the spinner tracks
-real work instead of an explicit claim call, and a list shows a spinner when
-anything inside it is claimed.
+**Self-maintaining presence** — any status or progress write refreshes the
+writing agent's claim, so the spinner tracks real work instead of an explicit
+claim call, and a list shows a spinner when anything inside it is claimed.
 
-**`MCP_COMFORT_PLAN.md`** — the round of fixes that made the server usable in
-anger: the `SQLITE_BUSY` failure under concurrent access, `show_task` returning
-children, prefixed names in the `Instructions` blob, and `my_list` as a
-one-call session opener.
+**The comfort round** — the fixes that made the server usable in anger: the
+`SQLITE_BUSY` failure under concurrent access, `show_task` returning children,
+prefixed names in the `Instructions` blob, and `my_list` as a one-call session
+opener.
 
-**`list-ownership-enforcement.md`** — gave lists a `created_by` tag and taught
+**List ownership enforcement** — gave lists a `created_by` tag and taught
 the server to refuse structural writes on lists it does not own, while leaving
 status and progress open to everyone. This is the rule the whole multi-agent
 story rests on.
 
-**`mcp-agent-fewer-roundtrips.md`** and **`mcp-batch-writes.md`** — batch reads
-and batch writes, so an agent touching fifty tasks makes one call rather than
-fifty. The write half (`update_tasks`) was later absorbed into `set_status`.
+**Batch reads and batch writes** — so an agent touching fifty tasks makes one
+call rather than fifty. The write half (`update_tasks`) was later absorbed
+into `set_status`.
 
-**`mcp-list-changes-since.md`** — a way to ask what changed since a timestamp
-instead of re-reading a whole list. Later folded into `list_tasks(since=…)`.
+**Change detection** — a way to ask what changed since a timestamp instead of
+re-reading a whole list. Later folded into `list_tasks(since=…)`.
 
-**`mcp-agent-todo-hardening.md`** — closed the P0 bugs the four plans above
+**Hardening the agent-facing text** — closed the P0 bugs the four plans above
 left behind, most of them lies in agent-facing text: a hardcoded identity in
 the `Instructions` blob, presence defaulting to the wrong tag, `my_list`
 returning a list the agent could not write.
 
-**`mcp-tool-consolidation.md`** — cut the surface from 24 tools to 14 by
+**Tool consolidation** — cut the surface from 24 tools to 14 by
 merging tools that differed only in which field they wrote, and moved the
 working loop out of the always-on blob into a prompt.
 
-**`mcp-assignment-and-priorities.md`** — the largest plan in the track, thirteen
+**Assignment and priorities** — the largest plan in the track, thirteen
 steps. It added durable task assignment (`assign_task` / `next_task`, so two
 agents never research the same thing), a four-value priority that `next_task`
 sorts by, self-contained read payloads with a byte budget that never cuts a
@@ -143,7 +143,7 @@ current 12 tools and 2 resources. Its §13 end-to-end verification has been run
 against live sessions, and found two real defects that its own test suite had
 missed — both since fixed.
 
-**`mcp-presence-on-all-writes.md`** — closed without ever being run. It asked
+**Presence on all writes** — closed without ever being run. It asked
 for `autoClaim` on comment, add, rename, notes and move so that any write, not
 just a status change, lights the TUI spinner. The consolidation merged
 rename/notes/move into `edit_task` and `add_comment` into `comment`, and those
@@ -151,11 +151,11 @@ merged handlers already carried the call; grabs were taught to claim
 separately. Verified behaviourally against a running server, including the
 deliberate carve-out that `delete_task` claims nothing.
 
-**`session-end-claim-release-scoping.md`** — a verification finding. Session-end
+**Session-end claim release, scoped** — a verification finding. Session-end
 cleanup deleted *every* agent's presence claims, not just the exiting one's, so
 one agent disconnecting made every other live agent read as abandoned.
 
-**`session-scoped-agent-identity.md`** — removed the setup burden. The identity
+**Session-scoped agent identity** — removed the setup burden. The identity
 used to default to the constant `"agent"`, so two unconfigured clients acted as
 one and overwrote each other with no refusal and no audit trail. Identity is now
 unique per process, and a session releases its claims, its assignments and its
@@ -163,20 +163,20 @@ empty auto-created Inbox when it ends.
 
 ### Ahead
 
-**`agent-working-loop-instructions.md`** — better always-on guidance so an agent
+**Working-loop instructions** — better always-on guidance so an agent
 keeps the store current as it works without being asked: update status as you
 go, scale percentages to task size, read notes and comments before and after,
 re-check the list between tasks. No new tools. This is the highest-value item
 left in the track, because everything else here is machinery an agent only
 benefits from if its instructions tell it to use them.
 
-**`agent-scratch-list-cleanup.md`** — deleting the agent's auto-created
+**Scratch-list cleanup** — deleting the agent's auto-created
 `<identity>: Inbox` when it is finished with, never a human-named list. Now
 partly done: session end already removes that Inbox when it is *empty*. What
 remains is the harder case — an Inbox holding completed work — which needs a
 product decision about what "done with it" means.
 
-**`rename-lists-to-projects.md`** — the "Lists" → "Projects" rename across DB,
+**Renaming Lists to Projects** — the "Lists" → "Projects" rename across DB,
 store, CLI, MCP tool names, TUI and docs. Breaking, touches everything, and
 should run **last**.
 
@@ -213,7 +213,7 @@ These came out of a triage of the Chore Crusher list itself (2026-08-05) and
 are independent of the MCP track. All four have since landed; the paragraphs
 below are what each one found, because the findings outlive the fixes.
 
-**`chore-crusher-bug-fixes.md`** — *done.* Six bugs, each small and free of
+**The bug-fix triage** — *done.* Six bugs, each small and free of
 product decisions. Three had a confirmed cause on inspection: `esc` never left
 task-filter mode, because the esc ladder claimed the key only once a filter was
 *applied* and not while one was being typed; the Lists panel could not be
@@ -236,10 +236,10 @@ previous delete pulls them apart. A seventh item was documentation only: the
 database is already per-OS-user because its path derives from `$XDG_DATA_HOME`,
 and `docs/DESIGN.md` §8 now says so, so nobody re-files it as a feature.
 
-One gap that plan deliberately left open: `lastError` is written in several
+One gap it deliberately left open: `lastError` is written in several
 places and rendered in none, so errors are still invisible in the TUI.
 
-**`tui-interaction-polish.md`** — *four of five landed.* Enter on a list
+**TUI interaction polish** — *four of five landed.* Enter on a list
 selects it and closes the panel, `esc` closes the panel (after first clearing
 an active filter, so the ladder keeps its precedence), and a newly created list
 becomes the active one — the Lists panel is now a transient picker rather than
@@ -253,19 +253,19 @@ have meant is still unanswered: whether re-expanding a parent should also clear
 its descendants' own collapse flags, or whether the ask was for a bulk
 collapse-all that does not exist.
 
-**`task-comments.md`** — *shipped, all five commits.* Comments are append-only
+**Task comments** — *shipped, all five commits.* Comments are append-only
 and authored: a human's comment is attributed to the OS username, an agent's to
 its MCP identity, since the app has no login to hang a user concept off. They
 are sorted oldest-first, and a list can turn them off with a
 `comments_disabled` flag — the one gate, deliberately not the ownership gate,
-because anyone may comment on anyone's task. The plan's open question was
+because anyone may comment on anyone's task. The open question was
 whether writing a comment justified breaking the MCP tool ceiling; it did, and
 reading them cost nothing because they ride along in `show_task`. The TUI shows
 a `💬` in the same fixed trailing icon column as the notes glyph, and renders
 each comment as its own card in the Details panel with a compose control on its
 own key, distinct from the panel's save.
 
-**`ui-improvements.md`** — *shipped, all six commits.* catppuccin-mocha is the
+**UI improvements** — *shipped, all six commits.* catppuccin-mocha is the
 fresh-install default (a saved theme still wins); the Lists panel opens itself
 at 120 columns or wider, and thereafter `L` is authoritative for the session so
 a resize never reverses a user's toggle; the first frame renders before the
@@ -276,16 +276,16 @@ built on a single line plan shared by layout and rendering rather than a
 viewport wrapped around an opaque string; and the active list's name sits bold
 and right-aligned on the Tasks title line.
 
-**`agent-scratch-list-cleanup.md`** and **`agent-working-loop-instructions.md`**
-are tracked in the MCP track above.
+**Scratch-list cleanup** and **working-loop instructions** are tracked in the
+MCP track above.
 
 ### UI (post-alpha)
 
-The Tasks surface was redesigned in three overlapping passes; later plans
+The Tasks surface was redesigned in three overlapping passes; later passes
 supersede earlier ones where they conflict, and `docs/DESIGN.md` §§6 and 12 are
 authoritative over all of them.
 
-**`ux-redesign.md`** — *shipped (phases A–C).* The interaction-and-density
+**The UX redesign** — *shipped (phases A–C).* The interaction-and-density
 pass, not another theme port: Lists rows became Stack Stitcher-style cards,
 task rows got denser with a `▌` bar and status colors from the theme, a rule
 separates the Pending and Complete sections, and navigation follows visual
@@ -295,14 +295,14 @@ selected. Its standing product constraints: inline create stays (no
 bottom-docked add field), `tab`/`shift+tab` switch panels, and `[`/`]` — not
 tab — change level while creating.
 
-**`task-row-redesign-and-inline-creation.md`** — *shipped.* The cutover from a
+**Task-row redesign and inline creation** — *shipped.* The cutover from a
 bottom-pinned add input to inline creation in the tree, which also moved the
 startup focus onto the tree and deleted the `addinput` component entirely. Its
 column layout and drop order (progress sheds before status, both whole) are
 still current; its "the input row *is* the empty state" and
 "esc on empty input never leaves" decisions are not.
 
-**`task-row-cards-and-status.md`** — *shipped, one decision reverted.* Full-width
+**Task-row cards and status labels** — *shipped, one decision reverted.* Full-width
 content-height row cards, the `▌` bar colored by status (accent when selected),
 and the status label in colored caps at the line's end. Its empty-list decision
 did ship and was then taken back out: `esc` used to close the input and replace
@@ -311,7 +311,7 @@ appearances and only explained how to add a task after the user dismissed the
 thing that would have. `esc` now *parks* the input instead — it blurs, the row
 stays, and the guidance sits beside it.
 
-**`details-as-sidepanel.md`** — *shipped.* Replaced the details modal with a
+**Details as a side panel** — *shipped.* Replaced the details modal with a
 framed Details surface, mutually exclusive with Lists so the body is never
 three panels: `enter` opens it, `esc` closes it clean or prompts when dirty,
 `ctrl+s` saves and closes. The exclusivity, and the rule that focus is computed
@@ -320,7 +320,7 @@ implementable — the previous draft contradicted itself on both. Details has
 since been re-rendered as a centered modal over a scrimmed page, which changes
 where it is drawn, not the state machine underneath.
 
-**`details-panel-title-editing.md`** — *mostly landed.* The title is a
+**Title editing in the Details panel** — *mostly landed.* The title is a
 single-line `textinput` in the Details panel, tab cycles through it, `ctrl+s`
 saves it via the existing `RenameTask`, and dirty detection covers it — which
 closes the "no way to edit a task from the TUI" bug. What did not land is the
@@ -328,7 +328,7 @@ dedicated `e` shortcut that would open Details with the title already focused.
 
 ### Sister / context
 
-**`stack-stitcher-sister-tui.md`** — *historical.* The chrome alignment with
+**The Stack Stitcher chrome alignment** — *historical.* The chrome alignment with
 this project's sister TUI: the two-surface titled-panel layout, the shared
 frame with its `Padding(1, 2)`, the bar-column active-row indicator. Worth
 keeping for one lesson it records: the panel padding had been silently reverted
