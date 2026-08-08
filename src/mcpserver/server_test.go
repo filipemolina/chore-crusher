@@ -3112,6 +3112,145 @@ func TestEditTaskNoField(t *testing.T) {
 	}
 }
 
+// taskPriority reads one task's priority through show_task — the read shape
+// an agent actually sees, not the store row underneath it.
+func taskPriority(t *testing.T, session *mcp.ClientSession, id string) string {
+	t.Helper()
+	var arr []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{id}}), &arr)
+	if len(arr) != 1 {
+		t.Fatalf("show_task(%s) returned %d rows, want 1", id, len(arr))
+	}
+	p, _ := arr[0]["priority"].(string)
+	return p
+}
+
+// TestAddTaskPriority covers the priority parameter §2's final-surface table
+// gives add_task: it lands on the created task, an omitted one leaves the
+// column at its 'none' default (never SetPriority(""), which the store
+// rejects — plan §6.5), and a bad value is refused BEFORE the task is
+// created, so a rejected call leaves nothing behind.
+func TestAddTaskPriority(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+
+	var hi map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "urgent", "priority": "high",
+	}), &hi)
+	if got := taskPriority(t, session, hi["id"]); got != "high" {
+		t.Errorf("add_task(priority=high) stored %q, want high", got)
+	}
+
+	var plain map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "whenever",
+	}), &plain)
+	if got := taskPriority(t, session, plain["id"]); got != "none" {
+		t.Errorf("add_task without priority stored %q, want none", got)
+	}
+
+	msg := callToolErr(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "bogus", "priority": "urgent",
+	})
+	if !strings.Contains(msg, "invalid priority") {
+		t.Errorf("add_task(priority=urgent) error = %q, want the invalid-priority message", msg)
+	}
+	var listed struct {
+		Tasks []struct {
+			Title string `json:"title"`
+		} `json:"tasks"`
+	}
+	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]}), &listed)
+	if len(listed.Tasks) != 2 {
+		t.Fatalf("list has %d tasks after a rejected add, want 2 — the task was created anyway: %+v", len(listed.Tasks), listed.Tasks)
+	}
+}
+
+// TestEditTaskPriority covers §6.5's dangerous row: the parameter's PRESENCE
+// is what means "set it". An edit that omits priority must leave the stored
+// value alone — a rename silently clearing a high someone set is the bug the
+// pointer type exists to prevent — and "" is a rejected value, not a quiet
+// 'none'. A rejected value is caught before the rename is written.
+func TestEditTaskPriority(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "orig",
+	}), &task)
+
+	// priority alone satisfies the needs-a-field check.
+	callTool(t, session, "edit_task", map[string]any{"id": task["id"], "priority": "high"})
+	if got := taskPriority(t, session, task["id"]); got != "high" {
+		t.Fatalf("edit_task(priority=high) stored %q, want high", got)
+	}
+
+	// A title-only edit leaves it high.
+	callTool(t, session, "edit_task", map[string]any{"id": task["id"], "title": "renamed"})
+	if got := taskPriority(t, session, task["id"]); got != "high" {
+		t.Errorf("priority = %q after a title-only edit, want high (omitted means unchanged)", got)
+	}
+
+	// Explicit "" is invalid, not 'none'.
+	if msg := callToolErr(t, session, "edit_task", map[string]any{"id": task["id"], "priority": ""}); !strings.Contains(msg, "invalid priority") {
+		t.Errorf("edit_task(priority='') error = %q, want the invalid-priority message", msg)
+	}
+	// And a bad value refuses the whole call, rename included.
+	if msg := callToolErr(t, session, "edit_task", map[string]any{
+		"id": task["id"], "title": "half-written", "priority": "urgent",
+	}); !strings.Contains(msg, "invalid priority") {
+		t.Errorf("edit_task(priority=urgent) error = %q, want the invalid-priority message", msg)
+	}
+	var arr []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &arr)
+	if arr[0]["title"] != "renamed" {
+		t.Errorf("title = %v after a rejected priority, want renamed — the rename was written before the value was validated", arr[0]["title"])
+	}
+	if arr[0]["priority"] != "high" {
+		t.Errorf("priority = %v after a rejected edit, want high", arr[0]["priority"])
+	}
+}
+
+// TestEditTaskPriorityForeignListRefused pins priority on the structural side
+// of the ownership line: re-ranking is a steer about what to pick up next, so
+// it is refused on a foreign list exactly like a rename — unlike
+// status/progress, which any agent may change anywhere.
+func TestEditTaskPriorityForeignListRefused(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+	db, err := sql.Open("sqlite", config.DBPath())
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	foreignListID := store.NewID()
+	foreignTaskID := store.NewID()
+	now := time.Now().Unix()
+	if _, err := db.Exec(
+		`INSERT INTO List (id, name, created_by, position, created_at)
+		 VALUES (?, ?, 'claude', 0, ?)`,
+		foreignListID, "claude: Backlog", now,
+	); err != nil {
+		t.Fatalf("seed foreign list: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at)
+		 VALUES (?, ?, NULL, 'real work', '', 'pending', 'none', NULL, 0, ?, ?, NULL)`,
+		foreignTaskID, foreignListID, now, now,
+	); err != nil {
+		t.Fatalf("seed foreign task: %v", err)
+	}
+	msg := callToolErr(t, session, "edit_task", map[string]any{"id": foreignTaskID, "priority": "high"})
+	if !strings.Contains(msg, "owned by claude") {
+		t.Errorf("foreign-list priority edit error = %q, want it to name the owner", msg)
+	}
+	if got := taskPriority(t, session, foreignTaskID); got != "none" {
+		t.Errorf("foreign task priority = %q after the refusal, want none", got)
+	}
+}
+
 // TestEditTaskForeignListRefusesContent guards §6: title/notes edits on a task
 // the server does not own are refused (mirrors the old rename_task/set_notes
 // refusal, now under edit_task).

@@ -141,7 +141,7 @@ IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `
 
 ASSIGNMENT — grab a task before you research it. Three separate axes, do not confuse them: status is what the work IS; the TUI spinner is presence, a 120-second claim any write refreshes and the end of your session clears; assignee is durable ownership with NO TTL — it survives your disconnect and changes only when someone assigns, releases, or completes. Grabbing first is the point: next_task(list_id) or assign_task(ids=[...]) makes the task yours before you spend tokens on it, so a second agent does not research the same thing in parallel. Every task row you read carries assignee, assigned_at, assignee_live and priority. An assignee with assignee_live false is abandoned work, not free work — nothing auto-releases it. A write to a task another agent holds (set_status, edit_task, delete_task) is REFUSED; force=true performs it, reassigns the task to you and records a takeover comment. Commenting is never refused — leaving a note on another agent's task is how coordination works. Completing a task auto-unassigns it, every descendant the cascade completes, and every ancestor it promotes. Assignment reserves the subtree: a task whose ancestor or descendant is held by someone else is refused EVEN with force — release the blocker with assign_task(ids=[blocker], release=true, force=true), or ask the human to release the whole list from the TUI.
 
-PRIORITY. Four values, ranked high > medium > low > none (the default). next_task picks by priority first and tree order second, and every task row you read carries the field. No MCP tool sets it: priority is the human's steer about what to pick up next, set outside this server (crush priority on the CLI). It does not re-order the tree.
+PRIORITY. Four values, ranked high > medium > low > none (the default). next_task picks by priority first and tree order second, and every task row you read carries the field. Set it with add_task(priority=...) or edit_task(id, priority=...) — a structural edit, so only on a list you own; the human sets it from the TUI or the CLI (crush priority) on theirs. Omitting priority on edit_task leaves the current value alone, so a rename never silently clears a high someone set. Priority does not re-order the tree: it steers what to pick up next, nothing else.
 
 IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
@@ -150,8 +150,8 @@ TOOLS (chore_crusher_<name>):
 - list_tasks(list_id, status?, since?, include?) — one list's task tree as preorder rows with ancestor skeletons; status defaults to 'open' (pending + in_progress), also pending|in_progress|complete|all; include=['notes','comments'] inlines whole bodies, a byte budget caps the response and over-budget rows are named in the 'elided' field of the {tasks, elided, budget_exceeded} result, never cut mid-text; since=<unix> returns only tasks changed after that time and widens the default status to 'all' so completions show (the old list_changes tool, folded into this parameter)
 - show_task(ids) — full details + children + comments for 1..50 tasks
 - search_tasks(query, list_id?) — fuzzy over titles and notes
-- add_task(list_id, title, parent?, notes?)
-- edit_task(id, title?, notes?, parent?, to_root?, force?) — change any field; notes replaces the whole body; parent re-parents; to_root moves to the list root; force=true takes over a task another agent holds
+- add_task(list_id, title, parent?, notes?, priority?) — priority is none|low|medium|high, default none
+- edit_task(id, title?, notes?, parent?, to_root?, priority?, force?) — change any field; notes replaces the whole body; parent re-parents; to_root moves to the list root; priority re-ranks it (omit it and the current value is left alone); force=true takes over a task another agent holds
 - delete_task(id, force=true) — task and descendants; the same force also takes over another agent's task
 - set_status(ids, status?, progress?, percent?, comment?, force?) — the one status/progress write; status=pending|in_progress|complete (complete cascades and auto-unassigns), progress=simple|subtasks|percentage flips the task to in_progress (percent only with percentage), comment lands after the state change; a complete task is reopened first, so progress never errors; force=true performs the write on a task assigned to another agent and records a takeover comment
 - assign_task(ids, release?, force?) — the durable grab: assign 1..50 tasks to yourself (this server's identity) and get their full show_task payloads; release=true unassigns (silently succeeds if you did not hold it); force=true takes a task from its holder and records a takeover comment — but a task blocked by an ancestor/descendant assigned to another agent is refused EVEN with force; release the blocker first
@@ -367,13 +367,22 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_task",
-		Description: "Add a task to a list, optionally nested under a parent. Example: add_task(list_id='01ABC...', title='Buy milk', parent='01DEF...', notes='whole milk').",
+		Description: "Add a task to a list, optionally nested under a parent. Example: add_task(list_id='01ABC...', title='Buy milk', parent='01DEF...', notes='whole milk', priority='high'). priority is one of none|low|medium|high and defaults to none; it is what next_task sorts by.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ListID string `json:"list_id" jsonschema:"list id or unambiguous prefix"`
-		Title  string `json:"title" jsonschema:"task title"`
-		Parent string `json:"parent,omitempty" jsonschema:"optional parent task id or prefix"`
-		Notes  string `json:"notes,omitempty" jsonschema:"optional notes"`
+		ListID   string `json:"list_id" jsonschema:"list id or unambiguous prefix"`
+		Title    string `json:"title" jsonschema:"task title"`
+		Parent   string `json:"parent,omitempty" jsonschema:"optional parent task id or prefix"`
+		Notes    string `json:"notes,omitempty" jsonschema:"optional notes"`
+		Priority string `json:"priority,omitempty" jsonschema:"none, low, medium or high; omit to leave it at none"`
 	}) (*mcp.CallToolResult, any, error) {
+		// An omitted priority leaves the column at its 'none' default rather
+		// than calling SetPriority("") (plan §6.5) — the zero value is not
+		// PriorityNone, it is invalid.
+		if in.Priority != "" {
+			if err := checkPriority(in.Priority); err != nil {
+				return errorResult(err), nil, nil
+			}
+		}
 		listID, err := s.ResolveID("list", in.ListID)
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -392,6 +401,11 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		id, err := s.CreateTask(listID, in.Title, parentID, in.Notes)
 		if err != nil {
 			return errorResult(err), nil, nil
+		}
+		if in.Priority != "" {
+			if err := s.SetPriority(id, store.Priority(in.Priority)); err != nil {
+				return errorResult(err), nil, nil
+			}
 		}
 		// Light the spinner on the task just created.
 		autoClaim(s, "task", id, identity)
@@ -694,27 +708,42 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_task",
-		Description: "Edit a task's fields in one call. Any omitted field is left unchanged. title renames it; notes REPLACES the whole notes body (pass '' to clear); parent re-parents it under that task; to_root=true moves it to the list root. Example: edit_task(id='01ABC', title='New name', notes='updated'). Structural edit — refused on a list you do not own, and on a task assigned to another agent unless force=true (which takes the task over and records a takeover comment).",
+		Description: "Edit a task's fields in one call. Any omitted field is left unchanged. title renames it; notes REPLACES the whole notes body (pass '' to clear); parent re-parents it under that task; to_root=true moves it to the list root; priority sets none|low|medium|high (omit it and the current priority is left alone — it is never reset as a side effect of a rename). Example: edit_task(id='01ABC', title='New name', priority='high'). Structural edit — refused on a list you do not own, and on a task assigned to another agent unless force=true (which takes the task over and records a takeover comment).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID     string  `json:"id" jsonschema:"task id or unambiguous prefix"`
-		Title  *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
-		Notes  *string `json:"notes,omitempty" jsonschema:"replacement notes (whole body; '' clears); omit to leave unchanged"`
-		Parent *string `json:"parent,omitempty" jsonschema:"new parent task id or prefix; omit to leave unchanged"`
-		ToRoot bool    `json:"to_root,omitempty" jsonschema:"true moves the task to the list root"`
-		Force  bool    `json:"force,omitempty" jsonschema:"true overrides another agent's assignment of the task (records a takeover comment)"`
+		ID       string  `json:"id" jsonschema:"task id or unambiguous prefix"`
+		Title    *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
+		Notes    *string `json:"notes,omitempty" jsonschema:"replacement notes (whole body; '' clears); omit to leave unchanged"`
+		Parent   *string `json:"parent,omitempty" jsonschema:"new parent task id or prefix; omit to leave unchanged"`
+		ToRoot   bool    `json:"to_root,omitempty" jsonschema:"true moves the task to the list root"`
+		Priority *string `json:"priority,omitempty" jsonschema:"none, low, medium or high; omit to leave the current priority unchanged"`
+		Force    bool    `json:"force,omitempty" jsonschema:"true overrides another agent's assignment of the task (records a takeover comment)"`
 	}) (*mcp.CallToolResult, any, error) {
-		if in.Title == nil && in.Notes == nil && in.Parent == nil && !in.ToRoot {
-			return errorResult(fmt.Errorf("edit_task needs at least one of title, notes, parent, to_root")), nil, nil
+		if in.Title == nil && in.Notes == nil && in.Parent == nil && in.Priority == nil && !in.ToRoot {
+			return errorResult(fmt.Errorf("edit_task needs at least one of title, notes, parent, to_root, priority")), nil, nil
 		}
 		if in.Parent != nil && in.ToRoot {
 			return errorResult(fmt.Errorf("pass either parent or to_root, not both")), nil, nil
+		}
+		// Presence of the parameter, not its emptiness, is what means "set it"
+		// (plan §6.5): an omitted priority must leave a high someone set
+		// alone, so the pointer is checked for nil and "" is a rejected value
+		// rather than a silent none. Validated up front, before the renames
+		// below write anything.
+		if in.Priority != nil {
+			if err := checkPriority(*in.Priority); err != nil {
+				return errorResult(err), nil, nil
+			}
 		}
 		id, err := s.ResolveID("task", in.ID)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		// Title/notes edits touch the task's own content, so gate on its list.
-		if in.Title != nil || in.Notes != nil {
+		// Title/notes/priority edits touch the task's own content, so gate on
+		// its list. Priority belongs on this side of the line, not with
+		// status/progress: it is the human's steer about what an agent should
+		// pick up next, so re-ranking someone else's list is exactly the
+		// structural edit ownership refuses.
+		if in.Title != nil || in.Notes != nil || in.Priority != nil {
 			if err := requireWritableTask(s, identity, id); err != nil {
 				return errorResult(err), nil, nil
 			}
@@ -774,6 +803,11 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		}
 		if in.Parent != nil || in.ToRoot {
 			if err := s.Reparent(id, parentID); err != nil {
+				return errorResult(err), nil, nil
+			}
+		}
+		if in.Priority != nil {
+			if err := s.SetPriority(id, store.Priority(*in.Priority)); err != nil {
 				return errorResult(err), nil, nil
 			}
 		}
@@ -994,6 +1028,22 @@ func requireWritableTask(s *store.Store, identity, taskID string) error {
 		return err
 	}
 	return requireWritable(s, identity, t.ListID)
+}
+
+// checkPriority validates an optional priority parameter BEFORE any write
+// runs. store.SetPriority does its own validation, but both callers write
+// something else first — add_task creates the task, edit_task may already
+// have renamed it — so a value rejected at write time would leave the
+// half-happened write the re-parent gate exists to prevent. The empty string
+// is invalid here on purpose: Priority("") is not PriorityNone (plan §6.5),
+// and "omitted" is signalled by not passing the parameter at all, never by
+// passing "".
+func checkPriority(p string) error {
+	switch store.Priority(p) {
+	case store.PriorityNone, store.PriorityLow, store.PriorityMedium, store.PriorityHigh:
+		return nil
+	}
+	return fmt.Errorf("%w: %q (want none, low, medium, or high)", store.ErrInvalidPriority, p)
 }
 
 // requireOwnComment rejects deleting a comment this identity did not write.

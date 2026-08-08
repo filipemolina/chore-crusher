@@ -960,7 +960,18 @@ stop the rest — `batchApply`).
 The rename/notes/re-parent/to-root structural edits stay in `edit_task`
 (cross-list or ownership-gated, it stays single-task). Each touched
 task is auto-claimed under the writing agent's identity, same as the
-single-task writes. Full rationale: `docs/plan/mcp-batch-writes.md` and
+single-task writes.
+
+**Priority is an agent-settable field.** `add_task(priority?)` defaults it to
+`none`; `edit_task(priority?)` re-ranks an existing task. Both are gated as
+structural edits — re-ranking is a steer about what should be picked up next,
+so it is refused on a list the caller does not own, exactly like a rename.
+An **omitted** `priority` on `edit_task` leaves the stored value alone: the
+parameter's *presence* is what means "set it", never its emptiness, because
+`store.SetPriority` rejects `""` and a rename must not silently clear a
+`high` someone set (`docs/plan/mcp-assignment-and-priorities.md` §6.5). The
+value is validated before either tool writes anything, so a rejected priority
+never leaves a created task or a completed rename behind an error. Full rationale: `docs/plan/mcp-batch-writes.md` and
 `docs/plan/mcp-tool-consolidation.md`, with the merged-tool design in
 `docs/plan/mcp-assignment-and-priorities.md` §4.
 
