@@ -13,6 +13,14 @@ DATA=/tmp/chore-crusher-demo/data
 CONFIG=/tmp/chore-crusher-demo/config
 BIN=${1:-/tmp/chore-crusher-demo/crush}
 
+# Build the binary into the demo dir when it is missing, so the script is
+# self-contained from a clean checkout. The caller may pass an explicit path
+# (or rely on `crush` already being built/on PATH); otherwise we build in place.
+if [ ! -x "$BIN" ]; then
+    mkdir -p "$(dirname "$BIN")"
+    go build -o "$BIN" .
+fi
+
 # Pin the theme so frames don't depend on whatever the recorder's own config
 # holds. catppuccin-mocha is also the compiled default, so this is belt-and-
 # suspenders against a later re-theme.
@@ -25,8 +33,8 @@ export XDG_CONFIG_HOME="$CONFIG"
 
 run() { "$BIN" "$@"; }
 
-# The list the TUI adopts on launch (the only list, so it is first).
-# List ids are resolved by id-prefix, never by name, so every add uses this id.
+# The first list (adopted on launch). List ids are resolved by id-prefix,
+# never by name, so every add below uses this id.
 LIST=$(run lists add "Home")
 
 # Plan the garden — a root with a 3-level subtree, so the tape can show more
@@ -50,5 +58,11 @@ kitchen=$(run add "$LIST" "Clean the kitchen")
 run add "$LIST" "Clear the counters" --parent "$kitchen"
 run add "$LIST" "Dust the shelves" --parent "$kitchen"
 run "$kitchen"
+
+# A second list so the lists panel has something to navigate between.
+# "Deck project" gets a couple of tasks to show cross-list search.
+DECK=$(run lists add "Deck project")
+run add "$DECK" "Buy lumber"
+run add "$DECK" "Measure the site"
 
 echo "seeded list $LIST"

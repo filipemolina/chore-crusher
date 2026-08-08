@@ -1,22 +1,20 @@
 # VHS tape for the chore-crusher README demo.
 # Install VHS first: https://github.com/charmbracelet/vhs (needs ttyd + ffmpeg too).
 #
-# The binary is the repo-root `./crush` (built with `make build`; the
-# `crush` on PATH is bash's completion builtin, so the tape uses the
-# relative path on purpose). Seed the store first into the same throwaway
-# XDG dirs the recording uses, so the frames are deterministic:
+# seed.sh compiles ./crush into /tmp/chore-crusher-demo/crush and seeds the
+# throwaway store there, so the recording never touches the recorder's real
+# data. Re-record from the repo root with:
 #
-#   ./demo/seed.sh           # builds state into /tmp/chore-crusher-demo/{data,config}
-#   vhs demo/demo.tape       # record from the repo root
+#   make demo
 #
-# VHS writes every frame at 25fps and the raw GIF comes out large; shrink it
-# before a README pins it, the way stack-stitcher's demo does:
+# That runs seed.sh, records, and compresses via demo/compress.sh (mpdecimate
+# for duplicate frames, 10fps, 900px wide, 48-colour palette — same recipe
+# stack-stitcher uses).
 #
-#   FILT="mpdecimate,fps=10,scale=900:-1:flags=lanczos"
-#   ffmpeg -i demo/demo.gif -vf "$FILT,palettegen=max_colors=48" /tmp/pal.png
-#   ffmpeg -i demo/demo.gif -i /tmp/pal.png \
-#     -lavfi "$FILT[x];[x][1:v]paletteuse=dither=none" \
-#     -fps_mode vfr /tmp/demo.gif && mv /tmp/demo.gif demo/demo.gif
+# The recording starts the instant the TUI window appears — all shell setup
+# (build, seed, env vars) happens with Show suppressed, so the GIF is 100%
+# TUI. The demo opens the lists panel, creates a list, adds a root task and a
+# nested subtask (one level deep via ]), then previews the theme picker.
 
 Output demo/demo.gif
 
@@ -26,81 +24,93 @@ Set Width 1200
 Set Height 660
 Set Theme "Dracula"
 # A blinking cursor changes pixels twice a second; every tick is a frame the
-# GIF must carry. Holding it still saves megabytes on a recording this long.
+# GIF has to carry. Holding it still saves megabytes on a recording this long.
 Set CursorBlink false
 Set TypingSpeed 45ms
 
-# Build the binary first, then seed the store with deterministic data.
+# Build the binary and seed the throwaway store. seed.sh compiles ./crush into
+# /tmp/chore-crusher-demo/crush itself, so this is self-contained from a clean
+# checkout. Hide every frame of setup — the GIF starts at the TUI on the
+# seeded "Home" list.
 Hide
-Type "make build && ./demo/seed.sh && clear"
+Type "cd /home/filipe/Documents/projects/chore-crusher && ./demo/seed.sh && clear"
 Enter
 Sleep 3s
-Show
-
-# Same throwaway dirs the seed used: recording neither depends on nor
-# overwrites the recorder's real store or config.
+# Export the same throwaway XDG dirs inside the visible shell so the TUI reads
+# them (also hidden — we only want to show the app).
 Type "export XDG_DATA_HOME=/tmp/chore-crusher-demo/data XDG_CONFIG_HOME=/tmp/chore-crusher-demo/config && clear"
 Enter
 Sleep 800ms
 
-Type "./crush"
+# Launch the TUI. Show only after it has had time to render.
+Type "/tmp/chore-crusher-demo/crush"
 Enter
 Sleep 3s
+Show
 
-# --- Toggle complete, watch the cascade -----------------------------------
-# The cursor lands on "Plan the garden". space completes it and every
-# descendant at once; the second space walks the whole subtree back to
-# pending, so both directions of the cascade are on screen.
-Sleep 1500ms
-Space
-Sleep 1800ms
-Space
-Sleep 1800ms
-
-# --- Add a nested task; n starts creating, [ and ] set level ---
-# n opens the inline create row; ] makes it a child of the selected task
-# ('+'). The selection is a root task, so [ is a no-op here (nothing sits
-# above the root - docs/DESIGN.md §4), and the level stays a child; Enter
-# lands it as a child of "Plan the garden" (the task left selected by the
-# cascade above).
-Type "n"
-Sleep 700ms
-Type "Grow a trellis"
-Sleep 500ms
-Type "]"
-Sleep 1200ms
-Type "["
-Sleep 1200ms
-Type "]"
+# --- Open the lists side panel ----------------------------------------------
+# L (shift+l) toggles the lists panel. Opening it moves focus onto it, so the
+# next keystrokes act on the lists, not the task tree.
+Type@1ms "L"
 Sleep 800ms
-Enter
-Sleep 2000ms
-Escape
+
+# --- Navigate up and down once in the lists panel ---------------------------
+Up
 Sleep 600ms
+Down
+Sleep 800ms
 
-# --- Theme picker: live preview ------------------------------------------
-# T opens the picker; moving the cursor repaints the whole app live behind
-# it. Two moves, then Esc closes without persisting.
-Type "T"
+# --- Create a new list -------------------------------------------------------
+# n opens the new-list name modal; type the name, Enter submits. The app then
+# selects the new list AND auto-closes the lists panel (ListCreatedMsg calls
+# closeListsPanel), so no separate "L to close" is needed — pressing L again
+# would re-open it. Focus lands on the now-empty task tree.
+Type@1ms "n"
+Sleep 700ms
+Type@1ms "Weekend chores"
+Sleep 600ms
+Enter
+Sleep 1500ms
+
+# --- Add a root task ---------------------------------------------------------
+# The new list is empty, so its inline create input auto-opened and is live —
+# no n is needed for the first task (n would just type the letter into the
+# title). Type the name, Enter saves it. Rapid entry keeps a fresh, focused
+# input anchored on the just-created task, so the next task can be indented
+# straight away.
+Type@1ms "Grocery run"
+Sleep 500ms
+Enter
+Sleep 1200ms
+
+# --- Add a nested subtask (one level deep) -----------------------------------
+# The input is still live and anchored on "Grocery run". ] (Tree.Indent) sets
+# the create level to +1, so the new task becomes a child of "Grocery run".
+Type@1ms "]"
+Sleep 800ms
+Type@1ms "Pick up milk"
+Sleep 500ms
+Enter
+Sleep 1500ms
+
+# --- Close the create input --------------------------------------------------
+# Esc discards the still-live rapid-entry input and returns the keyboard to
+# the tree so the theme picker can open.
+Escape
+Sleep 800ms
+
+# --- Theme picker: live preview ----------------------------------------------
+# T opens the picker; moving the cursor repaints the whole app live behind it.
+# A few downs step through themes, then Esc closes without persisting.
+Type@1ms "T"
 Sleep 1000ms
 Down
-Sleep 1500ms
+Sleep 700ms
+Down
+Sleep 700ms
+Down
+Sleep 700ms
 Down
 Sleep 1500ms
 Escape
-Sleep 1200ms
-
-# --- Global search picker -------------------------------------------------
-# F searches every list at once; typing ranks title matches first. Enter on
-# a result jumps the list and selects the task.
-Type "F"
-Sleep 1000ms
-Type "trellis"
-Sleep 2500ms
-Down
-Sleep 800ms
-Enter
 Sleep 2000ms
-
-Ctrl+C
-Sleep 1000ms

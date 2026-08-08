@@ -1,9 +1,13 @@
 # VHS tape for static README screenshots.
-# Run the same seeded state the demo GIF uses:
-#   ./demo/seed.sh ./crush
+# Uses the same seeded throwaway store the demo GIF uses. Record from the
+# repo root after seeding:
+#
+#   ./demo/seed.sh
 #   vhs demo/screenshots.tape
 #
 # VHS Screenshot takes relative paths only, so every PNG lands under demo/.
+# The recording starts only after the TUI window appears — all shell setup
+# (env vars) happens with Show suppressed, so the shots are 100% app.
 
 Set Shell "bash"
 Set FontSize 15
@@ -13,27 +17,50 @@ Set Theme "Dracula"
 Set CursorBlink false
 Set TypingSpeed 45ms
 
+# Set up the throwaway XDG dirs so the TUI reads the seeded store.
+# Hide the shell setup — we only want to capture the app.
 Hide
 Type "export XDG_DATA_HOME=/tmp/chore-crusher-demo/data XDG_CONFIG_HOME=/tmp/chore-crusher-demo/config && clear"
 Enter
 Sleep 800ms
 Show
 
-Type "./crush"
+# Launch the TUI.
+Type "/tmp/chore-crusher-demo/crush"
 Enter
 Sleep 3s
 
-# --- Main TUI: tree focused, pending/complete sections visible ------------
+# --- Lists panel: open it so both panels are visible ------------------------
+# L (shift+l) toggles the lists panel; the cursor stays on the task tree.
+Type "L"
+Sleep 600ms
+
+# --- Main TUI: Lists + Tasks panels, pending/complete sections visible ------
 Screenshot demo/screenshot-main.png
 
-# --- Help overlay: shows the tab / shift+tab zone-focus cycle -------
+# --- Help overlay: shows the full keybinding catalog -----------------------
 Type "?"
 Sleep 1.2s
 Screenshot demo/screenshot-help.png
 Escape
 Sleep 600ms
 
-# --- Add input: n starts creating, ] makes the level a child ---------
+# --- Complete section: watch the cascade move items to the Complete section --
+# The cursor is on "Plan the garden" (first root). space completes it and
+# every descendant at once; they move to the Complete section below.
+Type "L"
+Sleep 500ms
+Sleep 300ms
+Space
+Sleep 1500ms
+Screenshot demo/screenshot-complete.png
+Escape
+Sleep 500ms
+# Toggle it back so the remaining shots start from a clean tree.
+Space
+Sleep 1200ms
+
+# --- Add input: n starts creating, ] makes the level a child ---------------
 Type "n"
 Sleep 500ms
 Type "Grow a trellis"
@@ -44,6 +71,11 @@ Screenshot demo/screenshot-add.png
 Escape
 Sleep 500ms
 Escape
+Sleep 500ms
+
+# Close the lists panel so the task tree fills the width for the remaining
+# shots (theme picker, search).
+Type "L"
 Sleep 500ms
 
 # --- Theme picker: live preview --------------------------------------------
@@ -58,7 +90,7 @@ Sleep 600ms
 # --- Global search picker --------------------------------------------------
 Type "F"
 Sleep 800ms
-Type "ferns"
+Type "trellis"
 Sleep 1.5s
 Screenshot demo/screenshot-search.png
 Escape

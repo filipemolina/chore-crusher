@@ -28,7 +28,5 @@ demo:
 	go build -o /tmp/chore-crusher-demo/crush .
 	./demo/seed.sh /tmp/chore-crusher-demo/crush
 	vhs demo/demo.tape
-	@echo "Demo recorded. For smaller size, compress with:"
-	@echo '  FILT="mpdecimate,fps=10,scale=900:-1:flags=lanczos"'
-	@echo '  ffmpeg -i demo/demo.gif -vf "$$FILT,palettegen=max_colors=48" /tmp/pal.png'
-	@echo '  ffmpeg -i demo/demo.gif -i /tmp/pal.png -lavfi "$$FILT[x];[x][1:v]paletteuse=dither=none" -fps_mode vfr /tmp/demo.gif && mv /tmp/demo.gif demo/demo.gif'
+	./demo/compress.sh
+	vhs demo/screenshots.tape

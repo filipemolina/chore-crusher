@@ -4,7 +4,7 @@
 
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-v0.1.0-blue)
+![Status](https://img.shields.io/badge/status-v0.2.0-blue)
 
 [**Demo**](#demo) • [**Get Started**](#get-started) • [**Usage**](#usage) • [**For Agents**](#for-coding-agents)
 
@@ -22,10 +22,10 @@ None of them are good at **this**:
 
 - **A UI that serves both humans and agents** — No agent-specific plumbing
   bolted onto a human app, or a human UI bolted onto an agent tool. The TUI
-  and the CLI are two views of **one store**, and every state change either
-  makes, the other can see within a second.
+  and the CLI are two views of **one store**, and any state change one makes
+  the other sees within a second.
 
-- **Tree-structured with derived progress** —nest tasks to any depth and watch
+- **Tree-structured with derived progress** — nest tasks to any depth and watch
   percentages compute automatically (`completed / total`), so long tasks
   naturally break down while you work.
 
@@ -35,7 +35,7 @@ agent-native but render as Markdown, not a persistent TUI you can leave open.
 Claude Code's task tool is scoped to one session, has no CLI, and nothing to
 watch it with outside the transcript.
 
-Chore Crusher deliver**s the combination**: a keyboard-driven terminal UI with
+Chore Crusher **delivers the combination**: a keyboard-driven terminal UI with
 a server that speaks JSON and MCP, both accessing the same SQLite store,
 updated live in both views.
 
@@ -45,13 +45,13 @@ updated live in both views.
 
 | Feature | Description |
 |---------|-------------|
-| **Two-pane layout** | Lists on the left, tasks on the right (toggles with `L`) |
+| **Two-pane layout** | Tasks on the left, lists on the right (toggles with `L`) |
 | **Vim + arrow keys** | navigate, `space` toggle, `/` fuzzy search, `F` global search |
 | **Nested tasks** | `]` to add a child, `[` to add a sibling of parent |
 | **Status model** | `pending`, `in_progress`, `complete` with user % or derived % |
 | **Live agent presence** | Animated spinner lights on task writes — you see exactly what's working |
 | **4-value priority** | `high` > `medium` > `low` > `none` (drives `next_task` ordering) |
-| **MCP server** | 12 tools + 2 resources + 2 prompts for discoverable agent integration |
+| **MCP server** | 12 tools + 2 resources + 3 prompts for discoverable agent integration |
 | **Themes** | 14 themes ported from [stack-stitcher](https://github.com/filipemolina/stack-stitcher) |
 
 **A note about design** — This project is a sister to
@@ -67,29 +67,31 @@ just what.
 
 ## Demo
 
-Watch an agent complete a task, add a nested subtask, change the theme, and
-search globally — all in under 30 seconds.
+Watch the app create a list, add a root task plus a nested subtask, then
+preview the theme picker live — all in a few seconds.
 
 ![Chore Crusher Demo](demo/demo.gif)
 
 **What you're seeing:**
-1. Complete a task + descendants at once (`space`) → cascades back to pending
-2. Add a nested task (`n` → `]` → `Enter`) — grows as a child of "Plan the garden"
-3. Switch themes live (`T` → cursor → `Esc`) — 14 themes including catppuccin-mocha
-4. Global search (`F` → type) — finds "trellis" across all lists and jumps to it
+1. Open the lists panel (`L`) and navigate the lists (`↑`/`↓`)
+2. Create a new list (`n` → type name → `Enter`) — the panel auto-closes on it
+3. Add a root task (type title → `Enter`) — rapid entry keeps the input live
+4. Indent the next task as a child (`]`) → type title → `Enter`
+5. Drop the create input (`Esc`) and open the theme picker (`T` → `↓` ×4 → `Esc`)
 
 See the [VHS tape](demo/demo.tape) for the exact keystrokes.
 
 ### Screenshots
 
-| Main view | Add task | Search | Theme picker |
-|-----------|----------|--------|--------------|
-|![Main view](demo/screenshot-main.png)|![Add task](demo/screenshot-add.png)|![Search](demo/screenshot-search.png)|![Theme picker](demo/screenshot-theme.png)|
-|`Lists` + `Tasks` panels|Inline add with level indicator|Global search picker|Live theme preview |
+| Main view | Add task | Search |
+|-----------|----------|--------|
+|![Main view](demo/screenshot-main.png)|![Add task](demo/screenshot-add.png)|![Search](demo/screenshot-search.png)|
+|Tasks (left) + lists (right)|Inline add with level indicator|Global search picker|
 
-| Help | Complete section |
-|------|------------------|
-|![Help](demo/screenshot-help.png)|![Complete](demo/screenshot-complete.png)|
+| Theme picker | Help | Complete section |
+|--------------|------|------------------|
+|![Theme picker](demo/screenshot-theme.png)|![Help](demo/screenshot-help.png)|![Complete](demo/screenshot-complete.png)|
+|Live theme preview|Full keybinding catalog|Tasks cascade to Complete on `space`|
 
 ---
 
@@ -135,10 +137,11 @@ theme.
 | Keystroke | Action |
 |-----------|--------|
 | `↑` / `↓` | Navigate tasks |
-| `←` / `→` | Navigate panels (lists ↔ tasks) or collapse/expand |
+| `←` / `→` | Collapse / expand the task tree |
+| `tab` / `shift+tab` | Cycle panels (tasks ↔ lists) |
 | `space` | Toggle task complete (cascades to descendants) |
 | `enter` | Show task details |
-| `esc` | Close details panel / switch back to lists panel |
+| `esc` | Close details / picker / cancel |
 | `n` | Start adding a new task (inline) |
 | `]` | Set next added task as **child** of selected |
 | `[` | Set next added task as **sibling of parent** |
@@ -151,14 +154,14 @@ theme.
 
 ### The CLI (command line interface)
 
-Every TUI operation is available via CLI commands:
+Every TUI operation is available via CLI commands (`crush --help` lists them all):
 
 ```bash
 # Lists
 crush lists                       # list all lists with counts
 crush lists add "Home"            # create a new list
 crush lists rename <id> "Garden"  # rename a list
-crush lists delete <id>           # delete a list
+crush lists rm <id>               # delete a list and its tasks
 
 # Tasks
 crush tasks <list-id>             # show tasks in a list (tree view)
@@ -167,15 +170,19 @@ crush add <list-id> "Mix colors" --parent <task-id>  # add a subtask
 crush show <task-id> --json       # show full task details
 crush <task-id>                   # mark task complete (cascades)
 crush reopen <task-id>            # reopen a complete task
+crush rename <task-id> "New name" # rename a task
+crush mv <task-id> --parent <id>  # re-parent a task (or --root)
+crush rm <task-id>                # delete a task and descendants
 
-# Progress
+# Progress & priority
 crush progress <task-id> --mode percentage --percent 60
 crush progress <task-id> --mode subtasks   # derive % from children
 crush progress <task-id> --mode simple     # plain in_progress flag
+crush priority <task-id> high    # none | low | medium | high
 
 # Search
-crush search "paint"              # fuzzy search
-crush search "deck" --json        # JSON output
+crush search "paint"              # fuzzy search across titles and notes
+crush search "deck" --json       # JSON output
 
 # Global
 crush --help                      # full CLI reference
@@ -216,9 +223,10 @@ Chore Crusher doubles as an agent's todo store. Every MCP tool maps to a CLI
 command, exposing:
 
 - **12 tools** — `list_tasks`, `show_task`, `assign_task`, `next_task`,
-  `set_status`, `edit_task`, `add_task`, `comment`, `search_tasks`, etc.
+  `set_status`, `edit_task`, `add_task`, `delete_task`, `comment`,
+  `search_tasks`, `add_list`, `my_list`
 - **2 resources** — `crush:///inbox`, `crush://work`
-- **2 prompts** — `crush_inbox`, `crush_breakdown`
+- **3 prompts** — `crush_inbox`, `crush_breakdown`, `crush_daily_agenda`
 
 The agent acts under an identity tag (configured via `CRUSH_AGENT`). Each
 agent gets its own automatically-named list (`<tag>: Inbox`) and can only
@@ -238,7 +246,7 @@ Full MCP contract: [`docs/DESIGN.md`](docs/DESIGN.md) §7 and §9.
 ## Project status
 
  Alpha shipped — phases 0–9 of [`docs/ROADMAP.md`](docs/ROADMAP.md) are
-complete and tagged `v0.1.0`.
+complete (tagged `v0.1.0`); post-alpha work is at `v0.2.0`.
 
 See [`docs/STATUS.md`](docs/STATUS.md) for what each phase changed and why.
 
