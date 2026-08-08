@@ -209,41 +209,129 @@ decision it depends on.
 ### TUI and bug-fix plans
 
 These came out of a triage of the Chore Crusher list itself (2026-08-05) and
-are independent of the MCP track.
+are independent of the MCP track. All four have since landed; the paragraphs
+below are what each one found, because the findings outlive the fixes.
 
-**`chore-crusher-bug-fixes.md`** — *in progress.* Six filed bugs, each small
-and free of product decisions: filter-escape behaviour, the Lists-panel
-filter, paste handling, task indenting, creating a task above one that has
-children, and deleting an empty list.
+**`chore-crusher-bug-fixes.md`** — *done.* Six bugs, each small and free of
+product decisions. Three had a confirmed cause on inspection: `esc` never left
+task-filter mode, because the esc ladder claimed the key only once a filter was
+*applied* and not while one was being typed; the Lists panel could not be
+filtered at all, because its filter was switched off deliberately to avoid
+colliding with the global `/` — resolved by making `/` contextual, so it
+filters whichever panel has focus; and paste was silently dropped everywhere,
+because Bubble Tea v2 delivers a bracketed paste as a `tea.PasteMsg` that no
+component forwarded to its text input. Two needed reproduction first and turned
+out not to be the bugs they were reported as. "Tasks sometimes don't indent"
+is a stale-rows race: every structural gesture computes its target from the
+tree's rows, and a second keypress inside the window before the refresh lands
+acts on a layout the user is no longer looking at — fixed by deferring the
+gesture and replaying it against the fresh rows. "Creating a task above a task
+with children" is a disagreement between the ghost create row's render anchor
+and the real insertion anchor — fixed by rendering after the anchor's last
+visible descendant, where the committed task was already going. The sixth,
+"can't delete an empty list", was the delete handler targeting the *active*
+list instead of the *highlighted* one; the two agree until a picker jump or a
+previous delete pulls them apart. A seventh item was documentation only: the
+database is already per-OS-user because its path derives from `$XDG_DATA_HOME`,
+and `docs/DESIGN.md` §8 now says so, so nobody re-files it as a feature.
 
-**`ui-improvements.md`** — *partly landed.* The catppuccin-mocha default is
-in; the remainder is a loading animation, a responsive Lists panel, a
-document-icon column, scrollable panels, and the list name in the Tasks
-header.
+One gap that plan deliberately left open: `lastError` is written in several
+places and rendered in none, so errors are still invisible in the TUI.
 
-**`tui-interaction-polish.md`** — *not started.* Five small independent
-interaction fixes: Enter/Esc panel-close behaviour, selecting a new list
-closing the panel, a copy-id shortcut, and collapse semantics (which still
-needs confirmation).
+**`tui-interaction-polish.md`** — *four of five landed.* Enter on a list
+selects it and closes the panel, `esc` closes the panel (after first clearing
+an active filter, so the ladder keeps its precedence), and a newly created list
+becomes the active one — the Lists panel is now a transient picker rather than
+a surface you dismiss by hand. Copy-id landed in the Details panel rather than
+the tree: `ctrl+y` copies the task id and `y` a comment id, both through Bubble
+Tea's own OSC 52 `tea.SetClipboard`, so it needs no `xclip`/`pbcopy` and works
+over SSH. The fifth item, "collapsing a task should collapse all children", was
+never reproducible as filed — rendering already hid every descendant of a
+collapsed parent — and collapse now cascades for real. What the report might
+have meant is still unanswered: whether re-expanding a parent should also clear
+its descendants' own collapse flags, or whether the ask was for a bulk
+collapse-all that does not exist.
 
-**`task-comments.md`** — *in progress,* commits 1–3 done. Comments on tasks
-through schema, store, CLI and MCP; what remains is commit 4, the TUI icon
-column.
+**`task-comments.md`** — *shipped, all five commits.* Comments are append-only
+and authored: a human's comment is attributed to the OS username, an agent's to
+its MCP identity, since the app has no login to hang a user concept off. They
+are sorted oldest-first, and a list can turn them off with a
+`comments_disabled` flag — the one gate, deliberately not the ownership gate,
+because anyone may comment on anyone's task. The plan's open question was
+whether writing a comment justified breaking the MCP tool ceiling; it did, and
+reading them cost nothing because they ride along in `show_task`. The TUI shows
+a `💬` in the same fixed trailing icon column as the notes glyph, and renders
+each comment as its own card in the Details panel with a compose control on its
+own key, distinct from the panel's save.
+
+**`ui-improvements.md`** — *shipped, all six commits.* catppuccin-mocha is the
+fresh-install default (a saved theme still wins); the Lists panel opens itself
+at 120 columns or wider, and thereafter `L` is authoritative for the session so
+a resize never reverses a user's toggle; the first frame renders before the
+database is read, animating until the first refresh lands; the notes glyph
+moved into a fixed-width trailing column so status labels start at the same
+column on every row; the task tree scrolls by keeping the selection visible,
+built on a single line plan shared by layout and rendering rather than a
+viewport wrapped around an opaque string; and the active list's name sits bold
+and right-aligned on the Tasks title line.
 
 **`agent-scratch-list-cleanup.md`** and **`agent-working-loop-instructions.md`**
 are tracked in the MCP track above.
 
 ### UI (post-alpha)
 
-| Plan | Notes | Status |
-| --- | --- | --- |
-| [`docs/plan/ui-improvements.md`](plan/ui-improvements.md) | catppuccin-mocha default, loading animation, responsive lists panel, document-icon column, scrollable panels, list name in Tasks header | See "Chore Crusher list triage" above |
-| [`docs/plans/details-as-sidepanel.md`](plans/details-as-sidepanel.md) | Details as a side panel instead of a full screen | Proposal — [`docs/plans/details-panel-title-editing.md`](plans/details-panel-title-editing.md) depends on this landing first |
-| [`docs/plan/task-row-redesign-and-inline-creation.md`](plan/task-row-redesign-and-inline-creation.md) | Task row / inline creation redesign | See plan status |
-| [`docs/plan/task-row-cards-and-status.md`](plan/task-row-cards-and-status.md) | Card chrome + status presentation | See plan status |
-| [`docs/plans/ux-redesign.md`](plans/ux-redesign.md) | Broader UX redesign notes | Historical / reference |
+The Tasks surface was redesigned in three overlapping passes; later plans
+supersede earlier ones where they conflict, and `docs/DESIGN.md` §§6 and 12 are
+authoritative over all of them.
+
+**`ux-redesign.md`** — *shipped (phases A–C).* The interaction-and-density
+pass, not another theme port: Lists rows became Stack Stitcher-style cards,
+task rows got denser with a `▌` bar and status colors from the theme, a rule
+separates the Pending and Complete sections, and navigation follows visual
+order instead of store order — which had been a real bug, since the two differ
+once a task completes. It also fixed create placement when a completed task is
+selected. Its standing product constraints: inline create stays (no
+bottom-docked add field), `tab`/`shift+tab` switch panels, and `[`/`]` — not
+tab — change level while creating.
+
+**`task-row-redesign-and-inline-creation.md`** — *shipped.* The cutover from a
+bottom-pinned add input to inline creation in the tree, which also moved the
+startup focus onto the tree and deleted the `addinput` component entirely. Its
+column layout and drop order (progress sheds before status, both whole) are
+still current; its "the input row *is* the empty state" and
+"esc on empty input never leaves" decisions are not.
+
+**`task-row-cards-and-status.md`** — *shipped, one decision reverted.* Full-width
+content-height row cards, the `▌` bar colored by status (accent when selected),
+and the status label in colored caps at the line's end. Its empty-list decision
+did ship and was then taken back out: `esc` used to close the input and replace
+it with a "No tasks yet, press n" card, which gave one condition two
+appearances and only explained how to add a task after the user dismissed the
+thing that would have. `esc` now *parks* the input instead — it blurs, the row
+stays, and the guidance sits beside it.
+
+**`details-as-sidepanel.md`** — *shipped.* Replaced the details modal with a
+framed Details surface, mutually exclusive with Lists so the body is never
+three panels: `enter` opens it, `esc` closes it clean or prompts when dirty,
+`ctrl+s` saves and closes. The exclusivity, and the rule that focus is computed
+rather than listed in a static slice, were the decisions that made it
+implementable — the previous draft contradicted itself on both. Details has
+since been re-rendered as a centered modal over a scrimmed page, which changes
+where it is drawn, not the state machine underneath.
+
+**`details-panel-title-editing.md`** — *mostly landed.* The title is a
+single-line `textinput` in the Details panel, tab cycles through it, `ctrl+s`
+saves it via the existing `RenameTask`, and dirty detection covers it — which
+closes the "no way to edit a task from the TUI" bug. What did not land is the
+dedicated `e` shortcut that would open Details with the title already focused.
 
 ### Sister / context
 
-- [`docs/plans/stack-stitcher-sister-tui.md`](plans/stack-stitcher-sister-tui.md) —
-  why this project mirrors stack-stitcher's discipline.
+**`stack-stitcher-sister-tui.md`** — *historical.* The chrome alignment with
+this project's sister TUI: the two-surface titled-panel layout, the shared
+frame with its `Padding(1, 2)`, the bar-column active-row indicator. Worth
+keeping for one lesson it records: the panel padding had been silently reverted
+to `Padding(0)` during an unrelated rework, contradicting a design contract
+that never changed, and it took a regenerated screenshot to notice — the tests
+asserted line indices that the regression happened to satisfy. Its "add input"
+sections are superseded by inline creation.
