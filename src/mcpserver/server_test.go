@@ -243,6 +243,14 @@ var (
 		"list_work", "set_progress", "complete_task", "reopen_task",
 		"claim_work", "list_changes", "add_comment", "delete_comment",
 	}
+	// The resource surface is the same fact in the same shape: two survivors
+	// (docs/plan/mcp-assignment-and-priorities.md §8) and five deletions. The
+	// agent-facing text has to name the survivors and must not send a session
+	// at a URI the server stopped serving.
+	mcpResourceSurface  = []string{"crush:///inbox", "crush://work"}
+	removedResourceURIs = []string{
+		"crush:///lists", "crush:///tasks/", "crush:///search",
+	}
 )
 
 // TestMCPToolSurface pins the consolidated tool surface
@@ -450,9 +458,35 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 		"crush_inbox",
 		"crush:///inbox",
 		"set_status",
+		// The loop is now grab-first (plan §3): the blob has to say that
+		// assignment is durable ownership, distinct from the presence
+		// spinner, or an agent reads assignee as another word for the claim
+		// and skips the grab that stops two agents researching one task.
+		"grab",
+		"assignee_live",
+		"no ttl",
+		"takeover comment",
+		// Priority exists to answer "what next", and no tool sets it, so the
+		// blob is the only place an agent learns both facts.
+		"priority",
+		"high > medium > low > none",
 	} {
 		if !strings.Contains(lower, want) {
 			t.Fatalf("Instructions missing loop pointer element %q;\nfull text:\n%s", want, instructions)
+		}
+	}
+
+	// Resources: the blob names both survivors and none of the five deleted
+	// URIs — a documented URI the server no longer serves costs a session a
+	// failed read before it learns better.
+	for _, uri := range mcpResourceSurface {
+		if !strings.Contains(lower, uri) {
+			t.Fatalf("Instructions missing resource %q;\nfull text:\n%s", uri, instructions)
+		}
+	}
+	for _, uri := range removedResourceURIs {
+		if strings.Contains(lower, uri) {
+			t.Fatalf("Instructions still names removed resource %q;\nfull text:\n%s", uri, instructions)
 		}
 	}
 
@@ -475,6 +509,14 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 		"percentage",
 		"crush:///inbox",
 		"before the next task",
+		// The prompt is the call-by-call procedure, so it carries the loop
+		// the blob only summarises: grab first, release what you abandon,
+		// and the two conflicts that read alike but resolve differently.
+		"next_task",
+		"before you research",
+		"release=true",
+		"assignee_live",
+		"subtree reservation",
 	} {
 		if !strings.Contains(loop, want) {
 			t.Fatalf("crush_inbox prompt missing working-loop element %q;\nfull text:\n%s", want, tc.Text)
@@ -490,6 +532,11 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	for _, name := range removedToolNames {
 		if strings.Contains(loop, name) {
 			t.Fatalf("crush_inbox prompt still names removed tool %q;\nfull text:\n%s", name, tc.Text)
+		}
+	}
+	for _, uri := range removedResourceURIs {
+		if strings.Contains(loop, uri) {
+			t.Fatalf("crush_inbox prompt still names removed resource %q;\nfull text:\n%s", uri, tc.Text)
 		}
 	}
 }
