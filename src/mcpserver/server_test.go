@@ -206,9 +206,9 @@ func releaseWork(t *testing.T, session *mcp.ClientSession, args map[string]any) 
 }
 
 // TestMCPToolSurface pins the consolidated tool surface
-// (docs/plan/mcp-tool-consolidation.md §2): exactly the 15 tools below, and
-// none of the removed ones. A new tool must be a deliberate edit here — the
-// ceiling is the point of the plan.
+// (docs/plan/mcp-tool-consolidation.md §2, docs/plan/mcp-assignment-and-priorities.md
+// §4): exactly the 12 tools below, and none of the removed ones. A new tool
+// must be a deliberate edit here — the ceiling is the point of the plan.
 func TestMCPToolSurface(t *testing.T) {
 	session := setupMCP(t)
 
@@ -223,8 +223,8 @@ func TestMCPToolSurface(t *testing.T) {
 
 	want := []string{
 		"my_list", "list_tasks", "show_task", "search_tasks",
-		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
-		"reopen_task", "add_comment", "delete_comment", "add_list", "claim_work",
+		"add_task", "edit_task", "delete_task", "set_status",
+		"add_comment", "delete_comment", "add_list", "claim_work",
 	}
 	for _, name := range want {
 		if !got[name] {
@@ -234,7 +234,7 @@ func TestMCPToolSurface(t *testing.T) {
 	for _, name := range []string{
 		"list_lists", "show_tasks", "toggle_task", "update_tasks", "rename_task",
 		"set_notes", "move_task", "rename_list", "delete_list", "release_work",
-		"list_work",
+		"list_work", "set_progress", "complete_task", "reopen_task",
 	} {
 		if got[name] {
 			t.Errorf("removed tool %q is still registered", name)
@@ -339,8 +339,8 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	// the bare names appear and the chore_crusher_ prefix is documented once.
 	wantTools := []string{
 		"my_list", "list_tasks", "show_task", "search_tasks",
-		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
-		"reopen_task", "add_comment", "delete_comment", "add_list", "claim_work",
+		"add_task", "edit_task", "delete_task", "set_status",
+		"add_comment", "delete_comment", "add_list", "claim_work",
 	}
 	lower := strings.ToLower(instructions)
 	if !strings.Contains(lower, "chore_crusher_") {
@@ -355,7 +355,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	// Removed tools (no MCP registration) must not appear as callables.
 	removed := []string{"list_lists", "release_work", "list_work", "rename_list",
 		"delete_list", "update_tasks", "toggle_task", "rename_task", "set_notes",
-		"move_task", "show_tasks"}
+		"move_task", "show_tasks", "set_progress", "complete_task", "reopen_task"}
 	for _, name := range removed {
 		if strings.Contains(lower, name) {
 			t.Fatalf("Instructions still names removed tool %q;\nfull text:\n%s", name, instructions)
@@ -424,7 +424,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 		"working loop",
 		"crush_inbox",
 		"crush:///inbox",
-		"set_progress",
+		"set_status",
 	} {
 		if !strings.Contains(lower, want) {
 			t.Fatalf("Instructions missing loop pointer element %q;\nfull text:\n%s", want, instructions)
@@ -446,7 +446,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	for _, want := range []string{
 		"get your tasks from chore crusher",
 		"keep its status current",
-		"set_progress",
+		"set_status",
 		"percentage",
 		"crush:///inbox",
 		"before the next task",
@@ -488,7 +488,7 @@ func TestMCPAddAndCompleteTask(t *testing.T) {
 		t.Fatalf("pending rows = %+v", rows)
 	}
 
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{task["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{task["id"]}, "status": "complete"})
 
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
@@ -1009,8 +1009,8 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 		tool string
 		args map[string]any
 	}{
-		{"set_progress", "set_progress", map[string]any{"ids": []string{task["id"]}, "mode": "simple"}},
-		{"complete_task", "complete_task", map[string]any{"ids": []string{task["id"]}}},
+		{"set_status", "set_status", map[string]any{"ids": []string{task["id"]}, "progress": "simple"}},
+		{"set_status", "set_status", map[string]any{"ids": []string{task["id"]}, "status": "complete"}},
 	} {
 		// Age the claim inside the TTL window; a status write must push it forward.
 		aged := time.Now().Add(-30 * time.Second).Unix()
@@ -1038,7 +1038,7 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 
 // TestMCPClaimDefaultsToIdentity pins §4.2 / §6 assertion 1: claim_work
 // without agent_id claims under the server identity (CRUSH_AGENT), so the
-// write-heartbeat in complete_task still refreshes the spinner. Before the
+// write-heartbeat in set_status still refreshes the spinner. Before the
 // fix the claim landed under "agent" and TouchWork (identity "pi") never
 // matched it.
 func TestMCPClaimDefaultsToIdentity(t *testing.T) {
@@ -1077,7 +1077,7 @@ func TestMCPClaimDefaultsToIdentity(t *testing.T) {
 		t.Fatalf("claim without agent_id must default to the server identity, got %q", agentID)
 	}
 
-	// Age the claim inside the TTL window; complete_task (a write-heartbeat)
+	// Age the claim inside the TTL window; set_status (a write-heartbeat)
 	// must push it forward — only possible when the claim's agent matches.
 	aged := time.Now().Add(-30 * time.Second).Unix()
 	if _, err := db.Exec(
@@ -1087,7 +1087,7 @@ func TestMCPClaimDefaultsToIdentity(t *testing.T) {
 		t.Fatalf("age claim: %v", err)
 	}
 
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{task["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{task["id"]}, "status": "complete"})
 
 	var after int64
 	if err := db.QueryRow(
@@ -1097,7 +1097,7 @@ func TestMCPClaimDefaultsToIdentity(t *testing.T) {
 		t.Fatalf("read acquired_at: %v", err)
 	}
 	if after <= aged {
-		t.Fatalf("complete_task must refresh a claim made without agent_id (acquired_at %d, want > %d)", after, aged)
+		t.Fatalf("set_status must refresh a claim made without agent_id (acquired_at %d, want > %d)", after, aged)
 	}
 }
 
@@ -1109,9 +1109,9 @@ func TestStatusWriteAutoClaims(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "work",
 	}), &task)
-	// No explicit claim_work first — just start setting progress.
-	callTool(t, session, "set_progress", map[string]any{
-		"ids": []string{task["id"]}, "mode": "percentage", "percent": 25,
+	// No explicit claim_work first — just start setting status/progress.
+	callTool(t, session, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "progress": "percentage", "percent": 25,
 	})
 	var work []map[string]any
 	mustUnmarshal(t, workJSON(t, session), &work)
@@ -1168,7 +1168,7 @@ func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
 		t.Fatalf("age claim: %v", err)
 	}
 
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{task["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{task["id"]}, "status": "complete"})
 
 	var after int64
 	if err := db.QueryRow(
@@ -1518,8 +1518,8 @@ func TestMCPOwnerCanWriteEverything(t *testing.T) {
 }
 
 // TestMCPStatusToolsOpenOnForeignList guards §5 assertion 3: status/progress
-// tools are never gated, so complete_task / set_progress succeed on a list
-// owned by another agent.
+// writes are never list-gated, so set_status succeeds on a list owned by
+// another agent.
 func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
@@ -1546,8 +1546,8 @@ func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
 	}
 
 	// pi (foreign) may still flip status/progress.
-	callTool(t, session, "set_progress", map[string]any{"ids": []string{taskID}, "mode": "simple"})
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{taskID}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{taskID}, "progress": "simple"})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{taskID}, "status": "complete"})
 
 	var res struct {
 		Tasks []struct {
@@ -1619,8 +1619,8 @@ func TestMCPUntaggedListForeignToEveryAgent(t *testing.T) {
 
 	// Yet status/progress writes succeed on the untagged list's task — the
 	// read + status/progress-only rule holds for *every* identity.
-	callTool(t, session, "set_progress", map[string]any{"ids": []string{taskID}, "mode": "simple"})
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{taskID}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{taskID}, "progress": "simple"})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{taskID}, "status": "complete"})
 
 	var res struct {
 		Tasks []struct {
@@ -2057,7 +2057,7 @@ func TestListTasksSkeletonAncestorContextOnly(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "parent", "notes": "parent body",
 	}), &parent)
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{parent["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{parent["id"]}, "status": "complete"})
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "child", "parent": parent["id"],
 	}), &map[string]string{})
@@ -2853,8 +2853,8 @@ func TestCompleteTaskBatchOK(t *testing.T) {
 		ids = append(ids, tk["id"])
 	}
 	var res []map[string]any
-	mustUnmarshal(t, callTool(t, session, "complete_task", map[string]any{
-		"ids": ids,
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": ids, "status": "complete",
 	}), &res)
 	if len(res) != 3 {
 		t.Fatalf("want 3 result rows, got %d", len(res))
@@ -2869,7 +2869,7 @@ func TestCompleteTaskBatchOK(t *testing.T) {
 	}
 }
 
-func TestSetProgressBatchPercentage(t *testing.T) {
+func TestSetStatusBatchPercentage(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2877,8 +2877,8 @@ func TestSetProgressBatchPercentage(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "a"}), &a)
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "b"}), &b)
 	var res []map[string]any
-	mustUnmarshal(t, callTool(t, session, "set_progress", map[string]any{
-		"ids": []string{a["id"], b["id"]}, "mode": "percentage", "percent": 50,
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{a["id"], b["id"]}, "progress": "percentage", "percent": 50,
 	}), &res)
 	assertOKRows(t, res)
 	var detailArr []map[string]any
@@ -2893,6 +2893,54 @@ func TestSetProgressBatchPercentage(t *testing.T) {
 	}
 }
 
+// TestSetStatusReopensAndSetsProgressOnCompleteTask pins the §4 fix: the old
+// set_progress refused a completed task ("reopen it before setting
+// progress"), so the agent needed two calls. set_status applies the reopen
+// first, so one call returns the task to open AND sets its percentage — the
+// documented example set_status(ids, status='in_progress',
+// progress='percentage', percent=10) on a complete task.
+func TestSetStatusReopensAndSetsProgressOnCompleteTask(t *testing.T) {
+	session := setupMCP(t)
+	var list, task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "a"}), &task)
+	var completed []map[string]any
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "status": "complete",
+	}), &completed)
+	assertOKRows(t, completed)
+
+	// One call on the complete task: reopen, then set progress; the
+	// comment lands after the state change, recording the final state.
+	var res []map[string]any
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "status": "in_progress", "progress": "percentage", "percent": 10,
+		"comment": "reopened and set to 10%",
+	}), &res)
+	assertOKRows(t, res)
+
+	var detailArr []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &detailArr)
+	if len(detailArr) != 1 {
+		t.Fatalf("show_task returned %d rows, want 1", len(detailArr))
+	}
+	detail := detailArr[0]
+	if detail["status"] != "in_progress" {
+		t.Errorf("status = %v, want in_progress", detail["status"])
+	}
+	prog := detail["progress"].(map[string]any)
+	if int(prog["percent"].(float64)) != 10 {
+		t.Errorf("want 10%%, got %v", prog["percent"])
+	}
+	comments, ok := detail["comments"].([]any)
+	if !ok || len(comments) != 1 {
+		t.Fatalf("comments = %#v, want the set_status comment", detail["comments"])
+	}
+	if note := comments[0].(map[string]any)["note"]; note != "reopened and set to 10%" {
+		t.Errorf("comment note = %v, want the set_status comment", note)
+	}
+}
+
 func TestBatchStatusPartialFailure(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
@@ -2901,11 +2949,11 @@ func TestBatchStatusPartialFailure(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "g",
 	}), &good)
-	// complete_task returns per-id rows (not a tool error), so a bad id is a
+	// set_status returns per-id rows (not a tool error), so a bad id is a
 	// row with an error, not a call failure.
 	var res []map[string]any
-	mustUnmarshal(t, callTool(t, session, "complete_task", map[string]any{
-		"ids": []string{good["id"], "does-not-exist"},
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{good["id"], "does-not-exist"}, "status": "complete",
 	}), &res)
 	if len(res) != 2 {
 		t.Fatalf("want 2 rows, got %d", len(res))
@@ -2931,13 +2979,13 @@ func TestBatchStatusCap(t *testing.T) {
 	for i := range ids {
 		ids[i] = "x"
 	}
-	msg := callToolErr(t, session, "complete_task", map[string]any{"ids": ids})
+	msg := callToolErr(t, session, "set_status", map[string]any{"ids": ids, "status": "complete"})
 	if !strings.Contains(msg, "capped at 50") {
 		t.Errorf("expected cap error, got %q", msg)
 	}
 }
 
-func TestSetProgressPercentRequired(t *testing.T) {
+func TestSetStatusPercentRequired(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2945,11 +2993,33 @@ func TestSetProgressPercentRequired(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "a",
 	}), &tk)
-	msg := callToolErr(t, session, "set_progress", map[string]any{
-		"ids": []string{tk["id"]}, "mode": "percentage",
+	msg := callToolErr(t, session, "set_status", map[string]any{
+		"ids": []string{tk["id"]}, "progress": "percentage",
 	})
 	if !strings.Contains(msg, "requires percent") {
 		t.Errorf("percentage without percent should error, got %q", msg)
+	}
+}
+
+func TestSetStatusRejectsEmptyRequest(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	// §4: at least one of status, progress, comment is required. None of the
+	// three is not "leave everything alone" — it is a caller bug, rejected
+	// before any write.
+	msg := callToolErr(t, session, "set_status", map[string]any{"ids": []string{"x"}})
+	if !strings.Contains(msg, "at least one of status, progress, comment") {
+		t.Errorf("empty set_status should error, got %q", msg)
+	}
+
+	// Unknown status and progress values are rejected up front too.
+	msg = callToolErr(t, session, "set_status", map[string]any{"ids": []string{"x"}, "status": "bogus"})
+	if !strings.Contains(msg, "invalid status") {
+		t.Errorf("bogus status should error, got %q", msg)
+	}
+	msg = callToolErr(t, session, "set_status", map[string]any{"ids": []string{"x"}, "progress": "bogus"})
+	if !strings.Contains(msg, "invalid progress") {
+		t.Errorf("bogus progress should error, got %q", msg)
 	}
 }
 
@@ -2961,7 +3031,7 @@ func TestBatchStatusAutoClaims(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "a",
 	}), &tk)
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{tk["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{tk["id"]}, "status": "complete"})
 	var work []map[string]any
 	mustUnmarshal(t, workJSON(t, session), &work)
 	found := false
@@ -2971,7 +3041,7 @@ func TestBatchStatusAutoClaims(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("complete_task should auto-claim each touched task; work=%#v", work)
+		t.Errorf("set_status should auto-claim each touched task; work=%#v", work)
 	}
 }
 
@@ -2983,13 +3053,13 @@ func TestReopenTaskBatchOK(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "a",
 	}), &tk)
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{tk["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{tk["id"]}, "status": "complete"})
 	var res []map[string]any
-	mustUnmarshal(t, callTool(t, session, "reopen_task", map[string]any{
-		"ids": []string{tk["id"]},
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{tk["id"]}, "status": "pending",
 	}), &res)
 	if len(res) != 1 || res[0]["ok"] != true {
-		t.Fatalf("reopen_task batch row not ok: %#v", res)
+		t.Fatalf("set_status batch row not ok: %#v", res)
 	}
 	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "status": "pending",
@@ -3154,7 +3224,7 @@ func TestListTasksSinceSurfacesCompletedTasks(t *testing.T) {
 
 	cutoff := time.Now().Unix()
 	time.Sleep(1100 * time.Millisecond)
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{a["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{a["id"]}, "status": "complete"})
 
 	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "since": cutoff,
@@ -3218,7 +3288,7 @@ func TestInboxSkeletonRowsCarryNoNotes(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "parent", "notes": "parent body",
 	}), &parent)
-	callTool(t, session, "complete_task", map[string]any{"ids": []string{parent["id"]}})
+	callTool(t, session, "set_status", map[string]any{"ids": []string{parent["id"]}, "status": "complete"})
 	callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "child", "parent": parent["id"],
 	})

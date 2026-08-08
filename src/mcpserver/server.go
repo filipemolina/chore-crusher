@@ -135,7 +135,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		Version: constants.Version(),
 	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
 
-IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_progress, complete_task, reopen_task) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
+IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
 
 IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
@@ -147,22 +147,20 @@ TOOLS (chore_crusher_<name>):
 - add_task(list_id, title, parent?, notes?)
 - edit_task(id, title?, notes?, parent?, to_root?) — change any field; notes replaces the whole body; parent re-parents; to_root moves to the list root
 - delete_task(id, force=true)
-- set_progress(ids, mode, percent?) — mode=simple|subtasks|percentage; percent only for percentage; flips the task to in_progress
-- complete_task(ids) — cascades to descendants, auto-completes ancestors
-- reopen_task(ids) — back to pending; does not cascade
+- set_status(ids, status?, progress?, percent?, comment?) — the one status/progress write; status=pending|in_progress|complete (complete cascades and auto-unassigns), progress=simple|subtasks|percentage flips the task to in_progress (percent only with percentage), comment lands after the state change; a complete task is reopened first, so progress never errors
 - add_comment(task_id, note) — attributed to your tag
 - delete_comment(id, force=true) — only your own comments (author == your tag), regardless of list ownership
 - add_list(name, created_by?) — owned by you
 - claim_work(entity_type, entity_id, kind?, release?) — light/stop the TUI spinner; writes auto-claim for you, so you only need this to reserve a task BEFORE writing
 
 KEEP THE BOARD LIVE (do this yourself, unasked):
-- Start a task = set_progress on it (flips it to in_progress and lights the spinner). Advance the percentage as you go, not only at the end — the human watches the TUI live.
+- Start a task = set_status(ids, progress=...) on it (flips it to in_progress and lights the spinner). Advance the percentage as you go, not only at the end — the human watches the TUI live.
 - On a list you do not own: read the whole list plus the task's notes and comments first; leave add_comment at decision points; never edit its content.
-- Finish = complete_task. A percentage of 100 does NOT auto-complete.
+- Finish = set_status(ids, status='complete'). A percentage of 100 does NOT auto-complete.
 
 For the full working loop and a one-read session opener, use the crush_inbox prompt or read the crush:///inbox resource.
 
-GOTCHAS: set_progress on a complete task errors — reopen first. set_progress(mode=subtasks) derives from children — on a shared task use percentage. Your own auto-created "` + identity + `: ..." Inbox is deleted at session end if it is empty or all-complete, so don't rely on it as long-term storage.`})
+GOTCHAS: set_status(progress='subtasks') derives from children — on a shared task use percentage. Your own auto-created "` + identity + `: ..." Inbox is deleted at session end if it is empty or all-complete, so don't rely on it as long-term storage.`})
 
 	addListTools(server, s, identity)
 	addTaskTools(server, s, identity)
@@ -508,21 +506,46 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "complete_task",
-		Description: "Mark 1..50 tasks complete; each cascades to all descendants. Example: complete_task(ids=['01ABC...','01DEF...']). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
+		Name:        "set_status",
+		Description: "The one status/progress write: mark 1..50 tasks complete, reopen them, or set progress in one call. status=pending|in_progress|complete, progress=simple|subtasks|percentage, percent=0..100 (only valid with progress=percentage), comment=<text> added after the state change lands so it records the final state. Per id, applied in this order: reopen if the task is complete and the write needs it, then progress, then status, then the comment. status='complete' cascades to descendants and auto-unassigns; status='pending' reopens without cascading. At least one of status, progress, comment is required. Example: set_status(ids=['01ABC...'], status='in_progress', progress='percentage', percent=50). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		IDs []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
+		IDs      []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
+		Status   string   `json:"status,omitempty" jsonschema:"pending, in_progress, or complete"`
+		Progress string   `json:"progress,omitempty" jsonschema:"simple, subtasks, or percentage"`
+		Percent  *int     `json:"percent,omitempty" jsonschema:"percent 0-100, only valid when progress=percentage"`
+		Comment  string   `json:"comment,omitempty" jsonschema:"comment added to each id after the state change lands, recording the final state"`
 	}) (*mcp.CallToolResult, any, error) {
-		return batchApply(s, identity, in.IDs, func(id string) error { return s.Complete(id) })
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "reopen_task",
-		Description: "Reopen 1..50 tasks to pending; does not cascade to children. Example: reopen_task(ids=['01ABC...','01DEF...']). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		IDs []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
-	}) (*mcp.CallToolResult, any, error) {
-		return batchApply(s, identity, in.IDs, func(id string) error { return s.Reopen(id) })
+		if len(in.IDs) == 0 {
+			return errorResult(fmt.Errorf("set_status requires at least one id")), nil, nil
+		}
+		if len(in.IDs) > 50 {
+			return errorResult(fmt.Errorf("set_status capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
+		}
+		if in.Status == "" && in.Progress == "" && in.Comment == "" {
+			return errorResult(fmt.Errorf("set_status needs at least one of status, progress, comment")), nil, nil
+		}
+		// Validate the options once up front so a bad request fails before any
+		// write; the percent range and the per-id state transitions are the
+		// store's job, surfaced per row (mirrors the old set_progress shape).
+		switch in.Status {
+		case "", "pending", "in_progress", "complete":
+		default:
+			return errorResult(fmt.Errorf("invalid status %q: want pending, in_progress, or complete", in.Status)), nil, nil
+		}
+		switch in.Progress {
+		case "", "simple", "subtasks", "percentage":
+		default:
+			return errorResult(fmt.Errorf("invalid progress %q: want simple, subtasks, or percentage", in.Progress)), nil, nil
+		}
+		if in.Progress != "percentage" && in.Percent != nil {
+			return errorResult(fmt.Errorf("percent is only valid when progress=percentage")), nil, nil
+		}
+		if in.Progress == "percentage" && in.Percent == nil {
+			return errorResult(fmt.Errorf("progress=percentage requires percent")), nil, nil
+		}
+		return batchApply(s, identity, in.IDs, func(id string) error {
+			return applySetStatus(s, identity, id, in.Status, in.Progress, in.Percent, in.Comment)
+		})
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -621,39 +644,6 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "set_progress",
-		Description: "Set a task's progress mode (simple, subtasks, or percentage) for 1..50 tasks in one call. Example: set_progress(ids=['01ABC...'], mode='percentage', percent=50). percent is required only when mode='percentage'. Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		IDs     []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
-		Mode    string   `json:"mode" jsonschema:"simple, percentage, or subtasks"`
-		Percent *int     `json:"percent,omitempty" jsonschema:"percent 0-100, required when mode=percentage"`
-	}) (*mcp.CallToolResult, any, error) {
-		if len(in.IDs) == 0 {
-			return errorResult(fmt.Errorf("set_progress requires at least one id")), nil, nil
-		}
-		if len(in.IDs) > 50 {
-			return errorResult(fmt.Errorf("set_progress capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
-		}
-		// Validate mode/percent once up front so a bad request fails before any
-		// write (mirrors the old update_tasks behaviour).
-		switch in.Mode {
-		case "simple", "subtasks":
-			if in.Percent != nil {
-				return errorResult(fmt.Errorf("percent is only valid with mode=percentage")), nil, nil
-			}
-		case "percentage":
-			if in.Percent == nil {
-				return errorResult(fmt.Errorf("mode=percentage requires percent")), nil, nil
-			}
-		default:
-			return errorResult(fmt.Errorf("invalid mode %q: want simple, subtasks, or percentage", in.Mode)), nil, nil
-		}
-		kind := store.ProgressKind(in.Mode)
-		percent := in.Percent
-		return batchApply(s, identity, in.IDs, func(id string) error { return s.SetProgress(id, kind, percent) })
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_tasks",
 		Description: "Fuzzy search task titles and notes across all lists, or within one list if list_id is given; title matches rank first. Example: search_tasks(query='budget').",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
@@ -712,6 +702,68 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		}
 		return jsonResult(out)
 	})
+}
+
+// applySetStatus runs §4's per-id order — the assignment guard slot (plan
+// step 9) lands in front, then reopen-if-needed, progress, status, comment.
+// The reopen step is the §4 fix for the documented gotcha where set_progress
+// on a complete task used to error: one call now reopens and sets percentage
+// on a complete task because the reopen happens first. status='in_progress'
+// has no direct store write of its own — SetProgress is the transition that
+// flips pending → in_progress, so it is re-applied with whatever progress the
+// task carries (a complete task was just reopened, so that is 'none').
+func applySetStatus(s *store.Store, identity, id, status, progress string, percent *int, comment string) error {
+	t, err := s.GetTask(id)
+	if err != nil {
+		return err
+	}
+
+	if t.Status == store.StatusComplete && (progress != "" || status == "in_progress") {
+		if err := s.Reopen(id); err != nil {
+			return err
+		}
+		t, err = s.GetTask(id)
+		if err != nil {
+			return err
+		}
+	}
+
+	if progress != "" {
+		if err := s.SetProgress(id, store.ProgressKind(progress), percent); err != nil {
+			return err
+		}
+		if status == "in_progress" {
+			// SetProgress just wrote the requested kind and flipped the task;
+			// re-read so the status step below sees the new kind, not the
+			// snapshot from before the progress write.
+			t, err = s.GetTask(id)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	switch status {
+	case "complete":
+		if err := s.Complete(id); err != nil {
+			return err
+		}
+	case "pending":
+		if err := s.Reopen(id); err != nil {
+			return err
+		}
+	case "in_progress":
+		if err := s.SetProgress(id, t.ProgressKind, t.ProgressPct); err != nil {
+			return err
+		}
+	}
+
+	if comment != "" {
+		if _, err := s.AddComment(id, identity, comment); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // batchApply runs fn over up to 50 task ids, auto-claiming each successful
@@ -1363,10 +1415,10 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 			"1. Open the session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.\n" +
 			"2. Get your tasks from Chore Crusher at the start of every session and refresh them as you go; read from it rather than working from memory.\n" +
 			"3. Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).\n" +
-			"4. Starting a task = set_progress on it: that flips it to in_progress and auto-claims it (the spinner shows), so you do not need a separate claim_work unless reserving it before you write.\n" +
-			"5. Set a percentage scaled to the task: mode='percentage' with percent ~= fraction of steps done for multi-step work; mode='subtasks' when it has children; mode='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +
+			"4. Starting a task = set_status(ids, progress=...) on it: that flips it to in_progress and auto-claims it (the spinner shows), so you do not need a separate claim_work unless reserving it before you write.\n" +
+			"5. Set a percentage scaled to the task: progress='percentage' with percent ~= fraction of steps done for multi-step work; progress='subtasks' when it has children; progress='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +
 			"6. Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave add_comment notes at decision points on tasks you do not own.\n" +
-			"7. After finishing: re-read the task's comments, then complete_task.\n" +
+			"7. After finishing: re-read the task's comments, then set_status(ids, status='complete').\n" +
 			"8. Before the next task: check what changed since you last looked (list_tasks(list_id, since=<time of your last call>)) — priorities or comments may have moved.\n\n" +
 			"Pick one pending task (prefer a foreign list), claim it with claim_work, and start working. Do not fan out to show_task for tasks whose has_notes is false."
 		return &mcp.GetPromptResult{
