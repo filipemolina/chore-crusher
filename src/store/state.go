@@ -13,8 +13,7 @@ import (
 // ancestors: any subtasks-mode ancestor whose direct children are all complete
 // is promoted too, and that promotion propagates upward. Completing a task
 // also clears its assignment — and the assignment of every task the cascade
-// or an ancestor promotion completes (docs/plan/mcp-assignment-and-priorities.md
-// decision 5).
+// or an ancestor promotion completes.
 func (s *Store) Complete(taskID string) error {
 	now := time.Now().Unix()
 

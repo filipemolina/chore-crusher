@@ -3,7 +3,7 @@
 -- schema_migrations records which numbered migrations have been applied; the
 -- version column holds the numeric prefix of the applied file's name. It is
 -- the first statement here so a brand-new database and a migrated one are
--- distinguishable (docs/plans/phase-1-storage.md step 1).
+-- distinguishable.
 --
 -- CREATE TABLE ... IF NOT EXISTS makes concurrent first-run safe: when the
 -- TUI and a CLI invocation open a brand-new file at the same time, the second

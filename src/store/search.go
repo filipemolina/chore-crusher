@@ -5,7 +5,7 @@ package store
 // nil. Fuzzy ranking is the caller's job (sahilm/fuzzy, in phase 8 and the
 // CLI's search command) over the candidate set this function returns — store
 // only needs to return candidates efficiently, not to know about fuzzy
-// matching (docs/plans/phase-1-storage.md step 9).
+// matching.
 func (s *Store) SearchTasks(query string, listID *string) ([]Task, error) {
 	q := `SELECT ` + taskColumns + ` FROM Task
 	      WHERE (title LIKE ('%' || ? || '%') OR notes LIKE ('%' || ? || '%'))`

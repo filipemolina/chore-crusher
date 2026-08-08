@@ -7,7 +7,7 @@ import (
 )
 
 // TestAddCommentAndListComments verifies the round-trip: comments are
-// stored and returned oldest-first (docs/plan/task-comments.md §1).
+// stored and returned oldest-first.
 func TestAddCommentAndListComments(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")
@@ -131,8 +131,7 @@ func TestAddCommentRefusedWhenDisabled(t *testing.T) {
 	lid := mustList(t, s, "list")
 
 	// Flip comments_disabled directly — no store setter exists yet (that is
-	// a CLI/TUI surface decision deferred to a later commit per
-	// docs/plan/task-comments.md §1).
+	// a CLI/TUI surface decision deferred to a later commit).
 	if _, err := s.db.Exec(`UPDATE List SET comments_disabled = 1 WHERE id = ?`, lid); err != nil {
 		t.Fatalf("enable comments_disabled: %v", err)
 	}
@@ -156,10 +155,10 @@ func TestAddCommentRefusedWhenDisabled(t *testing.T) {
 }
 
 // TestTaskIDsWithComments pins the batch predicate used by RefreshTasks to
-// set HasComments on every row of a list (docs/plan/task-comments.md §6,
-// Commit 4): only tasks that actually have a comment appear in the map,
-// comments on tasks in other lists are excluded, and a list with no comments
-// at all yields an empty (non-nil) map.
+// set HasComments on every row of a list (§6, Commit 4): only tasks that
+// actually have a comment appear in the map, comments on tasks in other
+// lists are excluded, and a list with no comments at all yields an empty
+// (non-nil) map.
 func TestTaskIDsWithComments(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")
@@ -205,10 +204,9 @@ func TestTaskIDsWithComments(t *testing.T) {
 	}
 }
 
-// TestAddCommentBumpsTaskUpdatedAt pins the contract documented in
-// docs/plan/mcp-list-changes-since.md §1: a new comment is activity on the
-// task, so AddComment must advance the task's updated_at. This is what makes
-// list_changes(since) surface new comments.
+// TestAddCommentBumpsTaskUpdatedAt pins the contract: a new comment is
+// activity on the task, so AddComment must advance the task's updated_at.
+// This is what makes list_changes(since) surface new comments.
 func TestAddCommentBumpsTaskUpdatedAt(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")

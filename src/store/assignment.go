@@ -10,7 +10,7 @@ import (
 
 // ErrAssigned is returned when a task is assigned to another agent. The
 // wrapping error names the holder; the MCP layer turns that into the
-// force=true hint (docs/plan/mcp-assignment-and-priorities.md §4).
+// force=true hint.
 var ErrAssigned = errors.New("task is assigned to another agent")
 
 // ErrNoAssignable reports that NextAssignable found no eligible task. It is
@@ -344,10 +344,10 @@ func holderError(q querier, taskID string) error {
 
 // UnassignAgent releases every task agentID holds and returns how many were
 // freed. It is the assignment half of session-end cleanup: an MCP session's
-// identity is unique per process (docs/plan/session-scoped-agent-identity.md
-// decision 1), so a tag that will never come back must not hold work forever.
-// The `assignee = ?` condition is what keeps it from touching another
-// session's grabs, exactly as ReleaseAgentClaims scopes presence.
+// identity is unique per process, so a tag that will never come back must
+// not hold work forever. The `assignee = ?` condition is what keeps it from
+// touching another session's grabs, exactly as ReleaseAgentClaims scopes
+// presence.
 //
 // updated_at moves on the rows it frees, so the release surfaces in
 // list_tasks(since=...) the way SetPriority does. Status, progress and

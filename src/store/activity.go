@@ -149,8 +149,7 @@ func (s *Store) ReleaseWork(entityType, entityID, agentID string) error {
 // touches another agent's, and never revives an expired row (the WHERE
 // acquired_at >= cutoff guard): a stale claim only comes back via ClaimWork
 // (a re-claim). The TUI renders a claim only while acquired_at is within
-// WorkTTL, so extending it keeps the spinner alive through continuous work
-// (docs/plan/agent-presence-heartbeat.md §3.2).
+// WorkTTL, so extending it keeps the spinner alive through continuous work.
 func (s *Store) TouchWork(entityType, entityID, agentID string) error {
 	switch entityType {
 	case "task", "list":
@@ -169,8 +168,8 @@ func (s *Store) TouchWork(entityType, entityID, agentID string) error {
 // ClaimedTaskListIDs returns the set of list ids that have at least one live
 // task claim (any task in the list — nested or root, every Task row carries
 // its ListID). The lists panel uses it to show a spinner on a list row when
-// an agent is working inside it (docs/plan/agent-presence-heartbeat.md §3.4).
-// List-level claims are excluded; the caller renders those from ListWork.
+// an agent is working inside it. List-level claims are excluded; the
+// caller renders those from ListWork.
 func (s *Store) ClaimedTaskListIDs() (map[string]bool, error) {
 	cutoff := time.Now().Add(-WorkTTL).Unix()
 	rows, err := s.db.Query(

@@ -1,9 +1,8 @@
 -- 0004_task_comments.sql — per-task comment thread.
 --
--- Comments are append-only for v1 (no edit, no delete — see
--- docs/plan/task-comments.md §1). Each row is one comment on a task; the
--- author is the OS username (CLI/TUI path) or the MCP server's configured
--- identity (agent path), per that plan. ON DELETE CASCADE on task_id means
+-- Comments are append-only for v1 (no edit, no delete). Each row is one
+-- comment on a task; the author is the OS username (CLI/TUI path) or the MCP
+-- server's configured identity (agent path). ON DELETE CASCADE on task_id means
 -- deleting a task drops its thread automatically.
 CREATE TABLE IF NOT EXISTS TaskComment (
     id         text primary key,          -- ULID, generated in store.NewID

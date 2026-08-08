@@ -401,7 +401,7 @@ func (s *Store) DeleteTask(id string) error {
 	// Collect every id in the subtree FIRST: the parent_id foreign key's
 	// CASCADE removes the descendants from Task, but AgentActivity has no FK
 	// to Task, so we must delete those claim rows ourselves (a live claim on a
-	// deleted task would leave an orphaned spinner — docs/plan/mcp-presence-on-all-writes.md §4).
+	// deleted task would leave an orphaned spinner).
 	var ids []string
 	rows, err := s.db.Query(`WITH RECURSIVE subtree AS (
 		SELECT id FROM Task WHERE id = ?
@@ -519,9 +519,9 @@ func (s *Store) ListTasks(listID string) ([]Task, error) {
 // TasksChangedSince returns the tasks in listID whose updated_at is strictly
 // greater than since (unix seconds), ordered by updated_at ascending. "Changed"
 // covers creation, status/progress, rename, notes, re-parent, and a new comment
-// (docs/plan/mcp-list-changes-since.md §1, which makes AddComment bump
-// updated_at). Deletions are not represented — a task removed after `since` is
-// simply absent from the result.
+// (§1, which makes AddComment bump updated_at). Deletions are not
+// represented — a task removed after `since` is simply absent from the
+// result.
 func (s *Store) TasksChangedSince(listID string, since int64) ([]Task, error) {
 	rows, err := s.db.Query(
 		`SELECT `+taskColumns+` FROM Task WHERE list_id = ? AND updated_at > ? ORDER BY updated_at ASC`,

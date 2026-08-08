@@ -153,15 +153,14 @@ func Open(path string) (*Store, error) {
 }
 
 // ownerTagRE matches the leading "<tag>:" prefix of a list name — A's
-// ownership convention (docs/plan/list-ownership-enforcement.md §3.7). The
-// capture is the owner tag. modernc.org/sqlite exposes no REGEXP, so the scan
-// runs in Go over the rows whose created_by is still empty.
+// ownership convention (§3.7). The capture is the owner tag.
+// modernc.org/sqlite exposes no REGEXP, so the scan runs in Go over the rows
+// whose created_by is still empty.
 var ownerTagRE = regexp.MustCompile(`^([A-Za-z0-9_-]+):`)
 
 // adoptOwnerTag returns the owner tag a "<tag>:" name adopts, or "" when the
 // name has no tag. Shared by the Open-time backfill and RenameList's
-// adopt-on-tag write (docs/plan/mcp-agent-todo-hardening.md §4.7) so the two
-// use exactly the same regex.
+// adopt-on-tag write (§4.7) so the two use exactly the same regex.
 func adoptOwnerTag(name string) string {
 	if m := ownerTagRE.FindStringSubmatch(name); m != nil {
 		return m[1]

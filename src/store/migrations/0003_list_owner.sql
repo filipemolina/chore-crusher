@@ -5,7 +5,7 @@
 -- agent recreates the work under its own tag.
 -- Populated by the MCP add_list tool (defaults to the server identity) and by
 -- GetOrCreateAgentList; the backfill that adopts the "<tag>:" name convention
--- (docs/plan/list-ownership-enforcement.md §3.3) lands in Step B.
+-- lands in Step B.
 -- Idempotent: the migration runner records version 3 in schema_migrations and
 -- never re-applies it.
 ALTER TABLE List ADD COLUMN created_by TEXT NOT NULL DEFAULT '';

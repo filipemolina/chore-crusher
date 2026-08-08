@@ -682,8 +682,8 @@ const titleGutter = 1
 // while the title shrank to a stub. docs/DESIGN.md §12 records the current
 // rule. The status column is a fixed statusColWidth allocation and the
 // trailing icon column a fixed detailsColWidth allocation — reserved and shed
-// together regardless of whether the row has notes (decision 2) — so the
-// label and the glyph (or its blank cell) align across rows.
+// together regardless of whether the row has notes — so the label and the
+// glyph (or its blank cell) align across rows.
 func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSpinner, assignee, priority string) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 

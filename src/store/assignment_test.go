@@ -489,10 +489,9 @@ func TestSetPriorityBumpsUpdatedAt(t *testing.T) {
 // TestUnassignAgentClearsOnlyThatAgentsTasks pins session-end assignment
 // release: one agent's tasks go, every other agent's stay. The scoping is the
 // whole point — a session ending must not free work a concurrent session is
-// still doing (docs/plan/session-scoped-agent-identity.md decision 3).
-// updated_at is checked on both sides, because a release that does not move it
-// is invisible to list_tasks(since=...) and one that moves it on untouched
-// rows is a phantom change.
+// still doing. updated_at is checked on both sides, because a release that
+// does not move it is invisible to list_tasks(since=...) and one that moves
+// it on untouched rows is a phantom change.
 func TestUnassignAgentClearsOnlyThatAgentsTasks(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")

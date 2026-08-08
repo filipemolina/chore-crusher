@@ -11,9 +11,8 @@ import (
 // CLI and the TUI get the same error.
 //
 // createdBy is the owning agent tag ("pi", "claudecode", ...); an empty
-// string marks the list as owned by nobody (human-managed) — see
-// docs/plan/list-ownership-enforcement.md §3.3. The store does not validate
-// the tag format; that is the MCP layer's job.
+// string marks the list as owned by nobody (human-managed). The store does
+// not validate the tag format; that is the MCP layer's job.
 func (s *Store) CreateList(name, createdBy string) (string, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("list name must not be empty")
@@ -37,8 +36,7 @@ func (s *Store) CreateList(name, createdBy string) (string, error) {
 
 // GetList returns the list with the given id, including its CreatedBy owner.
 // An empty CreatedBy means the list is owned by nobody (human-managed); the MCP
-// policy layer uses this to gate structural writes
-// (docs/plan/list-ownership-enforcement.md).
+// policy layer uses this to gate structural writes.
 func (s *Store) GetList(id string) (List, error) {
 	var l List
 	if err := s.db.QueryRow(
@@ -88,13 +86,13 @@ func (s *Store) RenameList(id, name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("list name must not be empty")
 	}
-	// Adopt-on-tag (docs/plan/mcp-agent-todo-hardening.md §4.7): renaming an
-	// untagged list into the "<tag>:" convention adopts the tag as owner in
-	// the same write — the human handoff path (rename Groceries to
-	// "pi: Groceries") takes effect immediately instead of at the next
-	// store.Open. An existing owner is kept: a rename never transfers
-	// ownership. The CASE leaves created_by untouched when it is non-empty,
-	// and stays a no-op when the new name has no tag.
+	// Adopt-on-tag (§4.7): renaming an untagged list into the "<tag>:"
+	// convention adopts the tag as owner in the same write — the human
+	// handoff path (rename Groceries to "pi: Groceries") takes effect
+	// immediately instead of at the next store.Open. An existing owner is
+	// kept: a rename never transfers ownership. The CASE leaves created_by
+	// untouched when it is non-empty, and stays a no-op when the new name has
+	// no tag.
 	owner := adoptOwnerTag(name)
 	res, err := s.db.Exec(`UPDATE List SET name = ?,
 		created_by = CASE WHEN created_by = '' THEN ? ELSE created_by END
@@ -142,9 +140,9 @@ func (s *Store) SetCollaborative(id string, collaborative bool) error {
 // The lookup is owner-first (WHERE created_by = ?): a list merely *named*
 // "<identity>: ..." but created by the human in the CLI/TUI (created_by
 // empty) is foreign to every agent and must not satisfy this call — silently
-// adopting it would hand the agent a list the server then refuses to write
-// (docs/plan/mcp-agent-todo-hardening.md §4.3). The my_list MCP tool is the
-// caller-facing wrapper this store method supports.
+// adopting it would hand the agent a list the server then refuses to write.
+// The my_list MCP tool is the caller-facing wrapper this store method
+// supports.
 func (s *Store) GetOrCreateAgentList(identity string) (string, error) {
 	prefix := identity + ": "
 	var id string
@@ -161,10 +159,10 @@ func (s *Store) GetOrCreateAgentList(identity string) (string, error) {
 // auto-creates, but only when it holds no tasks. It reports whether a list was
 // actually deleted.
 //
-// This exists because an MCP session's identity is unique per process
-// (docs/plan/session-scoped-agent-identity.md decision 1), so every run mints a
-// fresh Inbox; without a sweep at session end the lists panel fills with
-// abandoned empties and the simplification becomes visible litter.
+// This exists because an MCP session's identity is unique per process, so
+// every run mints a fresh Inbox; without a sweep at session end the lists
+// panel fills with abandoned empties and the simplification becomes visible
+// litter.
 //
 // Three guards, all of them load-bearing (decision 5). created_by pins it to a
 // list this identity actually created, never a human's — a human list has an
