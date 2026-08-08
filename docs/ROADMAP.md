@@ -151,7 +151,7 @@ two complete subtasks) are already shipped.
 
 ### Deferred MCP follow-ups (after hardening)
 
-- ~~Session-end claim release (enhancement promised it; TTL covers it today).~~ **Done** — `Run` now calls `s.ReleaseAllClaims()` after `server.Run` returns, closing the gap between the enhancement plan §3.1 promise and the implementation (H13). All claims clear on session disconnect so the TUI shows no stale spinners.
+- ~~Session-end claim release (enhancement promised it; TTL covers it today).~~ **Done** — `Run` now calls `s.ReleaseAgentClaims(identity)` after `server.Run` returns, closing the gap between the enhancement plan §3.1 promise and the implementation (H13). The exiting agent's own claims clear on session disconnect so the TUI shows no stale spinners for it; other agents' claims are untouched, because one agent going away says nothing about whether another is still working (`docs/plan/session-end-claim-release-scoping.md`).
 - Optional: show list owner in the TUI; comments gated by `requireWritable`.
 - Do **not** add an `adopt_list` MCP tool unless the hardening CLI path
   proves insufficient — keep the tool-count ceiling.
