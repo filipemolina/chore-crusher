@@ -29,12 +29,6 @@ None of them are good at **this**:
   percentages compute automatically (`completed / total`), so long tasks
   naturally break down while you work.
 
-**This is the gap.** Taskwarrior is scriptable but has a custom DSL. DSTask
-and todo.txt are CLI-first but flat. Backlog.md and claude-task-master are
-agent-native but render as Markdown, not a persistent TUI you can leave open.
-Claude Code's task tool is scoped to one session, has no CLI, and nothing to
-watch it with outside the transcript.
-
 Chore Crusher **delivers the combination**: a keyboard-driven terminal UI with
 a server that speaks JSON and MCP, both accessing the same SQLite store,
 updated live in both views.
