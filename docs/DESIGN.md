@@ -913,11 +913,17 @@ notes body is empty, so an agent can skip a `show_task` call entirely.
 per tree root): `status` defaults to `open` (= pending + in_progress) —
 plus `pending`, `in_progress`, `complete`, `all` — and a row kept only as
 ancestor context comes back with `context_only: true`. `since` (unix
-seconds) absorbs the old `list_changes` tool. `include` accepts `notes`,
+seconds) absorbs the old `list_changes` tool, and passing it **widens the
+default `status` to `all`** — `list_changes` had no status filter, so a
+change feed that defaulted to `open` would be blind to a task being
+completed, the most common change there is. An explicit `status` still
+wins. `include` accepts `notes`,
 `comments`, or both; inlined bodies are **never cut mid-text**: a byte
 budget (`notesBudget`) caps the whole response, an over-budget row is
 dropped whole, and its id goes into the `elided` array of the return
 object `{"tasks": [...], "elided": [...], "budget_exceeded": false}`.
+Only rows that actually carry a body are charged to the budget or named
+in `elided`, since `elided` exists to be re-fetched with `show_task`.
 The old `notes_truncated` flag is gone — mid-sentence truncation was the
 bug being fixed. `show_task(ids)` is the batch equivalent for cross-list
 workflows: up to 50 task ids return their **entire subtree** — every
@@ -1000,6 +1006,8 @@ your task and everything about it. Full model:
 is strictly greater — newly
 created, status/progress edited, renamed, re-noted, re-parented, or newly
 commented (`AddComment` bumps `updated_at`, so new comments surface too).
+Completions surface because `since` widens the default `status` to `all`
+(above); pass `status` explicitly to narrow the feed.
 The rows use the exact same shape as `list_tasks` (`has_notes`/`notes_len`,
 omitted-empty `progress`), so `include=['notes']` inlines bodies identically.
 Deletions are not representable by a row filter — a removed task is simply

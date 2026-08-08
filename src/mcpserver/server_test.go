@@ -3136,3 +3136,111 @@ func TestUnassignedRowIsNeverLive(t *testing.T) {
 		t.Error("unassigned task reports assignee_live true while another agent is live")
 	}
 }
+
+// TestListTasksSinceSurfacesCompletedTasks pins the DESIGN §9 change-detection
+// contract against the §4 `open` default. DESIGN writes the call as
+// `list_tasks(list_id, since=<unix>)` and promises it returns tasks whose
+// activity changed — explicitly including "status/progress edited". Completing
+// a task is the most common change there is, so composing `since` with the
+// default `open` filter (which excludes complete) would make the documented
+// two-argument call silently blind to it: `since` absorbed `list_changes`, and
+// `list_changes` never had a status filter. An explicit status still wins.
+func TestListTasksSinceSurfacesCompletedTasks(t *testing.T) {
+	session := setupMCP(t)
+	var list, a map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task",
+		map[string]any{"list_id": list["id"], "title": "a"}), &a)
+
+	cutoff := time.Now().Unix()
+	time.Sleep(1100 * time.Millisecond)
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{a["id"]}})
+
+	rows := listTasks(t, session, map[string]any{
+		"list_id": list["id"], "since": cutoff,
+	}).Tasks
+	if len(rows) != 1 || rows[0]["id"] != a["id"] {
+		t.Fatalf("completing a task must surface in list_tasks(since); got %#v", rows)
+	}
+	if rows[0]["context_only"] == true {
+		t.Errorf("the changed task is a match in its own right, not a skeleton")
+	}
+
+	// An explicit status is still honoured over the since-widened default.
+	open := listTasks(t, session, map[string]any{
+		"list_id": list["id"], "since": cutoff, "status": "open",
+	}).Tasks
+	if len(open) != 0 {
+		t.Errorf("explicit status=open must still exclude the completed task, got %#v", open)
+	}
+}
+
+// TestListTasksElidedNamesOnlyRowsWithBodies pins what `elided` is for: it
+// names rows whose body the §5.3 budget withheld, so the agent can fetch them
+// with show_task. A row with no notes and no comments had no body to withhold,
+// so naming it sends the agent on a pointless round-trip — the exact cost §2
+// exists to remove.
+func TestListTasksElidedNamesOnlyRowsWithBodies(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	big := strings.Repeat("x", 25000)
+	for _, title := range []string{"big1", "big2", "big3"} {
+		callTool(t, session, "add_task", map[string]any{
+			"list_id": list["id"], "title": title, "notes": big,
+		})
+	}
+	callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "bare"})
+
+	res := listTasks(t, session, map[string]any{
+		"list_id": list["id"], "include": []string{"notes"},
+	})
+	if !res.BudgetExceeded {
+		t.Fatalf("three 25000-char notes must exceed the 40000 budget")
+	}
+	for _, id := range res.Elided {
+		for _, r := range res.Tasks {
+			if r["id"] == id && r["title"] == "bare" {
+				t.Errorf("a row with no body must not be named in elided: %v", r["title"])
+			}
+		}
+	}
+}
+
+// TestInboxSkeletonRowsCarryNoNotes pins §5.2 on the one remaining resource:
+// list_tasks' per-task filter also drives crush:///inbox, so the inbox now
+// produces context_only skeleton rows too. A skeleton is tree scaffolding, not
+// content — it must never carry an inlined body on any surface.
+func TestInboxSkeletonRowsCarryNoNotes(t *testing.T) {
+	session := setupMCP(t)
+	var list, parent map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "parent", "notes": "parent body",
+	}), &parent)
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{parent["id"]}})
+	callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "child", "parent": parent["id"],
+	})
+
+	body := readResourceText(t, session, "crush:///inbox")
+	var inbox struct {
+		Mine struct {
+			Tasks []map[string]any `json:"tasks"`
+		} `json:"mine"`
+	}
+	mustUnmarshal(t, body, &inbox)
+	found := false
+	for _, r := range inbox.Mine.Tasks {
+		if r["context_only"] != true {
+			continue
+		}
+		found = true
+		if r["notes"] != nil && r["notes"] != "" {
+			t.Errorf("inbox skeleton row %v must not carry notes, got %q", r["title"], r["notes"])
+		}
+	}
+	if !found {
+		t.Fatalf("expected a context_only skeleton in the inbox; got %#v", inbox.Mine.Tasks)
+	}
+}

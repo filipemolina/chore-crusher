@@ -141,7 +141,7 @@ IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed 
 
 TOOLS (chore_crusher_<name>):
 - my_list() — session opener: {mine, foreign_lists} with pending/complete counts
-- list_tasks(list_id, status?, since?, include?) — one list's task tree as preorder rows with ancestor skeletons; status defaults to 'open' (pending + in_progress), also pending|in_progress|complete|all; include=['notes','comments'] inlines whole bodies, a byte budget caps the response and over-budget rows are named in the 'elided' field of the {tasks, elided, budget_exceeded} result, never cut mid-text; since=<unix> returns only tasks changed after that time (list_changes is folded into this parameter — call it between tasks instead of re-reading the list)
+- list_tasks(list_id, status?, since?, include?) — one list's task tree as preorder rows with ancestor skeletons; status defaults to 'open' (pending + in_progress), also pending|in_progress|complete|all; include=['notes','comments'] inlines whole bodies, a byte budget caps the response and over-budget rows are named in the 'elided' field of the {tasks, elided, budget_exceeded} result, never cut mid-text; since=<unix> returns only tasks changed after that time and widens the default status to 'all' so completions show (list_changes is folded into this parameter — call it between tasks instead of re-reading the list)
 - show_task(ids) — full details + children + comments for 1..50 tasks
 - search_tasks(query, list_id?) — fuzzy over titles and notes
 - add_task(list_id, title, parent?, notes?)
@@ -268,7 +268,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_tasks",
-		Description: "List a list's tasks as a depth-annotated tree. Example: list_tasks(list_id='01ABC...', status='pending', include=['notes']). status defaults to 'open' (pending + in_progress); one of open, pending, in_progress, complete, all. Rows are filtered per task, not per tree root, and an included row's non-matching ancestors come back as skeleton rows with context_only=true. since (unix seconds) returns only tasks whose activity changed strictly after it — the folded list_changes. include is an optional set of extra fields to inline per row; supported values: 'notes' (the full notes body), 'comments' (comment bodies). Inlined bodies are never cut mid-text: a byte budget caps the response and an over-budget row is dropped whole, its id reported in the 'elided' array of the {tasks, elided, budget_exceeded} return object — fetch it with show_task. Prefer this over N show_task calls.",
+		Description: "List a list's tasks as a depth-annotated tree. Example: list_tasks(list_id='01ABC...', status='pending', include=['notes']). status defaults to 'open' (pending + in_progress); one of open, pending, in_progress, complete, all. Rows are filtered per task, not per tree root, and an included row's non-matching ancestors come back as skeleton rows with context_only=true. since (unix seconds) returns only tasks whose activity changed strictly after it — the folded list_changes; passing it widens the default status to 'all' so a just-completed task still shows up, and an explicit status still wins. include is an optional set of extra fields to inline per row; supported values: 'notes' (the full notes body), 'comments' (comment bodies). Inlined bodies are never cut mid-text: a byte budget caps the response and an over-budget row is dropped whole, its id reported in the 'elided' array of the {tasks, elided, budget_exceeded} return object — fetch it with show_task. Prefer this over N show_task calls.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ListID  string   `json:"list_id" jsonschema:"list id or unambiguous prefix"`
 		Status  string   `json:"status,omitempty" jsonschema:"open (default), pending, in_progress, complete, or all"`
@@ -276,7 +276,16 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		Include []string `json:"include,omitempty" jsonschema:"extra per-row fields to inline; supports 'notes', 'comments'"`
 	}) (*mcp.CallToolResult, any, error) {
 		if in.Status == "" {
-			in.Status = "open"
+			// `since` absorbed list_changes, which had no status filter at all.
+			// Composing it with the `open` default would make the call
+			// docs/DESIGN.md §9 writes for change detection —
+			// list_tasks(list_id, since=<unix>) — blind to the most common
+			// change of all, a task being completed. An explicit status wins.
+			if in.Since > 0 {
+				in.Status = "all"
+			} else {
+				in.Status = "open"
+			}
 		}
 		if !validStatusFilter(in.Status) {
 			return errorResult(fmt.Errorf("invalid status %q: want open, pending, in_progress, complete, or all", in.Status)), nil, nil
@@ -338,7 +347,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			budgetExceeded bool
 		)
 		if includeNotes || includeComments {
-			elided, budgetExceeded, err = inlineBodyBudget(s, rows, tasks, includeNotes, includeComments)
+			elided, budgetExceeded, err = inlineBodyBudget(s, listID, rows, tasks, includeNotes, includeComments)
 			if err != nil {
 				return errorResult(err), nil, nil
 			}
@@ -1040,12 +1049,20 @@ const notesBudget = 40000
 // Rows without a match (should not happen in practice) are left as-is. This
 // is the unbudgeted form used by crush://inbox, which caps rows at 20 of its
 // own and is not a list_tasks response.
+//
+// Skeleton rows are skipped: the inbox filters per task like list_tasks, so it
+// emits context_only ancestors too, and a skeleton is tree scaffolding rather
+// than content — §5.2 keeps bodies off it on every surface, not just
+// list_tasks (docs/plan/mcp-assignment-and-priorities.md §5.2).
 func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 	byID := make(map[string]string, len(tasks))
 	for _, t := range tasks {
 		byID[t.ID] = t.Notes
 	}
 	for i := range rows {
+		if rows[i].ContextOnly {
+			continue
+		}
 		body, ok := byID[rows[i].ID]
 		if !ok {
 			continue
@@ -1062,15 +1079,40 @@ func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 // mid-text. Skeleton rows (context_only) never take from the budget: their
 // bodies are never inlined (§5.2). budgetExceed reports whether the budget
 // was hit at all, which is exactly len(elided) > 0.
-func inlineBodyBudget(s *store.Store, rows []taskRowJSON, tasks []store.Task, includeNotes, includeComments bool) (elided []string, budgetExceeded bool, err error) {
+//
+// Only rows that actually have a body are charged to the budget or named in
+// elided. elided exists so the agent can re-fetch the dropped bodies with
+// show_task, so listing a row with no notes and no comments would buy it a
+// round-trip that returns nothing — the cost §2 exists to remove.
+//
+// Comment presence comes from ONE store.TaskIDsWithComments query for the
+// whole list, not a ListComments per row: that helper exists for this exact
+// N+1 (docs/plan/mcp-assignment-and-priorities.md §8 — a per-request read
+// stays per-request). Only rows the set says are commented are read.
+func inlineBodyBudget(s *store.Store, listID string, rows []taskRowJSON, tasks []store.Task, includeNotes, includeComments bool) (elided []string, budgetExceeded bool, err error) {
 	byID := make(map[string]string, len(tasks))
 	for _, t := range tasks {
 		byID[t.ID] = t.Notes
 	}
+	commented := map[string]bool{}
+	if includeComments {
+		commented, err = s.TaskIDsWithComments(listID)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	// hasBody is what makes a row eligible to be inlined — and therefore to be
+	// elided when the budget runs out.
+	hasBody := func(r *taskRowJSON) bool {
+		if r.ContextOnly {
+			return false
+		}
+		return (includeNotes && len(byID[r.ID]) > 0) || (includeComments && commented[r.ID])
+	}
 	used := 0
 	for i := range rows {
 		row := &rows[i]
-		if row.ContextOnly {
+		if !hasBody(row) {
 			continue
 		}
 		cost := 0
@@ -1078,7 +1120,7 @@ func inlineBodyBudget(s *store.Store, rows []taskRowJSON, tasks []store.Task, in
 			cost += len(byID[row.ID])
 		}
 		var comments []store.Comment
-		if includeComments {
+		if includeComments && commented[row.ID] {
 			comments, err = s.ListComments(row.ID)
 			if err != nil {
 				return nil, false, err
@@ -1089,10 +1131,10 @@ func inlineBodyBudget(s *store.Store, rows []taskRowJSON, tasks []store.Task, in
 		}
 		if used+cost > notesBudget {
 			// This row and every later one keep has_notes/notes_len but get no
-			// body; skeleton rows are never elided (they never had a body to
-			// drop — §5.2).
+			// body; rows with nothing to inline are not "dropped" and so are
+			// not named (skeletons among them — they never had a body, §5.2).
 			for j := i; j < len(rows); j++ {
-				if rows[j].ContextOnly {
+				if !hasBody(&rows[j]) {
 					continue
 				}
 				elided = append(elided, rows[j].ID)
@@ -1103,7 +1145,7 @@ func inlineBodyBudget(s *store.Store, rows []taskRowJSON, tasks []store.Task, in
 		if includeNotes {
 			row.Notes = byID[row.ID]
 		}
-		if includeComments {
+		if len(comments) > 0 {
 			row.Comments = commentsJSON(comments)
 		}
 		used += cost
