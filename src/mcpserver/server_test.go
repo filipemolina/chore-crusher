@@ -225,6 +225,26 @@ func releaseWork(t *testing.T, entityType, entityID, agent string) {
 	}
 }
 
+// mcpToolSurface is the exact tool surface docs/DESIGN.md §9 pins, and
+// removedToolNames is every tool name the consolidation steps deleted. Both
+// lists are shared by the three assertions that need them — the registered
+// surface, the Instructions blob and the crush_inbox prompt — because a
+// consolidation step that updated only some of the copies would leave the
+// others passing against a surface that no longer exists. One list per fact.
+var (
+	mcpToolSurface = []string{
+		"my_list", "list_tasks", "show_task", "search_tasks",
+		"add_task", "edit_task", "delete_task", "set_status",
+		"comment", "add_list", "assign_task", "next_task",
+	}
+	removedToolNames = []string{
+		"list_lists", "show_tasks", "toggle_task", "update_tasks", "rename_task",
+		"set_notes", "move_task", "rename_list", "delete_list", "release_work",
+		"list_work", "set_progress", "complete_task", "reopen_task",
+		"claim_work", "list_changes", "add_comment", "delete_comment",
+	}
+)
+
 // TestMCPToolSurface pins the consolidated tool surface
 // (docs/plan/mcp-tool-consolidation.md §2, docs/plan/mcp-assignment-and-priorities.md
 // §4): exactly the 12 tools below, and none of the removed ones. A new tool
@@ -241,28 +261,18 @@ func TestMCPToolSurface(t *testing.T) {
 		got[tool.Name] = true
 	}
 
-	want := []string{
-		"my_list", "list_tasks", "show_task", "search_tasks",
-		"add_task", "edit_task", "delete_task", "set_status",
-		"comment", "add_list", "assign_task", "next_task",
-	}
-	for _, name := range want {
+	for _, name := range mcpToolSurface {
 		if !got[name] {
 			t.Errorf("tool %q missing from the surface", name)
 		}
 	}
-	for _, name := range []string{
-		"list_lists", "show_tasks", "toggle_task", "update_tasks", "rename_task",
-		"set_notes", "move_task", "rename_list", "delete_list", "release_work",
-		"list_work", "set_progress", "complete_task", "reopen_task",
-		"claim_work", "list_changes", "add_comment", "delete_comment",
-	} {
+	for _, name := range removedToolNames {
 		if got[name] {
 			t.Errorf("removed tool %q is still registered", name)
 		}
 	}
-	if len(res.Tools) != len(want) {
-		t.Errorf("tool count = %d, want %d: %v", len(res.Tools), len(want), got)
+	if len(res.Tools) != len(mcpToolSurface) {
+		t.Errorf("tool count = %d, want %d: %v", len(res.Tools), len(mcpToolSurface), got)
 	}
 }
 
@@ -358,16 +368,11 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	// The blob lists each tool under a TOOLS heading as `name(...)` using the
 	// bare tool name; the host registers them as chore_crusher_<name>. Assert
 	// the bare names appear and the chore_crusher_ prefix is documented once.
-	wantTools := []string{
-		"my_list", "list_tasks", "show_task", "search_tasks",
-		"add_task", "edit_task", "delete_task", "set_status",
-		"comment", "add_list", "assign_task", "next_task",
-	}
 	lower := strings.ToLower(instructions)
 	if !strings.Contains(lower, "chore_crusher_") {
 		t.Fatalf("Instructions must document the chore_crusher_ prefix;\nfull text:\n%s", instructions)
 	}
-	for _, name := range wantTools {
+	for _, name := range mcpToolSurface {
 		if !strings.Contains(lower, name+"(") {
 			t.Fatalf("Instructions missing tool %q;\nfull text:\n%s", name, instructions)
 		}
@@ -376,11 +381,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	// Removed tools (no MCP registration) must not appear as callables - a
 	// bare prose mention (e.g. "list_changes is folded into since") is a
 	// deliberate pointer, a listing as `name(` is not.
-	removed := []string{"list_lists", "release_work", "list_work", "rename_list",
-		"delete_list", "update_tasks", "toggle_task", "rename_task", "set_notes",
-		"move_task", "show_tasks", "set_progress", "complete_task", "reopen_task",
-		"claim_work", "list_changes", "add_comment", "delete_comment"}
-	for _, name := range removed {
+	for _, name := range removedToolNames {
 		if strings.Contains(lower, name+"(") {
 			t.Fatalf("Instructions still names removed tool %q;\nfull text:\n%s", name, instructions)
 		}
@@ -477,6 +478,18 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	} {
 		if !strings.Contains(loop, want) {
 			t.Fatalf("crush_inbox prompt missing working-loop element %q;\nfull text:\n%s", want, tc.Text)
+		}
+	}
+
+	// The prompt, not the Instructions blob, is where the working loop
+	// actually lives (the blob delegates to it above), so it is the text an
+	// agent follows call-by-call — it must not name a tool the server no
+	// longer registers. Every consolidation step so far has had to edit this
+	// prompt, and until now only the blob was guarded, so a stale tool name
+	// here would have shipped green.
+	for _, name := range removedToolNames {
+		if strings.Contains(loop, name) {
+			t.Fatalf("crush_inbox prompt still names removed tool %q;\nfull text:\n%s", name, tc.Text)
 		}
 	}
 }
@@ -2598,6 +2611,45 @@ func TestCommentAddRejectsExplicitAuthor(t *testing.T) {
 	})
 	if !strings.Contains(msg, "author") {
 		t.Errorf("expected error mentioning author, got %q", msg)
+	}
+}
+
+// TestCommentDeleteRejectsExplicitAuthor pins that the author rejection
+// covers the delete mode too. delete_comment had no author parameter, so the
+// old tool rejected one via its schema; the merged tool must carry author for
+// add mode, and rejecting it only on the add path would turn it into a
+// silently ignored parameter on the delete path — the deletion gate keys off
+// the calling identity, never off anything the caller names.
+func TestCommentDeleteRejectsExplicitAuthor(t *testing.T) {
+	session := setupMCPAs(t, "pi")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+	var comment map[string]string
+	mustUnmarshal(t, callTool(t, session, "comment", map[string]any{
+		"task_id": task["id"], "note": "mine",
+	}), &comment)
+
+	msg := callToolErr(t, session, "comment", map[string]any{
+		"id": comment["id"], "delete": true, "force": true, "author": "someone-else",
+	})
+	if !strings.Contains(msg, "author") {
+		t.Errorf("expected error mentioning author, got %q", msg)
+	}
+
+	// The refusal must be a refusal, not a warning: the comment survives.
+	var detailsArr []struct {
+		Comments []struct{ ID string } `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &detailsArr)
+	if len(detailsArr[0].Comments) != 1 {
+		t.Errorf("comment deleted despite the rejected author, got %+v", detailsArr[0].Comments)
 	}
 }
 

@@ -439,6 +439,16 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		Force  bool   `json:"force,omitempty" jsonschema:"must be true to confirm deletion (delete mode)"`
 		Author string `json:"author,omitempty" jsonschema:"rejected if set — comments are always attributed to the server identity"`
 	}) (*mcp.CallToolResult, any, error) {
+		// author is rejected in BOTH modes, before the mode split. The two
+		// tools this merged: delete_comment had no author field at all, so a
+		// caller passing one got a schema error; the merged input struct has
+		// to carry author for add mode, which would otherwise make it a
+		// silently ignored parameter on the delete path — and an identity
+		// that thinks it can name the author of a deletion has the ownership
+		// rule exactly backwards.
+		if in.Author != "" {
+			return errorResult(fmt.Errorf("author is not a supported parameter: comments are attributed to this server's identity (%q)", identity)), nil, nil
+		}
 		if in.Delete {
 			if !in.Force {
 				return errorResult(fmt.Errorf("deleting a comment requires force=true")), nil, nil
@@ -450,9 +460,6 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				return errorResult(err), nil, nil
 			}
 			return jsonResult(map[string]bool{"ok": true})
-		}
-		if in.Author != "" {
-			return errorResult(fmt.Errorf("author is not a supported parameter: comments are attributed to this server's identity (%q)", identity)), nil, nil
 		}
 		if strings.TrimSpace(in.Note) == "" {
 			return errorResult(fmt.Errorf("note must not be empty")), nil, nil
