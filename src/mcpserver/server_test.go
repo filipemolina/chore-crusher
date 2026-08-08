@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -221,7 +222,7 @@ func TestMCPToolSurface(t *testing.T) {
 	}
 
 	want := []string{
-		"my_list", "list_tasks", "list_changes", "show_task", "search_tasks",
+		"my_list", "list_tasks", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
 		"reopen_task", "add_comment", "delete_comment", "add_list", "claim_work",
 	}
@@ -337,7 +338,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	// bare tool name; the host registers them as chore_crusher_<name>. Assert
 	// the bare names appear and the chore_crusher_ prefix is documented once.
 	wantTools := []string{
-		"my_list", "list_tasks", "list_changes", "show_task", "search_tasks",
+		"my_list", "list_tasks", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_progress", "complete_task",
 		"reopen_task", "add_comment", "delete_comment", "add_list", "claim_work",
 	}
@@ -470,16 +471,19 @@ func TestMCPAddAndCompleteTask(t *testing.T) {
 		t.Fatalf("add_task returned empty id")
 	}
 
-	var rows []struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		Status string `json:"status"`
-		Depth  int    `json:"depth"`
+	var res struct {
+		Tasks []struct {
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Status string `json:"status"`
+			Depth  int    `json:"depth"`
+		} `json:"tasks"`
 	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
 		"status":  "pending",
-	}), &rows)
+	}), &res)
+	rows := res.Tasks
 	if len(rows) != 1 || rows[0].Title != "Write tests" || rows[0].Status != "pending" {
 		t.Fatalf("pending rows = %+v", rows)
 	}
@@ -489,7 +493,7 @@ func TestMCPAddAndCompleteTask(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
 		"status":  "complete",
-	}), &rows)
+	}), &res)
 	if len(rows) != 1 || rows[0].Status != "complete" {
 		t.Fatalf("complete rows = %+v", rows)
 	}
@@ -514,15 +518,18 @@ func TestMCPNestedTask(t *testing.T) {
 		"parent":  parent["id"],
 	}), &child)
 
-	var rows []struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		Depth  int    `json:"depth"`
-		Status string `json:"status"`
+	var res struct {
+		Tasks []struct {
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Depth  int    `json:"depth"`
+			Status string `json:"status"`
+		} `json:"tasks"`
 	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
-	}), &rows)
+	}), &res)
+	rows := res.Tasks
 	if len(rows) != 2 {
 		t.Fatalf("want 2 rows, got %+v", rows)
 	}
@@ -638,12 +645,14 @@ func TestMCPDeleteTaskRequiresForce(t *testing.T) {
 
 	callTool(t, session, "delete_task", map[string]any{"id": task["id"], "force": true})
 
-	var rows []struct{ Title string }
+	var res struct {
+		Tasks []struct{ Title string } `json:"tasks"`
+	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
-	}), &rows)
-	if len(rows) != 0 {
-		t.Fatalf("expected no rows after delete, got %+v", rows)
+	}), &res)
+	if len(res.Tasks) != 0 {
+		t.Fatalf("expected no rows after delete, got %+v", res.Tasks)
 	}
 }
 
@@ -736,16 +745,19 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	}
 
 	// list_tasks carries list_owner and the assignment fields on every row.
-	var rows []struct {
-		ID           string `json:"id"`
-		ListOwner    string `json:"list_owner"`
-		Assignee     string `json:"assignee"`
-		AssigneeLive bool   `json:"assignee_live"`
-		Priority     string `json:"priority"`
+	var res struct {
+		Tasks []struct {
+			ID           string `json:"id"`
+			ListOwner    string `json:"list_owner"`
+			Assignee     string `json:"assignee"`
+			AssigneeLive bool   `json:"assignee_live"`
+			Priority     string `json:"priority"`
+		} `json:"tasks"`
 	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": theirList["id"],
-	}), &rows)
+	}), &res)
+	rows := res.Tasks
 	if len(rows) == 0 || rows[0].ListOwner != "claude" {
 		t.Fatalf("list_tasks list_owner = %+v, want claude on every row", rows)
 	}
@@ -1460,12 +1472,14 @@ func TestMCPForeignListWriteRefused(t *testing.T) {
 
 	// The task was never moved/deleted: claude's list still has exactly one
 	// task, proving no structural write slipped through.
-	var rows []struct{ Title string }
+	var res struct {
+		Tasks []struct{ Title string } `json:"tasks"`
+	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
-	}), &rows)
-	if len(rows) != 1 || rows[0].Title != "real work" {
-		t.Fatalf("foreign-list structural writes leaked: rows = %+v", rows)
+	}), &res)
+	if len(res.Tasks) != 1 || res.Tasks[0].Title != "real work" {
+		t.Fatalf("foreign-list structural writes leaked: rows = %+v", res.Tasks)
 	}
 }
 
@@ -1492,12 +1506,14 @@ func TestMCPOwnerCanWriteEverything(t *testing.T) {
 
 	// delete_task requires force and succeeds for the owner.
 	callTool(t, session, "delete_task", map[string]any{"id": task["id"], "force": true})
-	var rows []struct{ Title string }
+	var res struct {
+		Tasks []struct{ Title string } `json:"tasks"`
+	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"],
-	}), &rows)
-	if len(rows) != 0 {
-		t.Fatalf("owner delete_task left rows = %+v", rows)
+	}), &res)
+	if len(res.Tasks) != 0 {
+		t.Fatalf("owner delete_task left rows = %+v", res.Tasks)
 	}
 }
 
@@ -1533,13 +1549,16 @@ func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
 	callTool(t, session, "set_progress", map[string]any{"ids": []string{taskID}, "mode": "simple"})
 	callTool(t, session, "complete_task", map[string]any{"ids": []string{taskID}})
 
-	var rows []struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
+	var res struct {
+		Tasks []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"tasks"`
 	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"], "status": "complete",
-	}), &rows)
+	}), &res)
+	rows := res.Tasks
 	if len(rows) != 1 || rows[0].Status != "complete" {
 		t.Fatalf("foreign status write did not take: rows = %+v", rows)
 	}
@@ -1603,13 +1622,16 @@ func TestMCPUntaggedListForeignToEveryAgent(t *testing.T) {
 	callTool(t, session, "set_progress", map[string]any{"ids": []string{taskID}, "mode": "simple"})
 	callTool(t, session, "complete_task", map[string]any{"ids": []string{taskID}})
 
-	var rows []struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
+	var res struct {
+		Tasks []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"tasks"`
 	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": listID, "status": "complete",
-	}), &rows)
+	}), &res)
+	rows := res.Tasks
 	if len(rows) != 1 || rows[0].ID != taskID || rows[0].Status != "complete" {
 		t.Fatalf("untagged-list status write did not take: rows = %+v", rows)
 	}
@@ -1658,10 +1680,13 @@ func TestMCPCollaborativeListAllowsStructuralEdits(t *testing.T) {
 	callTool(t, session, "edit_task", map[string]any{"id": taskID, "notes": "annotated"})
 	callTool(t, session, "delete_task", map[string]any{"id": taskID, "force": true})
 
-	var rows []struct{ Title string }
+	var res struct {
+		Tasks []struct{ Title string } `json:"tasks"`
+	}
 	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
 		"list_id": listID,
-	}), &rows)
+	}), &res)
+	rows := res.Tasks
 	if len(rows) != 1 || rows[0].Title != "new work" {
 		t.Fatalf("collaborative-list structural writes did not take: rows = %+v", rows)
 	}
@@ -1822,6 +1847,24 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	}
 }
 
+// listTasksResponse is the list_tasks envelope — a bare array until step 7
+// turned it into {tasks, elided, budget_exceeded}: elided names the rows the
+// §5.3 body budget dropped whole (fetch them with show_task), and
+// budget_exceeded is true exactly when any body was dropped.
+type listTasksResponse struct {
+	Tasks          []map[string]any `json:"tasks"`
+	Elided         []string         `json:"elided"`
+	BudgetExceeded bool             `json:"budget_exceeded"`
+}
+
+// listTasks calls the list_tasks tool and returns its envelope.
+func listTasks(t *testing.T, session *mcp.ClientSession, args map[string]any) listTasksResponse {
+	t.Helper()
+	var res listTasksResponse
+	mustUnmarshal(t, callTool(t, session, "list_tasks", args), &res)
+	return res
+}
+
 func TestListTasksReportsNotesFlags(t *testing.T) {
 	session := setupMCP(t)
 	var list map[string]string
@@ -1832,14 +1875,15 @@ func TestListTasksReportsNotesFlags(t *testing.T) {
 	callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "no notes",
 	})
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks",
-		map[string]any{"list_id": list["id"]}), &rows)
-	if len(rows) != 2 {
-		t.Fatalf("want 2 rows, got %d", len(rows))
+	res := listTasks(t, session, map[string]any{"list_id": list["id"]})
+	if len(res.Tasks) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(res.Tasks))
+	}
+	if res.BudgetExceeded || len(res.Elided) != 0 {
+		t.Errorf("no bodies are inlined here, so nothing can elide: %#v", res.Elided)
 	}
 	byTitle := map[string]map[string]any{}
-	for _, r := range rows {
+	for _, r := range res.Tasks {
 		byTitle[r["title"].(string)] = r
 	}
 	if byTitle["with notes"]["has_notes"] != true {
@@ -1867,26 +1911,26 @@ func TestListTasksIncludeNotes(t *testing.T) {
 	callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "long", "notes": longNote,
 	})
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+	res := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "include": []string{"notes"},
-	}), &rows)
+	})
 	byTitle := map[string]map[string]any{}
-	for _, r := range rows {
+	for _, r := range res.Tasks {
 		byTitle[r["title"].(string)] = r
 	}
 
 	if byTitle["short"]["notes"] != "abc" {
 		t.Errorf("short notes should inline verbatim, got %v", byTitle["short"]["notes"])
 	}
-	if _, tr := byTitle["short"]["notes_truncated"]; tr {
-		t.Errorf("short notes should not report truncation")
+	if len(byTitle["long"]["notes"].(string)) != 2500 {
+		t.Errorf("long notes must come back WHOLE — the 2000-char truncation is gone — got %d", len(byTitle["long"]["notes"].(string)))
 	}
-	if len(byTitle["long"]["notes"].(string)) != 2000 {
-		t.Errorf("long notes should truncate at 2000 chars, got %d", len(byTitle["long"]["notes"].(string)))
-	}
-	if byTitle["long"]["notes_truncated"] != true {
-		t.Errorf("long notes should carry notes_truncated=true")
+	// The notes_truncated field was deleted with the truncation it described
+	// (§5.3): a body is now inlined whole or dropped whole, never cut.
+	for _, r := range res.Tasks {
+		if _, tr := r["notes_truncated"]; tr {
+			t.Errorf("notes_truncated must not exist any more: %#v", r)
+		}
 	}
 }
 
@@ -1911,9 +1955,16 @@ func TestListTasksOmitsEmptyProgress(t *testing.T) {
 	if strings.Contains(raw, `"progress"`) {
 		t.Errorf("no-progress task should not include a progress key; got: %s", raw)
 	}
+	if !strings.Contains(raw, "budget_exceeded") {
+		t.Errorf("the envelope must carry budget_exceeded; got: %s", raw)
+	}
 }
 
-func TestListChangesReturnsOnlyChanged(t *testing.T) {
+// The five TestListChanges* cases fold into list_tasks(since=...): the
+// list_changes tool is gone, and `since` is how change-detection is asked
+// for now (docs/plan/mcp-assignment-and-priorities.md §4).
+
+func TestListTasksSinceReturnsOnlyChanged(t *testing.T) {
 	session := setupMCP(t)
 	var list, a, b map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -1926,32 +1977,30 @@ func TestListChangesReturnsOnlyChanged(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 	callTool(t, session, "edit_task", map[string]any{"id": a["id"], "title": "a2"})
 
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_changes", map[string]any{
+	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "since": cutoff,
-	}), &rows)
+	}).Tasks
 	if len(rows) != 1 || rows[0]["id"] != a["id"] {
 		t.Fatalf("want only task a in changes, got %#v (b=%s)", rows, b["id"])
 	}
 }
 
-func TestListChangesIncludesNotes(t *testing.T) {
+func TestListTasksSinceIncludesNotes(t *testing.T) {
 	session := setupMCP(t)
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
 	callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "a", "notes": "hello",
 	})
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_changes", map[string]any{
+	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "since": 0, "include": []string{"notes"},
-	}), &rows)
+	}).Tasks
 	if len(rows) != 1 || rows[0]["notes"] != "hello" {
 		t.Fatalf("include=notes should inline the body, got %#v", rows)
 	}
 }
 
-func TestListChangesSeesNewComment(t *testing.T) {
+func TestListTasksSinceSeesNewComment(t *testing.T) {
 	session := setupMCP(t)
 	var list, a map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -1962,20 +2011,19 @@ func TestListChangesSeesNewComment(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 	callTool(t, session, "add_comment", map[string]any{"task_id": a["id"], "note": "ping"})
 
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_changes", map[string]any{
+	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "since": cutoff,
-	}), &rows)
+	}).Tasks
 	if len(rows) != 1 || rows[0]["id"] != a["id"] {
-		t.Fatalf("a new comment should surface in list_changes; got %#v", rows)
+		t.Fatalf("a new comment should surface in list_tasks(since); got %#v", rows)
 	}
 }
 
-func TestListChangesUnknownIncludeRejected(t *testing.T) {
+func TestListTasksSinceUnknownIncludeRejected(t *testing.T) {
 	session := setupMCP(t)
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
-	msg := callToolErr(t, session, "list_changes", map[string]any{
+	msg := callToolErr(t, session, "list_tasks", map[string]any{
 		"list_id": list["id"], "since": 0, "include": []string{"bogus"},
 	})
 	if !strings.Contains(msg, "unknown include") {
@@ -1983,16 +2031,140 @@ func TestListChangesUnknownIncludeRejected(t *testing.T) {
 	}
 }
 
-func TestListChangesBeforeAnyTimestamp(t *testing.T) {
+func TestListTasksSinceBeforeAnyTimestamp(t *testing.T) {
 	session := setupMCP(t)
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
 	callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "a"})
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_changes",
-		map[string]any{"list_id": list["id"], "since": 0}), &rows)
+	rows := listTasks(t, session, map[string]any{
+		"list_id": list["id"], "since": 0,
+	}).Tasks
 	if len(rows) != 1 {
 		t.Fatalf("since=0 should return all tasks, got %d", len(rows))
+	}
+}
+
+// TestListTasksSkeletonAncestorContextOnly pins §5.2: a pending child of a
+// complete parent matches the default 'open' filter, and its non-matching
+// ancestor comes back as a context_only skeleton so the parent_id chain and
+// depth stay meaningful — the skeleton never carries an inlined body even
+// under include=notes, and the same row is a full row again (no
+// context_only) when it matches the filter in its own right.
+func TestListTasksSkeletonAncestorContextOnly(t *testing.T) {
+	session := setupMCP(t)
+	var list, parent map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "parent", "notes": "parent body",
+	}), &parent)
+	callTool(t, session, "complete_task", map[string]any{"ids": []string{parent["id"]}})
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "child", "parent": parent["id"],
+	}), &map[string]string{})
+
+	res := listTasks(t, session, map[string]any{
+		"list_id": list["id"], "include": []string{"notes"},
+	})
+	if len(res.Tasks) != 2 {
+		t.Fatalf("want skeleton parent + child, got %#v", res.Tasks)
+	}
+	parentRow, childRow := res.Tasks[0], res.Tasks[1]
+	if parentRow["title"] != "parent" || childRow["title"] != "child" {
+		t.Fatalf("preorder: parent must precede the child; got %#v", res.Tasks)
+	}
+	if parentRow["context_only"] != true {
+		t.Errorf("the complete parent must be context_only=true under the open filter: %#v", parentRow)
+	}
+	if childRow["depth"] != float64(1) || childRow["parent_id"] != parent["id"] {
+		t.Errorf("child must keep depth=1 and its parent link; got %#v", childRow)
+	}
+	// Skeletons never inline their bodies (even under include=notes), but do
+	// report the size flags so the caller can decide to show_task them.
+	if _, hasBody := parentRow["notes"]; hasBody {
+		t.Errorf("skeleton must not inline its notes: %#v", parentRow)
+	}
+	if parentRow["has_notes"] != true || int(parentRow["notes_len"].(float64)) != len("parent body") {
+		t.Errorf("skeleton must still report has_notes/notes_len: %#v", parentRow)
+	}
+	// The child matches in its own right: full row with its body inlined.
+	if _, isSkeleton := childRow["context_only"]; isSkeleton {
+		t.Errorf("matching child must not be context_only: %#v", childRow)
+	}
+
+	// Under status=complete the parent matches the filter in its own right:
+	// full row again, and the pending child is not a skeleton (skeletons only
+	// walk upward from a match, never down to non-matching descendants).
+	res = listTasks(t, session, map[string]any{
+		"list_id": list["id"], "status": "complete", "include": []string{"notes"},
+	})
+	if len(res.Tasks) != 1 {
+		t.Fatalf("status=complete should match only the parent, got %#v", res.Tasks)
+	}
+	if _, isSkeleton := res.Tasks[0]["context_only"]; isSkeleton {
+		t.Errorf("a row matching in its own right is not a skeleton: %#v", res.Tasks[0])
+	}
+	if res.Tasks[0]["notes"] != "parent body" {
+		t.Errorf("full parent row must inline its notes: %#v", res.Tasks[0])
+	}
+}
+
+// TestListTasksBudgetWholeOrNotAll pins §5.3 and decision 8: ten notes of
+// 5000 chars double the 40000-byte notesBudget, so the first eight come
+// back WHOLE and the last two stay in the response without a body — their
+// ids land in elided, never a body cut to a prefix. budget_exceeded
+// reports that the budget was hit, and a request without include never
+// touches it.
+func TestListTasksBudgetWholeOrNotAtAll(t *testing.T) {
+	session := setupMCP(t)
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	const noteLen = 5000
+	for i := 0; i < 10; i++ {
+		callTool(t, session, "add_task", map[string]any{
+			"list_id": list["id"], "title": fmt.Sprintf("t%d", i),
+			"notes": strings.Repeat("n", noteLen),
+		})
+	}
+
+	res := listTasks(t, session, map[string]any{
+		"list_id": list["id"], "include": []string{"notes"},
+	})
+	// 8 x 5000 = 40000 exactly fits; the 9th row would push past, so rows 9
+	// and 10 keep their place in tasks (with has_notes/notes_len) but their
+	// ids land in elided and no body is inlined for them.
+	if len(res.Tasks) != 10 || len(res.Elided) != 2 {
+		t.Fatalf("want all 10 rows with 2 elided, got tasks=%d elided=%v", len(res.Tasks), res.Elided)
+	}
+	if !res.BudgetExceeded {
+		t.Errorf("budget_exceeded must be true when rows were elided")
+	}
+	bodies := 0
+	inlined := map[string]bool{}
+	for _, r := range res.Tasks {
+		body, ok := r["notes"].(string)
+		if !ok {
+			continue
+		}
+		bodies++
+		if len(body) != noteLen {
+			t.Fatalf("note body was cut mid-text: len=%d want %d — whole or not at all", len(body), noteLen)
+		}
+		inlined[r["id"].(string)] = true
+	}
+	if bodies != 8 {
+		t.Errorf("want exactly 8 inlined bodies, got %d", bodies)
+	}
+	for _, id := range res.Elided {
+		if inlined[id] {
+			t.Errorf("id %s appears both inlined and elided", id)
+		}
+	}
+
+	// Without include=notes no bodies are requested, so the budget is never
+	// hit: all ten rows come back and nothing is elided.
+	res = listTasks(t, session, map[string]any{"list_id": list["id"]})
+	if len(res.Tasks) != 10 || len(res.Elided) != 0 || res.BudgetExceeded {
+		t.Fatalf("no include means no budget: tasks=%d elided=%v exceeded=%v", len(res.Tasks), res.Elided, res.BudgetExceeded)
 	}
 }
 
@@ -2056,8 +2228,8 @@ func TestShowTasksBatch(t *testing.T) {
 // TestMCPShowTaskReturnsDescendantNotesAndComments pins step 6 of the
 // assignment plan: show_task is self-contained — every descendant row comes
 // back with its FULL notes and its comments, uncapped. The child's notes are
-// deliberately longer than list_tasks' notesTruncationLimit to prove the
-// subtree path never cuts a body mid-text (decision 8).
+// deliberately longer than list_tasks' old 2000-char truncation limit to
+// prove the subtree path never cuts a body mid-text (decision 8).
 func TestMCPShowTaskReturnsDescendantNotesAndComments(t *testing.T) {
 	session := setupMCP(t)
 
@@ -2515,8 +2687,7 @@ func TestEditTaskReparentAndForeignParent(t *testing.T) {
 
 	// Happy path: re-parent within the owner's own list.
 	callTool(t, session, "edit_task", map[string]any{"id": child["id"], "parent": parent["id"]})
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]}), &rows)
+	rows := listTasks(t, session, map[string]any{"list_id": list["id"]}).Tasks
 	var childRow map[string]any
 	for _, r := range rows {
 		if r["id"] == child["id"] {
@@ -2556,7 +2727,7 @@ func TestEditTaskReparentAndForeignParent(t *testing.T) {
 		t.Errorf("foreign-parent edit error = %q, want it to name the owner", msg)
 	}
 	// Child must not have moved.
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]}), &rows)
+	rows = listTasks(t, session, map[string]any{"list_id": list["id"]}).Tasks
 	for _, r := range rows {
 		if r["id"] == child["id"] && r["parent_id"] != parent["id"] {
 			t.Errorf("child moved after refused re-parent: parent_id = %v", r["parent_id"])
@@ -2573,8 +2744,7 @@ func TestEditTaskToRoot(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "p"}), &parent)
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "c", "parent": parent["id"]}), &child)
 	callTool(t, session, "edit_task", map[string]any{"id": child["id"], "to_root": true})
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{"list_id": list["id"]}), &rows)
+	rows := listTasks(t, session, map[string]any{"list_id": list["id"]}).Tasks
 	var childRow map[string]any
 	for _, r := range rows {
 		if r["id"] == child["id"] {
@@ -2691,10 +2861,9 @@ func TestCompleteTaskBatchOK(t *testing.T) {
 	}
 	assertOKRows(t, res)
 	// All three now complete.
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "status": "complete",
-	}), &rows)
+	}).Tasks
 	if len(rows) != 3 {
 		t.Errorf("want 3 complete tasks, got %d", len(rows))
 	}
@@ -2748,10 +2917,9 @@ func TestBatchStatusPartialFailure(t *testing.T) {
 		t.Errorf("bad id should be an error row: %#v", res[1])
 	}
 	// The good write was NOT rolled back.
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "status": "complete",
-	}), &rows)
+	}).Tasks
 	if len(rows) != 1 {
 		t.Errorf("good task should still be complete despite the bad id; got %d complete", len(rows))
 	}
@@ -2823,10 +2991,9 @@ func TestReopenTaskBatchOK(t *testing.T) {
 	if len(res) != 1 || res[0]["ok"] != true {
 		t.Fatalf("reopen_task batch row not ok: %#v", res)
 	}
-	var rows []map[string]any
-	mustUnmarshal(t, callTool(t, session, "list_tasks", map[string]any{
+	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "status": "pending",
-	}), &rows)
+	}).Tasks
 	if len(rows) != 1 {
 		t.Errorf("want 1 pending task after reopen, got %d", len(rows))
 	}

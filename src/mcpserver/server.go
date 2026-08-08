@@ -36,23 +36,32 @@ type progressJSON struct {
 // taskRowJSON is one row of a task tree/list result, matching the CLI's
 // --json shape for tasks (docs/DESIGN.md §9).
 type taskRowJSON struct {
-	ID             string        `json:"id"`
-	ParentID       *string       `json:"parent_id"`
-	Title          string        `json:"title"`
-	Status         string        `json:"status"`
-	Progress       *progressJSON `json:"progress,omitempty"`
-	Depth          int           `json:"depth"`
-	ListOwner      string        `json:"list_owner"`
-	HasNotes       bool          `json:"has_notes"`
-	NotesLen       int           `json:"notes_len"`
-	Notes          string        `json:"notes,omitempty"`           // populated only when include=notes; see step B
-	NotesTruncated bool          `json:"notes_truncated,omitempty"` // true when inlined notes were trimmed to notesTruncationLimit; see step B
-	Assignee       string        `json:"assignee"`                  // "" when unassigned
-	AssignedAt     *int64        `json:"assigned_at"`               // null when unassigned
-	AssigneeLive   bool          `json:"assignee_live"`             // live presence claim by the assignee
-	Priority       string        `json:"priority"`                  // none|low|medium|high
-	ContextOnly    bool          `json:"context_only,omitempty"`    // ancestor skeleton row
-	Comments       []commentJSON `json:"comments,omitempty"`        // descendant rows in show_task; include=['comments'] in list_tasks
+	ID           string        `json:"id"`
+	ParentID     *string       `json:"parent_id"`
+	Title        string        `json:"title"`
+	Status       string        `json:"status"`
+	Progress     *progressJSON `json:"progress,omitempty"`
+	Depth        int           `json:"depth"`
+	ListOwner    string        `json:"list_owner"`
+	HasNotes     bool          `json:"has_notes"`
+	NotesLen     int           `json:"notes_len"`
+	Notes        string        `json:"notes,omitempty"`        // populated only when include=notes; never cut mid-text (§5.3)
+	Assignee     string        `json:"assignee"`               // "" when unassigned
+	AssignedAt   *int64        `json:"assigned_at"`            // null when unassigned
+	AssigneeLive bool          `json:"assignee_live"`          // live presence claim by the assignee
+	Priority     string        `json:"priority"`               // none|low|medium|high
+	ContextOnly  bool          `json:"context_only,omitempty"` // ancestor skeleton row
+	Comments     []commentJSON `json:"comments,omitempty"`     // descendant rows in show_task; include=['comments'] in list_tasks
+}
+
+// listTasksResult is the list_tasks return envelope: the tasks array plus
+// the ids of the rows the §5.3 body budget dropped (so the caller can
+// re-fetch them with show_task) and whether the budget was exceeded at all
+// — true exactly when elided is non-empty.
+type listTasksResult struct {
+	Tasks          []taskRowJSON `json:"tasks"`
+	Elided         []string      `json:"elided"`
+	BudgetExceeded bool          `json:"budget_exceeded"`
 }
 
 // taskDetailsJSON is the payload for the show_task tool.
@@ -132,8 +141,7 @@ IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed 
 
 TOOLS (chore_crusher_<name>):
 - my_list() — session opener: {mine, foreign_lists} with pending/complete counts
-- list_tasks(list_id, status?, include?) — one list's task tree; status=all|pending|in_progress|complete; include=['notes'] inlines note bodies
-- list_changes(list_id, since, include?) — tasks changed after unix 'since'; call between tasks instead of re-reading the list
+- list_tasks(list_id, status?, since?, include?) — one list's task tree as preorder rows with ancestor skeletons; status defaults to 'open' (pending + in_progress), also pending|in_progress|complete|all; include=['notes','comments'] inlines whole bodies, a byte budget caps the response and over-budget rows are named in the 'elided' field of the {tasks, elided, budget_exceeded} result, never cut mid-text; since=<unix> returns only tasks changed after that time (list_changes is folded into this parameter — call it between tasks instead of re-reading the list)
 - show_task(ids) — full details + children + comments for 1..50 tasks
 - search_tasks(query, list_id?) — fuzzy over titles and notes
 - add_task(list_id, title, parent?, notes?)
@@ -260,25 +268,28 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_tasks",
-		Description: "List a list's tasks as a depth-annotated tree. Example: list_tasks(list_id='01ABC...', status='pending', include=['notes']). status defaults to 'all'; one of all, pending, in_progress, complete. include is an optional set of extra fields to inline per row; supported values: 'notes' (inline the full notes body, truncated at 2000 chars with notes_truncated=true). Prefer this over N show_task calls.",
+		Description: "List a list's tasks as a depth-annotated tree. Example: list_tasks(list_id='01ABC...', status='pending', include=['notes']). status defaults to 'open' (pending + in_progress); one of open, pending, in_progress, complete, all. Rows are filtered per task, not per tree root, and an included row's non-matching ancestors come back as skeleton rows with context_only=true. since (unix seconds) returns only tasks whose activity changed strictly after it — the folded list_changes. include is an optional set of extra fields to inline per row; supported values: 'notes' (the full notes body), 'comments' (comment bodies). Inlined bodies are never cut mid-text: a byte budget caps the response and an over-budget row is dropped whole, its id reported in the 'elided' array of the {tasks, elided, budget_exceeded} return object — fetch it with show_task. Prefer this over N show_task calls.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ListID  string   `json:"list_id" jsonschema:"list id or unambiguous prefix"`
-		Status  string   `json:"status,omitempty" jsonschema:"all, pending, in_progress, or complete"`
-		Include []string `json:"include,omitempty" jsonschema:"extra per-row fields to inline; currently supports 'notes'"`
+		Status  string   `json:"status,omitempty" jsonschema:"open (default), pending, in_progress, complete, or all"`
+		Since   int64    `json:"since,omitempty" jsonschema:"unix seconds; return tasks changed strictly after this"`
+		Include []string `json:"include,omitempty" jsonschema:"extra per-row fields to inline; supports 'notes', 'comments'"`
 	}) (*mcp.CallToolResult, any, error) {
 		if in.Status == "" {
-			in.Status = "all"
+			in.Status = "open"
 		}
 		if !validStatusFilter(in.Status) {
-			return errorResult(fmt.Errorf("invalid status %q: want all, pending, in_progress, or complete", in.Status)), nil, nil
+			return errorResult(fmt.Errorf("invalid status %q: want open, pending, in_progress, complete, or all", in.Status)), nil, nil
 		}
-		includeNotes := false
+		includeNotes, includeComments := false, false
 		for _, k := range in.Include {
 			switch k {
 			case "notes":
 				includeNotes = true
+			case "comments":
+				includeComments = true
 			default:
-				return errorResult(fmt.Errorf("unknown include %q: supported values: notes", k)), nil, nil
+				return errorResult(fmt.Errorf("unknown include %q: supported values: notes, comments", k)), nil, nil
 			}
 		}
 		listID, err := s.ResolveID("list", in.ListID)
@@ -301,77 +312,38 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		if includeNotes {
-			inlineNotes(rows, tasks)
+		// The folded list_changes: keep only rows whose activity is strictly
+		// after `since`, so the response doubles as "what moved since my last
+		// call". Ancestor skeletons that did not change are dropped with the
+		// rest — list_changes never promised a connected tree either.
+		if in.Since > 0 {
+			changed, err := s.TasksChangedSince(listID, in.Since)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			changedSet := make(map[string]bool, len(changed))
+			for _, t := range changed {
+				changedSet[t.ID] = true
+			}
+			kept := rows[:0]
+			for _, r := range rows {
+				if changedSet[r.ID] {
+					kept = append(kept, r)
+				}
+			}
+			rows = kept
 		}
-		return jsonResult(rows)
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_changes",
-		Description: "List the tasks in one list whose activity changed strictly " +
-			"after a unix timestamp — created, status/progress, renamed, re-noted, " +
-			"re-parented, or newly commented. Use it between tasks to see whether the " +
-			"list moved since you last looked, instead of re-reading the whole list. " +
-			"Rows use the same shape as list_tasks (has_notes/notes_len; add " +
-			"include=['notes'] to inline bodies). Deletions are not reported. " +
-			"Tip: pass the time you made your PREVIOUS call as `since`. " +
-			"Example: list_changes(list_id='01ABC...', since=1786000000).",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ListID  string   `json:"list_id" jsonschema:"list id or unambiguous prefix"`
-		Since   int64    `json:"since" jsonschema:"unix seconds; return tasks changed strictly after this"`
-		Include []string `json:"include,omitempty" jsonschema:"extra per-row fields to inline; supports 'notes'"`
-	}) (*mcp.CallToolResult, any, error) {
-		includeNotes := false
-		for _, k := range in.Include {
-			switch k {
-			case "notes":
-				includeNotes = true
-			default:
-				return errorResult(fmt.Errorf("unknown include %q: supported values: notes", k)), nil, nil
+		var (
+			elided         []string
+			budgetExceeded bool
+		)
+		if includeNotes || includeComments {
+			elided, budgetExceeded, err = inlineBodyBudget(s, rows, tasks, includeNotes, includeComments)
+			if err != nil {
+				return errorResult(err), nil, nil
 			}
 		}
-		listID, err := s.ResolveID("list", in.ListID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		list, err := s.GetList(listID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		// Full-list rows first, so depth/parent are correct (sectionRows calls
-		// apptypes.Flatten which needs the whole list to resolve parent chains).
-		all, err := s.ListTasks(listID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		live, err := liveAgents(s)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		rows, err := sectionRows(s, all, "all", list.CreatedBy, live)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		// Then keep only the ones that changed since `since`.
-		changed, err := s.TasksChangedSince(listID, in.Since)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		changedSet := make(map[string]bool, len(changed))
-		for _, t := range changed {
-			changedSet[t.ID] = true
-		}
-		out := make([]taskRowJSON, 0, len(changed))
-		for _, r := range rows {
-			if changedSet[r.ID] {
-				out = append(out, r)
-			}
-		}
-		if includeNotes {
-			inlineNotes(out, all)
-		}
-		return jsonResult(out)
+		return jsonResult(listTasksResult{Tasks: rows, Elided: elided, BudgetExceeded: budgetExceeded})
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -835,8 +807,20 @@ func requireOwnComment(s *store.Store, identity, commentID string) (store.Commen
 	return c, nil
 }
 
-// sectionRows returns the preorder task rows for a status filter, mirroring
-// the CLI's sectionRows logic (docs/DESIGN.md §6, §9).
+// sectionRows returns the preorder task rows for a PER-TASK status filter
+// (docs/DESIGN.md §9): a row is included when its own status matches, not
+// its root ancestor's. The old root-based walk was a "section" filter
+// mirroring the TUI's Pending/Complete split and dropped whole subtrees when
+// the root was in a different state — that is the behaviour this replaces
+// (docs/plan/mcp-assignment-and-priorities.md §5.1). The CLI's identically
+// named function (src/cli/tasks.go) KEEPS the root-based semantics for the
+// human-facing Pending/Complete sections; do not merge them back.
+//
+// A matching row's non-matching ancestors are emitted as skeleton rows
+// (context_only=true) so parent_id chains and depth stay meaningful; a
+// skeleton never receives an inlined body even under include (§5.2), and a
+// row that matches in its own right is a full row even when it is also
+// someone's ancestor. Emitted rows keep the original preorder.
 //
 // live is read once per request by the caller and passed in, exactly like
 // descendantRows: the inbox resource calls this once per list, so reading
@@ -850,34 +834,46 @@ func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner st
 		byID[t.ID] = t
 	}
 
+	matched := make(map[string]bool, len(converted))
+	for _, t := range converted {
+		if matchesStatus(t, status) {
+			matched[t.ID] = true
+		}
+	}
+
+	// The §5.2 ancestor skeleton: a match's non-matching ancestors come back
+	// as context rows, so a pending child of a complete parent still arrives
+	// with its parent chain intact.
+	skeletons := make(map[string]bool)
+	for _, t := range converted {
+		if !matched[t.ID] {
+			continue
+		}
+		for par := t.ParentID; par != nil; {
+			p, ok := byID[*par]
+			if !ok {
+				break
+			}
+			if !matched[p.ID] {
+				skeletons[p.ID] = true
+			}
+			par = p.ParentID
+		}
+	}
+
 	var out []taskRowJSON
 	for _, r := range rows {
-		root := r.Task
-		for root.ParentID != nil {
-			root = byID[*root.ParentID]
+		id := r.Task.ID
+		if !matched[id] && !skeletons[id] {
+			continue
 		}
-		switch status {
-		case "all":
-		case "pending":
-			if root.Status != apptypes.StatusPending {
-				continue
-			}
-		case "in_progress":
-			if root.Status != apptypes.StatusInProgress {
-				continue
-			}
-		case "complete":
-			if root.Status != apptypes.StatusComplete {
-				continue
-			}
-		}
-		prog, err := taskProgressJSON(s, r.Task.ID)
+		prog, err := taskProgressJSON(s, id)
 		if err != nil {
 			return nil, err
 		}
 		notes := r.Task.Notes
 		row := taskRowJSON{
-			ID:           r.Task.ID,
+			ID:           id,
 			ParentID:     r.Task.ParentID,
 			Title:        r.Task.Title,
 			Status:       string(r.Task.Status),
@@ -889,6 +885,7 @@ func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner st
 			AssignedAt:   r.Task.AssignedAt,
 			AssigneeLive: assigneeLive(live, r.Task.Assignee),
 			Priority:     string(r.Task.Priority),
+			ContextOnly:  skeletons[id],
 		}
 		if !(prog.Kind == "none" && prog.Percent == nil && prog.DisplayAsSimple) {
 			p := prog
@@ -897,6 +894,25 @@ func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner st
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// matchesStatus reports whether a task's own status satisfies the list_tasks
+// filter; "open" means pending + in_progress (§4). Unknown statuses match
+// nothing — the handler validates the value before calling.
+func matchesStatus(t apptypes.Task, status string) bool {
+	switch status {
+	case "all":
+		return true
+	case "open":
+		return t.Status == apptypes.StatusPending || t.Status == apptypes.StatusInProgress
+	case "pending":
+		return t.Status == apptypes.StatusPending
+	case "in_progress":
+		return t.Status == apptypes.StatusInProgress
+	case "complete":
+		return t.Status == apptypes.StatusComplete
+	}
+	return false
 }
 
 // taskProgressJSON returns the derived progress representation for one task.
@@ -1007,20 +1023,23 @@ func liveAgents(s *store.Store) (map[string]bool, error) {
 
 func validStatusFilter(status string) bool {
 	switch status {
-	case "all", "pending", "in_progress", "complete":
+	case "open", "all", "pending", "in_progress", "complete":
 		return true
 	}
 	return false
 }
 
-// notesTruncationLimit caps inlined notes per row so a very long note on
-// one task cannot balloon the whole list_tasks payload. Keep in sync with
-// the description of list_tasks(include=['notes']).
-const notesTruncationLimit = 2000
+// notesBudget caps the total inlined body bytes in one list_tasks response
+// (§5.3). A row's body is never cut mid-text: a row that would push the
+// response past the budget keeps its (has_notes, notes_len) flags but its
+// body stays out, and its id is reported in `elided` — it comes back whole
+// or not at all (docs/plan/mcp-assignment-and-priorities.md §5.3, decision 8).
+const notesBudget = 40000
 
-// inlineNotes fills the Notes and NotesTruncated fields on rows from the
-// matching store tasks. Rows without a match (should not happen in
-// practice) are left as-is.
+// inlineNotes fills the Notes fields on rows from the matching store tasks.
+// Rows without a match (should not happen in practice) are left as-is. This
+// is the unbudgeted form used by crush://inbox, which caps rows at 20 of its
+// own and is not a list_tasks response.
 func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 	byID := make(map[string]string, len(tasks))
 	for _, t := range tasks {
@@ -1031,13 +1050,65 @@ func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 		if !ok {
 			continue
 		}
-		if len(body) > notesTruncationLimit {
-			rows[i].Notes = body[:notesTruncationLimit]
-			rows[i].NotesTruncated = true
-		} else {
-			rows[i].Notes = body
-		}
+		rows[i].Notes = body
 	}
+}
+
+// inlineBodyBudget inlines notes and comments into rows under the §5.3 byte
+// budget, walking rows in preorder and accumulating len(notes) +
+// sum(len(comment.note)). Once a row's body would push the running total
+// past notesBudget, that row and every later row keep has_notes/notes_len
+// but get no inlined body, and their ids are returned in elided — never cut
+// mid-text. Skeleton rows (context_only) never take from the budget: their
+// bodies are never inlined (§5.2). budgetExceed reports whether the budget
+// was hit at all, which is exactly len(elided) > 0.
+func inlineBodyBudget(s *store.Store, rows []taskRowJSON, tasks []store.Task, includeNotes, includeComments bool) (elided []string, budgetExceeded bool, err error) {
+	byID := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		byID[t.ID] = t.Notes
+	}
+	used := 0
+	for i := range rows {
+		row := &rows[i]
+		if row.ContextOnly {
+			continue
+		}
+		cost := 0
+		if includeNotes {
+			cost += len(byID[row.ID])
+		}
+		var comments []store.Comment
+		if includeComments {
+			comments, err = s.ListComments(row.ID)
+			if err != nil {
+				return nil, false, err
+			}
+			for _, c := range comments {
+				cost += len(c.Note)
+			}
+		}
+		if used+cost > notesBudget {
+			// This row and every later one keep has_notes/notes_len but get no
+			// body; skeleton rows are never elided (they never had a body to
+			// drop — §5.2).
+			for j := i; j < len(rows); j++ {
+				if rows[j].ContextOnly {
+					continue
+				}
+				elided = append(elided, rows[j].ID)
+			}
+			budgetExceeded = true
+			break
+		}
+		if includeNotes {
+			row.Notes = byID[row.ID]
+		}
+		if includeComments {
+			row.Comments = commentsJSON(comments)
+		}
+		used += cost
+	}
+	return elided, budgetExceeded, nil
 }
 
 // jsonResult returns a tool result whose single text content is a JSON
@@ -1254,7 +1325,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 			"5. Set a percentage scaled to the task: mode='percentage' with percent ~= fraction of steps done for multi-step work; mode='subtasks' when it has children; mode='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +
 			"6. Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave add_comment notes at decision points on tasks you do not own.\n" +
 			"7. After finishing: re-read the task's comments, then complete_task.\n" +
-			"8. Before the next task: check what changed since you last looked (list_changes(list_id, since)) — priorities or comments may have moved.\n\n" +
+			"8. Before the next task: check what changed since you last looked (list_tasks(list_id, since=<time of your last call>)) — priorities or comments may have moved.\n\n" +
 			"Pick one pending task (prefer a foreign list), claim it with claim_work, and start working. Do not fan out to show_task for tasks whose has_notes is false."
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{{
