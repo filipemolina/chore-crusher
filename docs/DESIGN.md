@@ -14,16 +14,6 @@ reasoning is written there in more depth than is repeated here. This file
 states the rule; that one, in several places, shows the failure mode that
 made the rule necessary.
 
-> Note (inline-creation refactor): several sections below — §4, §5, §6, and §12,
-> plus `docs/plans/phase-4-task-tree.md`, `docs/plans/phase-5-add-input.md`, and
-> `docs/plans/stack-stitcher-sister-tui.md` — describe the add input as a
-> **bottom-pinned footer** and `COMPONENT_ADD_INPUT` as a separate focus zone.
-> That design has been **superseded**: the add input is now an inline row inside
-> the task tree (see `docs/plan/task-row-redesign-and-inline-creation.md`),
-> startup focus is `COMPONENT_TASK_TREE`, and `addinput` is no longer composed by
-> `taskspanel`. Those sections are retained for history; implement against the
-> inline plan doc as the source of truth.
-
 ## 1. What this app is, and isn't
 
 Chore Crusher is a to-do list manager with two front ends over one store: a
@@ -204,8 +194,8 @@ database instead of a document to protect.
 
 ## 4. Adding a task: the level rules
 
-The bottom-of-panel input adds a task relative to whatever is selected in the
-tree. Call the selected task's depth `L` (root-level tasks are `L = 0`).
+The inline create row — a card spliced into the tree itself, not a pinned
+footer — adds a task relative to whatever is selected in the tree. Call the selected task's depth `L` (root-level tasks are `L = 0`).
 Before the input is submitted, `[` (outdent) and `]` (indent) change **where** the new
 task lands, and the input's leading glyph and indentation reflect the current
 choice:
@@ -1233,9 +1223,10 @@ non-Bubble-Tea half, with one addition (`cli`) for the second front end:
 main.go              # cobra root: no subcommand -> launch TUI; else dispatch
 src/
 ├── model/           # AppModel: Init/Update/View, the top-level Bubble Tea model
-├── components/      # one package per leaf model (tasktree, listspanel, addinput,
-│                     # detailspanel, themepickermodal, searchmodal, listnamemodal,
-│                     # confirmmodal, helpoverlay, keybindingbar)
+├── components/      # one package per leaf model (tasktree, taskspanel,
+│                     # listspanel, detailspanel, themepickermodal, searchpicker,
+│                     # listnamemodal, confirmmodal, helpoverlay, keybindingbar,
+│                     # mainmenu)
 │   └── chrome/       # shared rendering: PanelFrame, tree-row rendering, the
 │                     # progress pill, KeyHints, Spinner — ported from stack-stitcher
 │                     # where the helper is domain-agnostic, written fresh where it isn't
