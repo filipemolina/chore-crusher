@@ -2899,6 +2899,62 @@ func TestSetStatusBatchPercentage(t *testing.T) {
 // first, so one call returns the task to open AND sets its percentage — the
 // documented example set_status(ids, status='in_progress',
 // progress='percentage', percent=10) on a complete task.
+// TestSetStatusInProgressPreservesProgress pins the one transition set_status
+// has to invent. The store has no "start this task" write: SetProgress is the
+// only path that flips pending → in_progress, so status='in_progress' with no
+// progress of its own re-applies the task's existing progress fields. That
+// must start a plain pending task (progress 'none') AND leave a percentage
+// already on the task alone — a start marker that silently reset a task to 0%
+// would be worse than no start marker.
+func TestSetStatusInProgressPreservesProgress(t *testing.T) {
+	session := setupMCP(t)
+	var list, plain, measured map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "plain"}), &plain)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{"list_id": list["id"], "title": "measured"}), &measured)
+
+	var started []map[string]any
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{plain["id"]}, "status": "in_progress",
+	}), &started)
+	assertOKRows(t, started)
+
+	var seeded []map[string]any
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{measured["id"]}, "progress": "percentage", "percent": 60,
+	}), &seeded)
+	assertOKRows(t, seeded)
+	var restarted []map[string]any
+	mustUnmarshal(t, callTool(t, session, "set_status", map[string]any{
+		"ids": []string{measured["id"]}, "status": "in_progress",
+	}), &restarted)
+	assertOKRows(t, restarted)
+
+	var details []map[string]any
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{plain["id"], measured["id"]},
+	}), &details)
+	if len(details) != 2 {
+		t.Fatalf("show_task returned %d rows, want 2", len(details))
+	}
+	if details[0]["status"] != "in_progress" {
+		t.Errorf("plain task status = %v, want in_progress", details[0]["status"])
+	}
+	if plainProg, ok := details[0]["progress"].(map[string]any); !ok || plainProg["kind"] != "none" {
+		t.Errorf("plain task progress = %#v, want kind none — starting it invented no progress", details[0]["progress"])
+	}
+	if details[1]["status"] != "in_progress" {
+		t.Errorf("measured task status = %v, want in_progress", details[1]["status"])
+	}
+	prog, ok := details[1]["progress"].(map[string]any)
+	if !ok {
+		t.Fatalf("measured task progress = %#v, want a percentage block", details[1]["progress"])
+	}
+	if int(prog["percent"].(float64)) != 60 {
+		t.Errorf("status='in_progress' clobbered the percentage: got %v, want 60", prog["percent"])
+	}
+}
+
 func TestSetStatusReopensAndSetsProgressOnCompleteTask(t *testing.T) {
 	session := setupMCP(t)
 	var list, task map[string]string

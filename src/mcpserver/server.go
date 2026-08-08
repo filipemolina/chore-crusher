@@ -709,9 +709,11 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 // The reopen step is the §4 fix for the documented gotcha where set_progress
 // on a complete task used to error: one call now reopens and sets percentage
 // on a complete task because the reopen happens first. status='in_progress'
-// has no direct store write of its own — SetProgress is the transition that
-// flips pending → in_progress, so it is re-applied with whatever progress the
-// task carries (a complete task was just reopened, so that is 'none').
+// has no direct store write of its own — SetProgress is the only transition
+// that flips pending → in_progress — so when the call carries no progress of
+// its own it is re-applied with whatever progress the task already carries,
+// which is why marking a task started never clobbers its percentage (a task
+// just reopened above carries 'none', which SetProgress accepts).
 func applySetStatus(s *store.Store, identity, id, status, progress string, percent *int, comment string) error {
 	t, err := s.GetTask(id)
 	if err != nil {
@@ -732,15 +734,6 @@ func applySetStatus(s *store.Store, identity, id, status, progress string, perce
 		if err := s.SetProgress(id, store.ProgressKind(progress), percent); err != nil {
 			return err
 		}
-		if status == "in_progress" {
-			// SetProgress just wrote the requested kind and flipped the task;
-			// re-read so the status step below sees the new kind, not the
-			// snapshot from before the progress write.
-			t, err = s.GetTask(id)
-			if err != nil {
-				return err
-			}
-		}
 	}
 
 	switch status {
@@ -753,6 +746,12 @@ func applySetStatus(s *store.Store, identity, id, status, progress string, perce
 			return err
 		}
 	case "in_progress":
+		if progress != "" {
+			// The progress write above already flipped it to in_progress;
+			// re-applying the same kind here would only be a second write of
+			// values the store just stored.
+			break
+		}
 		if err := s.SetProgress(id, t.ProgressKind, t.ProgressPct); err != nil {
 			return err
 		}

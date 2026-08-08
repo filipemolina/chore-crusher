@@ -155,18 +155,18 @@ can discover without reading source. Two jobs, one board:
 
 ### Surface
 
-- **14 tools** — the agent-facing surface, mirroring the CLI but talking
+- **12 tools** — the agent-facing surface, mirroring the CLI but talking
   directly to `src/store` and returning the same `--json` shapes. The session
   opener `my_list` returns your list plus every foreign list with
   pending/complete counts; `show_task(ids)` returns full details (including
-  comments) for 1–50 tasks in one call; `list_changes` incrementally checks
-  whether a list moved since your last call (scoped per list via
-  `updated_at`); the batch status tools `set_progress(ids)`,
-  `complete_task(ids)`, and `reopen_task(ids)` collapse N writes into one;
-  `edit_task` merges rename + notes + move into a single call; and
-  `claim_work` carries the presence trio (working/inspecting, plus
-  `release=true` to stop the spinner). All names are server-prefixed
-  (`chore_crusher_<name>`).
+  comments) for 1–50 tasks in one call; `list_tasks(list_id, since=…)`
+  incrementally checks whether a list moved since your last call (scoped per
+  list via `updated_at`); `set_status(ids, status?, progress?, percent?,
+  comment?)` is the one status/progress write, collapsing N writes into one
+  and reopening a complete task before applying progress; `edit_task` merges
+  rename + notes + move into a single call; and `claim_work` carries the
+  presence trio (working/inspecting, plus `release=true` to stop the
+  spinner). All names are server-prefixed (`chore_crusher_<name>`).
 - **2 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
   `crush:///inbox` (one-shot start-of-session context: your list + every
   foreign list with top pending tasks and notes) and `crush://work` (the live

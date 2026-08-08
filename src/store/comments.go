@@ -60,8 +60,9 @@ func (s *Store) AddComment(taskID, author, note string) (string, error) {
 	); err != nil {
 		return "", err
 	}
-	// A comment is activity on the task: bump updated_at so list_changes(since)
-	// reports it as changed (docs/plan/mcp-list-changes-since.md §1, decision (a)).
+	// A comment is activity on the task: bump updated_at so list_tasks(since=…)
+	// reports it as changed (docs/plan/mcp-list-changes-since.md §1, decision (a);
+	// the list_changes tool that plan added is now that since parameter).
 	if _, err := s.db.Exec(
 		`UPDATE Task SET updated_at = ? WHERE id = ?`, now, taskID,
 	); err != nil {
