@@ -102,15 +102,14 @@ without leaving the list.
 opens a picker across every list, GNOME-Tasks style, returning both the list
 and the task.
 
-**Live agent presence.** An agent driving the MCP server calls `claim_work`
-on a task or list while it works; the TUI renders an animated spinner on that
-row. Any task write — add, rename, notes, comment, move, or a status/
+**Live agent presence.** Durable assignment (`assign_task` / `next_task`)
+is the planning-layer state; the animated spinner the TUI renders on a row
+is *presence* — the claim that an agent's fingers are on this task right
+now. Any task write — add, rename, notes, comment, move, or a status/
 progress change — lights the spinner too (server-managed `autoClaim`), so
-`claim_work` is only needed when an agent wants a claim *before* it starts
-writing. The spinner clears when the claim is released or expires after
-two minutes of silence.
+an agent that just starts working needs no separate call to be visible.
 Status and progress writes keep a live claim alive (a write-heartbeat), and
-the skill tells the agent to re-claim after a pause. The lists panel shows
+he skill tells the agent to re-claim after a pause. The lists panel shows
 the spinner on any list an agent is working inside, not just on lists claimed
 as a whole. The
 pane stays open, and you see *which* row the agent is on — not just that the
@@ -164,9 +163,14 @@ can discover without reading source. Two jobs, one board:
   list via `updated_at`); `set_status(ids, status?, progress?, percent?,
   comment?)` is the one status/progress write, collapsing N writes into one
   and reopening a complete task before applying progress; `edit_task` merges
-  rename + notes + move into a single call; and `claim_work` carries the
-  presence trio (working/inspecting, plus `release=true` to stop the
-  spinner). All names are server-prefixed (`chore_crusher_<name>`).
+  rename + notes + move into a single call; `assign_task(ids, release?,
+  force?)` durably assigns 1–50 tasks to you and returns their full
+  `show_task` payloads (release=true unassigns, force=true takes a task
+  from its holder and records a takeover comment); `next_task(list_id)`
+  atomically grabs the top eligible task — highest priority first, then
+  tree order — and returns it. All names are server-prefixed
+  (`chore_crusher_<name>`, the `claim_work` spinner tool is gone —
+  presence claims come only from task writes).
 - **2 resources** — read-only, URI-addressed, auto-listed by MCP hosts:
   `crush:///inbox` (one-shot start-of-session context: your list + every
   foreign list with top pending tasks and notes) and `crush://work` (the live
@@ -208,11 +212,12 @@ reads and status/progress writes are open on every list. The CLI and the TUI
 are human surfaces and stay unenforced — so you can drop tasks onto an
 agent-owned list from the TUI without fighting the gate.
 
-Omit `agent_id` on `claim_work` — it defaults to the server's own identity
-(`CRUSH_AGENT`): status/progress writes keep a live claim alive, but only
-when the claim's agent matches the server identity. Set it explicitly only
-for a different label (demos, multi-claim); the heartbeat will not refresh
-that claim.
+Assignments are durable (no TTL — the TUI's release path clears them).
+`assign_task` / `next_task` take no `agent_id`: the assignment always
+lands on this server's identity, which is exactly the tag takeover and
+heartbeat text key off. A task held by another agent refuses your write
+unless `force=true` (records a takeover comment) — except a subtree
+reservation, which no force overrides.
 
 Full contract:
 [`docs/DESIGN.md` §The CLI contract](docs/DESIGN.md#the-cli-contract).

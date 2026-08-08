@@ -194,15 +194,35 @@ func workJSON(t *testing.T, session *mcp.ClientSession) string {
 	return readResourceText(t, session, "crush://work")
 }
 
-// releaseWork replaces the removed release_work tool with the merged
-// claim_work(release=true) form.
-func releaseWork(t *testing.T, session *mcp.ClientSession, args map[string]any) string {
+// claimWork seeds a presence claim directly in the store, under the
+// test's shared DB - the layer the removed claim_work tool used to write.
+// Presence and assignment are distinct axes, so these tests seed claims at
+// store level and exercise assignment through the tools.
+func claimWork(t *testing.T, entityType, entityID, agent string) {
 	t.Helper()
-	with := map[string]any{"release": true}
-	for k, v := range args {
-		with[k] = v
+	st, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
 	}
-	return callTool(t, session, "claim_work", with)
+	t.Cleanup(func() { st.Close() })
+	if _, err := st.ClaimWork(entityType, entityID, agent, store.ActivityWorking); err != nil {
+		t.Fatalf("seed claim %s/%s under %s: %v", entityType, entityID, agent, err)
+	}
+}
+
+// releaseWork clears a presence claim at store level (the claim_work
+// release=true path). Releasing a claim nobody holds is a no-op, so
+// seeding order does not matter.
+func releaseWork(t *testing.T, entityType, entityID, agent string) {
+	t.Helper()
+	st, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.ReleaseWork(entityType, entityID, agent); err != nil {
+		t.Fatalf("seed release %s/%s under %s: %v", entityType, entityID, agent, err)
+	}
 }
 
 // TestMCPToolSurface pins the consolidated tool surface
@@ -224,7 +244,7 @@ func TestMCPToolSurface(t *testing.T) {
 	want := []string{
 		"my_list", "list_tasks", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_status",
-		"add_comment", "delete_comment", "add_list", "claim_work",
+		"add_comment", "delete_comment", "add_list", "assign_task", "next_task",
 	}
 	for _, name := range want {
 		if !got[name] {
@@ -235,6 +255,7 @@ func TestMCPToolSurface(t *testing.T) {
 		"list_lists", "show_tasks", "toggle_task", "update_tasks", "rename_task",
 		"set_notes", "move_task", "rename_list", "delete_list", "release_work",
 		"list_work", "set_progress", "complete_task", "reopen_task",
+		"claim_work", "list_changes",
 	} {
 		if got[name] {
 			t.Errorf("removed tool %q is still registered", name)
@@ -340,7 +361,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	wantTools := []string{
 		"my_list", "list_tasks", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_status",
-		"add_comment", "delete_comment", "add_list", "claim_work",
+		"add_comment", "delete_comment", "add_list", "assign_task", "next_task",
 	}
 	lower := strings.ToLower(instructions)
 	if !strings.Contains(lower, "chore_crusher_") {
@@ -352,12 +373,15 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 		}
 	}
 
-	// Removed tools (no MCP registration) must not appear as callables.
+	// Removed tools (no MCP registration) must not appear as callables - a
+	// bare prose mention (e.g. "list_changes is folded into since") is a
+	// deliberate pointer, a listing as `name(` is not.
 	removed := []string{"list_lists", "release_work", "list_work", "rename_list",
 		"delete_list", "update_tasks", "toggle_task", "rename_task", "set_notes",
-		"move_task", "show_tasks", "set_progress", "complete_task", "reopen_task"}
+		"move_task", "show_tasks", "set_progress", "complete_task", "reopen_task",
+		"claim_work", "list_changes"}
 	for _, name := range removed {
-		if strings.Contains(lower, name) {
+		if strings.Contains(lower, name+"(") {
 			t.Fatalf("Instructions still names removed tool %q;\nfull text:\n%s", name, instructions)
 		}
 	}
@@ -799,11 +823,7 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	// Light a live presence claim under claude: assignee_live flips without
 	// the assignment itself changing — presence and assignment stay distinct
 	// axes (docs/DESIGN.md §3).
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   theirTaskID,
-		"agent_id":    "claude",
-	})
+	claimWork(t, "task", theirTaskID, "claude")
 	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
 		"ids": []string{theirTaskID},
 	}), &detailsArr)
@@ -811,7 +831,7 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 		t.Fatal("show_task assignee_live = false after claude claimed work, want true")
 	}
 	if detailsArr[0].Assignee != "claude" {
-		t.Fatalf("claim_work changed the assignee to %q — presence must not touch assignment", detailsArr[0].Assignee)
+		t.Fatalf("presence claim changed the assignee to %q — presence must not touch assignment", detailsArr[0].Assignee)
 	}
 
 	// The own list's task also has the right list_owner.
@@ -829,7 +849,7 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	}
 }
 
-func TestMCPClaimAndReleaseWork(t *testing.T) {
+func TestMCPAssignAndReleaseWork(t *testing.T) {
 	session := setupMCP(t)
 
 	var list map[string]string
@@ -841,141 +861,259 @@ func TestMCPClaimAndReleaseWork(t *testing.T) {
 		"title":   "Write docs",
 	}), &task)
 
-	// add_task auto-claims under the server identity ("agent"); release it so
-	// "claude" can claim below (docs/plan/mcp-presence-on-all-writes.md).
-	releaseWork(t, session, map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "agent",
-	})
-
-	// Claim the task.
-	var claim map[string]string
-	mustUnmarshal(t, callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "claude",
-	}), &claim)
-	if claim["id"] == "" {
-		t.Fatalf("claim_work returned empty id")
+	// assign_task hands back the full task payload, already assigned to the
+	// server identity — grabbing and reading a task is one call (§3).
+	var got []struct {
+		ID         string `json:"id"`
+		Title      string `json:"title"`
+		Assignee   string `json:"assignee"`
+		AssignedAt *int64 `json:"assigned_at"`
+	}
+	mustUnmarshal(t, callTool(t, session, "assign_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &got)
+	if len(got) != 1 || got[0].ID != task["id"] || got[0].Title != "Write docs" {
+		t.Fatalf("assign_task payload = %+v", got)
+	}
+	if got[0].Assignee != "agent" || got[0].AssignedAt == nil {
+		t.Fatalf("assign_task must set assignee to the server identity; got %+v", got[0])
 	}
 
-	// list_work should show it.
-	var work []struct {
-		EntityType string `json:"entity_type"`
-		EntityID   string `json:"entity_id"`
-		AgentID    string `json:"agent_id"`
+	// release=true unassigns.
+	var rel []struct {
+		ID string `json:"id"`
+		OK bool   `json:"ok"`
 	}
-	mustUnmarshal(t, workJSON(t, session), &work)
-	if len(work) != 1 || work[0].EntityID != task["id"] || work[0].AgentID != "claude" {
-		t.Fatalf("list_work = %+v", work)
+	mustUnmarshal(t, callTool(t, session, "assign_task", map[string]any{
+		"ids": []string{task["id"]}, "release": true,
+	}), &rel)
+	if len(rel) != 1 || !rel[0].OK {
+		t.Fatalf("assign_task(release) = %+v, want {id,ok:true}", rel)
 	}
 
-	// Release it.
-	releaseWork(t, session, map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "claude",
-	})
-
-	mustUnmarshal(t, workJSON(t, session), &work)
-	if len(work) != 0 {
-		t.Fatalf("expected empty after release, got %+v", work)
+	// The task is unassigned again (read it back, not assign again).
+	var now []struct {
+		Assignee   string `json:"assignee"`
+		AssignedAt *int64 `json:"assigned_at"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &now)
+	if len(now) != 1 || now[0].Assignee != "" || now[0].AssignedAt != nil {
+		t.Fatalf("after release the task must be unassigned, got %+v", now[0])
 	}
 }
 
-func TestMCPClaimWorkConflict(t *testing.T) {
-	session := setupMCP(t)
+func TestMCPAssignTaskConflict(t *testing.T) {
+	dataDir := t.TempDir()
 
+	// alice holds the task; bob tries to grab it.
+	alice := sessionAs(t, dataDir, "alice")
 	var list map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
-
+	mustUnmarshal(t, callTool(t, alice, "add_list", map[string]any{"name": "Work"}), &list)
 	var task map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+	mustUnmarshal(t, callTool(t, alice, "add_task", map[string]any{
 		"list_id": list["id"],
 		"title":   "Write docs",
 	}), &task)
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{task["id"]}})
 
-	// add_task auto-claims under "agent"; release it so "a1" can claim below.
-	releaseWork(t, session, map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "agent",
-	})
-
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "a1",
-	})
-
-	// Second agent should get an error.
-	callToolErr(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "a2",
-	})
-
-	// Original claim still holds.
-	var work []struct {
-		AgentID string `json:"agent_id"`
+	// bob's assign is refused, naming the holder and the force escape. The
+	// refusal is a per-row error, not a tool error (§2's fail-soft rule).
+	bob := sessionAs(t, dataDir, "bob")
+	var got []struct {
+		ID    string `json:"id"`
+		Error string `json:"error"`
 	}
-	mustUnmarshal(t, workJSON(t, session), &work)
-	if len(work) != 1 || work[0].AgentID != "a1" {
-		t.Fatalf("expected a1 still holding, got %+v", work)
+	mustUnmarshal(t, callTool(t, bob, "assign_task", map[string]any{"ids": []string{task["id"]}}), &got)
+	if len(got) != 1 || got[0].Error == "" {
+		t.Fatalf("assign conflict rows = %+v, want one error row", got)
+	}
+	if !strings.Contains(got[0].Error, `assigned to "alice"`) || !strings.Contains(got[0].Error, "force=true") {
+		t.Fatalf("assign conflict error = %q, want holder + force hint", got[0].Error)
+	}
+
+	// bob's guarded status write refuses the same way (§7): per-row error.
+	var srows []struct {
+		Error string `json:"error"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "status": "complete",
+	}), &srows)
+	if len(srows) != 1 || !strings.Contains(srows[0].Error, `assigned to "alice"`) || !strings.Contains(srows[0].Error, "force=true") {
+		t.Fatalf("set_status conflict rows = %+v, want holder + force hint", srows)
+	}
+
+	// alice still holds the task.
+	var check []struct {
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, alice, "show_task", map[string]any{"ids": []string{task["id"]}}), &check)
+	if len(check) != 1 || check[0].Assignee != "alice" {
+		t.Fatalf("original assignment must survive a refused grab, got %+v", check)
 	}
 }
 
-// TestMCPClaimWorkRelease guards §4.5: release=true stops the spinner using
-// the server's own identity when agent_id is omitted, and is a no-op on an
-// unclaimed entity.
-func TestMCPClaimWorkRelease(t *testing.T) {
+// TestMCPGuardedWriteForceTakeover covers the refuse-with-override rule
+// (§2) end to end: with force=true bob's assign performs the takeover and
+// records a takeover comment naming the previous holder; the same guard
+// gates set_status, and force lets the write land.
+func TestMCPGuardedWriteForceTakeover(t *testing.T) {
+	dataDir := t.TempDir()
+
+	alice := sessionAs(t, dataDir, "alice")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_list", map[string]any{"name": "Work"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_task", map[string]any{
+		"list_id": list["id"],
+		"title":   "Write docs",
+	}), &task)
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{task["id"]}})
+	// alice's add_task auto-claimed presence; drop it so the takeover
+	// comment says "no live session" deterministically (the comment
+	// records the holder's staleness at the moment of takeover).
+	releaseWork(t, "task", task["id"], "alice")
+
+	// bob force-takes it through assign_task.
+	bob := sessionAs(t, dataDir, "bob")
+	var got []struct {
+		Assignee string `json:"assignee"`
+		Comments []struct {
+			Author string `json:"author"`
+			Note   string `json:"note"`
+		} `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "assign_task", map[string]any{
+		"ids": []string{task["id"]}, "force": true,
+	}), &got)
+	if len(got) != 1 || got[0].Assignee != "bob" {
+		t.Fatalf("force grab must reassign to bob, got %+v", got)
+	}
+	takeover := ""
+	for _, c := range got[0].Comments {
+		if c.Author == "bob" {
+			takeover = c.Note
+		}
+	}
+	if !strings.Contains(takeover, "bob took this task from alice") || !strings.Contains(takeover, "no live session") {
+		t.Fatalf("takeover comment = %q, want 'bob took this task from alice (... no live session)'", takeover)
+	}
+
+	// The set_status guard is the same one: alice (the previous holder)
+	// is refused, and bob's forced write lands.
+	var srows []struct {
+		Error string `json:"error"`
+	}
+	mustUnmarshal(t, callTool(t, alice, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "progress": "simple",
+	}), &srows)
+	if len(srows) != 1 || !strings.Contains(srows[0].Error, `assigned to "bob"`) {
+		t.Fatalf("set_status conflict rows = %+v, want it to name bob", srows)
+	}
+	callTool(t, bob, "set_status", map[string]any{
+		"ids": []string{task["id"]}, "progress": "simple", "force": true,
+	})
+
+	// edit_task and delete_task carry the same guard. They are also
+	// structural (list-gated), so probe them on a list that both agents
+	// may write: bob's own.
+	var ownList map[string]string
+	mustUnmarshal(t, callTool(t, bob, "add_list", map[string]any{"name": "bob: Own"}), &ownList)
+	var ownTask map[string]string
+	mustUnmarshal(t, callTool(t, bob, "add_task", map[string]any{
+		"list_id": ownList["id"], "title": "own work",
+	}), &ownTask)
+	// alice durably assigns bob's task (assignment is not list-gated).
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{ownTask["id"]}})
+
+	// bob's edit is refused (a tool error - single-id tools fail hard),
+	// and the forced edit takes the task over and lands.
+	msg := callToolErr(t, bob, "edit_task", map[string]any{"id": ownTask["id"], "title": "x"})
+	if !strings.Contains(msg, `assigned to "alice"`) {
+		t.Fatalf("edit_task conflict error = %q, want it to name alice", msg)
+	}
+	var eout map[string]bool
+	mustUnmarshal(t, callTool(t, bob, "edit_task", map[string]any{"id": ownTask["id"], "title": "renamed", "force": true}), &eout)
+	if !eout["ok"] {
+		t.Fatalf("forced edit = %+v, want ok:true", eout)
+	}
+	// The takeover landed: bob now durably holds the task.
+	var held []struct {
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "show_task", map[string]any{"ids": []string{ownTask["id"]}}), &held)
+	if len(held) != 1 || held[0].Assignee != "bob" {
+		t.Fatalf("forced edit must take the task over, got %+v", held)
+	}
+
+	// delete_task: the takeover+delete combination - alice durably holds
+	// bob's task (reassign her first), and bob's forced delete takes it
+	// over and removes it.
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{ownTask["id"]}, "force": true})
+	callTool(t, bob, "delete_task", map[string]any{"id": ownTask["id"], "force": true})
+	var all struct {
+		Tasks []struct{ Title string } `json:"tasks"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "list_tasks", map[string]any{"list_id": ownList["id"]}), &all)
+	if len(all.Tasks) != 0 {
+		t.Fatalf("delete left rows = %+v", all.Tasks)
+	}
+	// A foreign-list task stays undeletable for bob even under force - the
+	// structural gate is a list-ownership matter, not an assignment one.
+	msg = callToolErr(t, bob, "delete_task", map[string]any{"id": task["id"], "force": true})
+	if !strings.Contains(msg, "owned by alice") {
+		t.Fatalf("delete_task on alice's list = %q, want the list-owner error", msg)
+	}
+}
+
+// TestMCPAssignTaskRelease guards the release semantics (§4): release=true
+// succeeds silently when nobody holds the task; ids validation is enforced.
+func TestMCPAssignTaskRelease(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "pi: Work"}), &list)
-
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
 	var task map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "Write docs",
 	}), &task)
 
-	// add_task auto-claimed under "pi"; release with agent_id omitted must
-	// default to the server identity and clear that claim.
-	var out map[string]bool
-	mustUnmarshal(t, callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task", "entity_id": task["id"], "release": true,
-	}), &out)
-	if !out["ok"] {
-		t.Fatalf("claim_work(release) = %+v, want {ok:true}", out)
+	// add_task auto-claims presence for "pi" but assigns nothing; releasing
+	// a task nobody holds is a silent no-op.
+	var rel []struct {
+		ID string `json:"id"`
+		OK bool   `json:"ok"`
+	}
+	mustUnmarshal(t, callTool(t, session, "assign_task", map[string]any{
+		"ids": []string{task["id"]}, "release": true,
+	}), &rel)
+	if len(rel) != 1 || !rel[0].OK {
+		t.Fatalf("release on an unheld task = %+v, want {id,ok:true}", rel)
 	}
 
-	var work []struct {
-		AgentID string `json:"agent_id"`
-	}
-	mustUnmarshal(t, workJSON(t, session), &work)
-	if len(work) != 0 {
-		t.Fatalf("claim_work(release) left claims = %+v", work)
-	}
-
-	// Releasing again is a no-op, not an error.
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task", "entity_id": task["id"], "release": true,
-	})
-
-	// release=false (omitted) still claims and returns an activity id.
-	var claim map[string]string
-	mustUnmarshal(t, callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task", "entity_id": task["id"],
-	}), &claim)
-	if claim["id"] == "" {
-		t.Fatalf("claim_work without release = %+v, want an activity id", claim)
+	// Assign, then release: the task is free again.
+	callTool(t, session, "assign_task", map[string]any{"ids": []string{task["id"]}})
+	mustUnmarshal(t, callTool(t, session, "assign_task", map[string]any{
+		"ids": []string{task["id"]}, "release": true,
+	}), &rel)
+	if len(rel) != 1 || !rel[0].OK {
+		t.Fatalf("release after assign = %+v, want {id,ok:true}", rel)
 	}
 
-	// A bad entity_type is still rejected on the release path.
-	callToolErr(t, session, "claim_work", map[string]any{
-		"entity_type": "project", "entity_id": task["id"], "release": true,
-	})
+	// Validation: ids are required and capped at 50.
+	msg := callToolErr(t, session, "assign_task", map[string]any{"ids": []string{}})
+	if !strings.Contains(msg, "at least one id") {
+		t.Fatalf("empty-ids error = %q, want the minimum named", msg)
+	}
+	tooMany := make([]string, 51)
+	for i := range tooMany {
+		tooMany[i] = task["id"]
+	}
+	msg = callToolErr(t, session, "assign_task", map[string]any{"ids": tooMany})
+	if !strings.Contains(msg, "capped at 50") {
+		t.Fatalf("51-ids error = %q, want the cap named", msg)
+	}
 }
 
 func TestMCPStatusWritesRefreshClaim(t *testing.T) {
@@ -990,12 +1128,8 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 		"title":   "Write docs",
 	}), &task)
 
-	// Claim as the server identity (CRUSH_AGENT=pi).
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "pi",
-	})
+	// Claim as the server identity (CRUSH_AGENT=pi), seeded at store level.
+	claimWork(t, "task", task["id"], "pi")
 
 	// Age the claim through a second connection to the same store file.
 	db, err := sql.Open("sqlite", config.DBPath())
@@ -1036,68 +1170,55 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 	}
 }
 
-// TestMCPClaimDefaultsToIdentity pins §4.2 / §6 assertion 1: claim_work
-// without agent_id claims under the server identity (CRUSH_AGENT), so the
-// write-heartbeat in set_status still refreshes the spinner. Before the
-// fix the claim landed under "agent" and TouchWork (identity "pi") never
-// matched it.
-func TestMCPClaimDefaultsToIdentity(t *testing.T) {
+// TestMCPAssignDefaultsToIdentity pins §3's "assignment always lands on
+// this server's identity" rule: assign_task and next_task take no agent_id,
+// so the assignment always matches the CRUSH_AGENT that all the takeover
+// and heartbeat logic keys off. The old claim_work's agent_id default
+// (tested here before step 9) is a concept of the removed tool.
+func TestMCPAssignDefaultsToIdentity(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
-
 	var task map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
-		"list_id": list["id"],
-		"title":   "Write docs",
+		"list_id": list["id"], "title": "Write docs",
 	}), &task)
 
-	// No agent_id: the claim must be stored under the server identity (pi),
-	// not the literal default "agent".
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-	})
+	// Gray with assign_task: no agent_id anywhere.
+	callTool(t, session, "assign_task", map[string]any{"ids": []string{task["id"]}})
 
 	db, err := sql.Open("sqlite", config.DBPath())
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
 	defer db.Close()
-
-	var agentID string
-	if err := db.QueryRow(
-		`SELECT agent_id FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`,
-		task["id"],
-	).Scan(&agentID); err != nil {
-		t.Fatalf("read agent_id: %v", err)
+	var assignee string
+	if err := db.QueryRow(`SELECT assignee FROM Task WHERE id = ?`, task["id"]).Scan(&assignee); err != nil {
+		t.Fatalf("read assignee: %v", err)
 	}
-	if agentID != "pi" {
-		t.Fatalf("claim without agent_id must default to the server identity, got %q", agentID)
+	if assignee != "pi" {
+		t.Fatalf("assign_task must assign to the server identity, got %q", assignee)
 	}
 
-	// Age the claim inside the TTL window; set_status (a write-heartbeat)
-	// must push it forward — only possible when the claim's agent matches.
-	aged := time.Now().Add(-30 * time.Second).Unix()
-	if _, err := db.Exec(
-		`UPDATE AgentActivity SET acquired_at = ? WHERE entity_type = 'task' AND entity_id = ?`,
-		aged, task["id"],
-	); err != nil {
-		t.Fatalf("age claim: %v", err)
+	// next_task on a fully-held list returns the empty shape, not a task.
+	var none struct {
+		OK     bool   `json:"ok"`
+		Reason string `json:"reason"`
+	}
+	mustUnmarshal(t, callTool(t, session, "next_task", map[string]any{"list_id": list["id"]}), &none)
+	if none.OK || none.Reason != "no eligible task in this list" {
+		t.Fatalf("next_task on a held-only list = %+v, want the empty shape", none)
 	}
 
-	callTool(t, session, "set_status", map[string]any{"ids": []string{task["id"]}, "status": "complete"})
-
-	var after int64
-	if err := db.QueryRow(
-		`SELECT acquired_at FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`,
-		task["id"],
-	).Scan(&after); err != nil {
-		t.Fatalf("read acquired_at: %v", err)
+	// Releasing, next_task grabs it.
+	callTool(t, session, "assign_task", map[string]any{"ids": []string{task["id"]}, "release": true})
+	var grabbed struct {
+		Assignee string `json:"assignee"`
 	}
-	if after <= aged {
-		t.Fatalf("set_status must refresh a claim made without agent_id (acquired_at %d, want > %d)", after, aged)
+	mustUnmarshal(t, callTool(t, session, "next_task", map[string]any{"list_id": list["id"]}), &grabbed)
+	if grabbed.Assignee != "pi" {
+		t.Fatalf("next_task must assign to the server identity, got %q", grabbed.Assignee)
 	}
 }
 
@@ -1109,7 +1230,7 @@ func TestStatusWriteAutoClaims(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "work",
 	}), &task)
-	// No explicit claim_work first — just start setting status/progress.
+	// No explicit presence claim first — just start setting status/progress.
 	callTool(t, session, "set_status", map[string]any{
 		"ids": []string{task["id"]}, "progress": "percentage", "percent": 25,
 	})
@@ -1141,18 +1262,10 @@ func TestMCPStatusWritesDoNotTouchForeignClaims(t *testing.T) {
 
 	// add_task auto-claims under "pi"; release it so "other" can hold the claim
 	// below, so we can assert pi's status write does not refresh it.
-	releaseWork(t, session, map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "pi",
-	})
+	releaseWork(t, "task", task["id"], "pi")
 
 	// Another agent holds the claim; pi's writes must not touch it.
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "other",
-	})
+	claimWork(t, "task", task["id"], "other")
 
 	db, err := sql.Open("sqlite", config.DBPath())
 	if err != nil {
@@ -1195,19 +1308,11 @@ func TestMCPWorkResource(t *testing.T) {
 	}), &task)
 
 	// add_task auto-claims under "agent"; release it so "claude" can claim below.
-	releaseWork(t, session, map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "agent",
-	})
+	releaseWork(t, "task", task["id"], "agent")
 
 	// Claim and verify the crush://work resource reports it. The resource is
-	// only reader now that list_work is gone (§4.5).
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "claude",
-	})
+	// only a reader now that claim_work is gone (step 9).
+	claimWork(t, "task", task["id"], "claude")
 
 	// Read the resource.
 	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
@@ -1779,10 +1884,11 @@ func TestMCPAddListRejectsBadTag(t *testing.T) {
 
 // TestMCPPendingClaimsClearedOnSessionEnd verifies H13: when the MCP session
 // ends, ReleaseAllClaims (called by Run after server.Run returns) clears every
-// claim so the TUI shows no stale spinners. The test makes claims through the
-// MCP interface, then calls ReleaseAllClaims on a separate store handle to the
-// same DB (mirroring what Run does after server.Run returns), and confirms
-// list_work goes empty.
+// claim so the TUI shows no stale spinners. The test seeds assignment and
+// claims, then calls ReleaseAllClaims on a separate store handle to the same
+// DB (mirroring what Run does after server.Run returns), and confirms the
+// TUI sees an empty work view while the assignment survives - cleanup is
+// presence-only (docs/DESIGN.md §3).
 func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 	session := setupMCP(t)
 
@@ -1795,25 +1901,16 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 		"title":   "Write docs",
 	}), &task)
 
-	// add_task auto-claims under "agent"; release it so "pi" can claim below.
-	releaseWork(t, session, map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "agent",
-	})
+	// A durable assignment on the task, made through the tool.
+	callTool(t, session, "assign_task", map[string]any{"ids": []string{task["id"]}})
 
-	// Claim via the MCP tool (defaults to identity "agent").
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "task",
-		"entity_id":   task["id"],
-		"agent_id":    "pi",
-	})
+	// add_task auto-claims under "agent"; release it so "pi" can claim below.
+	releaseWork(t, "task", task["id"], "agent")
+
+	// Claims seeded at store level - the claim_work tool is gone (step 9).
+	claimWork(t, "task", task["id"], "pi")
 	// A second claim on the list by a different agent.
-	callTool(t, session, "claim_work", map[string]any{
-		"entity_type": "list",
-		"entity_id":   list["id"],
-		"agent_id":    "claude",
-	})
+	claimWork(t, "list", list["id"], "claude")
 
 	// Both claims are visible before session-end cleanup.
 	var work []struct {
@@ -1840,10 +1937,21 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 		t.Fatalf("expected 2 claims released, got %d", n)
 	}
 
-	// list_work is now empty — the TUI has no spinners to show.
+	// The work view is now empty — the TUI has no spinners to show.
 	mustUnmarshal(t, workJSON(t, session), &work)
 	if len(work) != 0 {
 		t.Fatalf("expected 0 claims after session-end cleanup, got %d", len(work))
+	}
+
+	// Session-end cleanup clears claims but not assignments: the human can
+	// see in the TUI who still holds what, and a stale assignment is a
+	// release-path matter, not a session one.
+	var still []struct {
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &still)
+	if len(still) != 1 || still[0].Assignee == "" {
+		t.Fatalf("assignment must survive session-end cleanup, got %+v", still)
 	}
 }
 
@@ -2572,9 +2680,7 @@ func TestAddCommentAutoClaims(t *testing.T) {
 		"list_id": list["id"], "title": "work",
 	}), &task)
 	// add_task now auto-claims too, so release first to prove add_comment claims.
-	releaseWork(t, session, map[string]any{
-		"entity_type": "task", "entity_id": task["id"], "agent_id": "pi",
-	})
+	releaseWork(t, "task", task["id"], "pi")
 	callTool(t, session, "add_comment", map[string]any{
 		"task_id": task["id"], "note": "checking in",
 	})
@@ -2606,9 +2712,7 @@ func TestEditTaskAutoClaims(t *testing.T) {
 			"list_id": list["id"], "title": title,
 		}), &tk)
 		// Clear the add_task auto-claim so each sub-case proves its own write claims.
-		releaseWork(t, session, map[string]any{
-			"entity_type": "task", "entity_id": tk["id"], "agent_id": "pi",
-		})
+		releaseWork(t, "task", tk["id"], "pi")
 		return tk["id"]
 	}
 
@@ -3368,5 +3472,189 @@ func TestInboxSkeletonRowsCarryNoNotes(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected a context_only skeleton in the inbox; got %#v", inbox.Mine.Tasks)
+	}
+}
+
+// TestMCPNextTaskGrabsDifferentTasks guards §3's next_task contract: each
+// call atomically grabs the top eligible task, so two calls on a list of
+// two free tasks return two different tasks; priority (high > medium > low
+// > none) beats tree order.
+func TestMCPNextTaskGrabsDifferentTasks(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	// Added low-priority first, so tree order would give it to the first
+	// call; priority must override.
+	var low, high map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "low",
+	}), &low)
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "high",
+	}), &high)
+
+	// Seed priorities at store level: SetPriority is not a tool (decision 6
+	// kept the surface slim; the TUI sets it).
+	st, err := store.Open(config.DBPath())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.SetPriority(high["id"], store.PriorityHigh); err != nil {
+		t.Fatalf("SetPriority high: %v", err)
+	}
+	if err := st.SetPriority(low["id"], store.PriorityLow); err != nil {
+		t.Fatalf("SetPriority low: %v", err)
+	}
+
+	var first, second struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, session, "next_task", map[string]any{"list_id": list["id"]}), &first)
+	if first.ID != high["id"] {
+		t.Fatalf("first next_task = %s (%s), want the high-priority task", first.Title, first.ID)
+	}
+	if first.Assignee != "agent" {
+		t.Fatalf("first next_task assignee = %q, want the server identity", first.Assignee)
+	}
+	mustUnmarshal(t, callTool(t, session, "next_task", map[string]any{"list_id": list["id"]}), &second)
+	if second.ID != low["id"] {
+		t.Fatalf("second next_task = %s (%s), want the remaining task", second.Title, second.ID)
+	}
+	if first.ID == second.ID {
+		t.Fatal("two next_task calls returned the same task")
+	}
+}
+
+// TestMCPNextTaskEmptyBoard guards §4's shape: nothing eligible is NOT an
+// error — the tool returns {ok:false, reason:'no eligible task in this
+// list'}, and the reason string is part of the contract agents act on.
+func TestMCPNextTaskEmptyBoard(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+
+	var empty struct {
+		OK     bool   `json:"ok"`
+		Reason string `json:"reason"`
+	}
+	mustUnmarshal(t, callTool(t, session, "next_task", map[string]any{"list_id": list["id"]}), &empty)
+	if empty.OK || empty.Reason != "no eligible task in this list" {
+		t.Fatalf("next_task on an empty list = %+v, want {ok:false, reason:'no eligible task in this list'}", empty)
+	}
+
+	// A held task is not eligible either: an assigned task is not free.
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "held",
+	}), &task)
+	callTool(t, session, "assign_task", map[string]any{"ids": []string{task["id"]}})
+	var after struct {
+		OK     bool   `json:"ok"`
+		Reason string `json:"reason"`
+	}
+	mustUnmarshal(t, callTool(t, session, "next_task", map[string]any{"list_id": list["id"]}), &after)
+	if after.OK || after.Reason != "no eligible task in this list" {
+		t.Fatalf("next_task with only a held task = %+v, want the empty shape", after)
+	}
+}
+
+// TestMCPAssignSubtreeConflict guards decision 4: a task whose ancestor or
+// descendant is held by a different agent is refused EVEN with force, and
+// the error names the blocker and the release escape hatch - the exact
+// remediation that does not loop. (force CAN take a task from its holder;
+// it CANNOT override the subtree reservation.)
+func TestMCPAssignSubtreeConflict(t *testing.T) {
+	dataDir := t.TempDir()
+
+	alice := sessionAs(t, dataDir, "alice")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_list", map[string]any{"name": "Work"}), &list)
+	var parent, child map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_task", map[string]any{
+		"list_id": list["id"], "title": "parent",
+	}), &parent)
+	mustUnmarshal(t, callTool(t, alice, "add_task", map[string]any{
+		"list_id": list["id"], "title": "child", "parent": parent["id"],
+	}), &child)
+
+	// alice holds the parent; bob cannot grab the child, force or not.
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{parent["id"]}})
+	bob := sessionAs(t, dataDir, "bob")
+	var rows []struct {
+		Error string `json:"error"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "assign_task", map[string]any{"ids": []string{child["id"]}}), &rows)
+	msg := ""
+	if len(rows) > 0 {
+		msg = rows[0].Error
+	}
+	if msg == "" {
+		t.Fatalf("assign-conflict rows = %+v, want an error row", rows)
+	}
+	for _, want := range []string{"blocked by its ancestor", parent["id"], "release that task first", "assign_task(release=true, force=true)"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("ancestor-conflict error = %q, missing %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "pass force=true to take it") {
+		t.Fatalf("subtree conflict must NOT hint force, got %q", msg)
+	}
+	var frows []struct {
+		Error string `json:"error"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "assign_task", map[string]any{"ids": []string{child["id"]}, "force": true}), &frows)
+	if len(frows) == 0 || !strings.Contains(frows[0].Error, "blocked by its ancestor") {
+		t.Fatalf("forced subtree grab must still be refused, got %+v", frows)
+	}
+
+	// The mirror case: alice holds the child; bob cannot grab the parent.
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{child["id"]}, "force": true})
+	var drows []struct {
+		Error string `json:"error"`
+	}
+	mustUnmarshal(t, callTool(t, bob, "assign_task", map[string]any{"ids": []string{parent["id"]}, "force": true}), &drows)
+	if len(drows) == 0 || !strings.Contains(drows[0].Error, "blocked by its descendant") {
+		t.Fatalf("descendant-conflict error = %+v, want the descendant wording", drows)
+	}
+
+	// The escape hatch works: releasing the blocker frees the subtree.
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{child["id"]}, "release": true})
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{parent["id"]}, "release": true})
+	callTool(t, bob, "assign_task", map[string]any{"ids": []string{parent["id"]}})
+}
+
+// TestMCPAssignRejectsAgentID guards §3: assign_task takes no agent_id —
+// an agent may only assign work to itself; assigning work TO another agent
+// is a human action taken from the TUI.
+func TestMCPAssignRejectsAgentID(t *testing.T) {
+	session := setupMCP(t)
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "Work"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
+		"list_id": list["id"], "title": "docs",
+	}), &task)
+
+	msg := callToolErr(t, session, "assign_task", map[string]any{
+		"ids": []string{task["id"]}, "agent_id": "claude",
+	})
+	if !strings.Contains(msg, "agent_id is not a supported parameter") {
+		t.Fatalf("agent_id rejection = %q, want the rejection named", msg)
+	}
+
+	// Nothing was assigned.
+	var got []struct {
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, session, "show_task", map[string]any{"ids": []string{task["id"]}}), &got)
+	if len(got) != 1 || got[0].Assignee != "" {
+		t.Fatalf("agent_id call must not assign anything, got %+v", got)
 	}
 }

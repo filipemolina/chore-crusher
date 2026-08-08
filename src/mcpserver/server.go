@@ -3,10 +3,12 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -147,13 +149,15 @@ TOOLS (chore_crusher_<name>):
 - add_task(list_id, title, parent?, notes?)
 - edit_task(id, title?, notes?, parent?, to_root?) — change any field; notes replaces the whole body; parent re-parents; to_root moves to the list root
 - delete_task(id, force=true)
-- set_status(ids, status?, progress?, percent?, comment?) — the one status/progress write; status=pending|in_progress|complete (complete cascades and auto-unassigns), progress=simple|subtasks|percentage flips the task to in_progress (percent only with percentage), comment lands after the state change; a complete task is reopened first, so progress never errors
+- set_status(ids, status?, progress?, percent?, comment?, force?) — the one status/progress write; status=pending|in_progress|complete (complete cascades and auto-unassigns), progress=simple|subtasks|percentage flips the task to in_progress (percent only with percentage), comment lands after the state change; a complete task is reopened first, so progress never errors; force=true performs the write on a task assigned to another agent and records a takeover comment
 - add_comment(task_id, note) — attributed to your tag
 - delete_comment(id, force=true) — only your own comments (author == your tag), regardless of list ownership
 - add_list(name, created_by?) — owned by you
-- claim_work(entity_type, entity_id, kind?, release?) — light/stop the TUI spinner; writes auto-claim for you, so you only need this to reserve a task BEFORE writing
+- assign_task(ids, release?, force?) — the durable grab: assign 1..50 tasks to yourself (this server's identity) and get their full show_task payloads; release=true unassigns (silently succeeds if you did not hold it); force=true takes a task from its holder and records a takeover comment — but a task blocked by an ancestor/descendant assigned to another agent is refused EVEN with force; release the blocker first
+- next_task(list_id) — atomically grab and read the top eligible task for you: highest priority (high > medium > low > none), then tree order; nothing eligible returns {ok:false, reason:'no eligible task in this list'} (not an error)
 
 KEEP THE BOARD LIVE (do this yourself, unasked):
+- Grab before you research: next_task(list_id) hands you the top eligible task and everything about it in one call; assign_task(ids=[...]) grabs a specific one.
 - Start a task = set_status(ids, progress=...) on it (flips it to in_progress and lights the spinner). Advance the percentage as you go, not only at the end — the human watches the TUI live.
 - On a list you do not own: read the whole list plus the task's notes and comments first; leave add_comment at decision points; never edit its content.
 - Finish = set_status(ids, status='complete'). A percentage of 100 does NOT auto-complete.
@@ -164,7 +168,6 @@ GOTCHAS: set_status(progress='subtasks') derives from children — on a shared t
 
 	addListTools(server, s, identity)
 	addTaskTools(server, s, identity)
-	addWorkTools(server, s, identity)
 	addWorkResource(server, s)
 	addResources(server, s, identity)
 	addPrompts(server, s)
@@ -416,44 +419,12 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 				out = append(out, errRow{ID: raw, Error: err.Error()})
 				continue
 			}
-			t, err := s.GetTask(id)
+			details, err := taskDetailsJSONFor(s, id, live)
 			if err != nil {
-				out = append(out, errRow{ID: raw, Error: err.Error()})
+				out = append(out, errRow{ID: id, Error: err.Error()})
 				continue
 			}
-			prog, err := taskProgressJSON(s, id)
-			if err != nil {
-				out = append(out, errRow{ID: raw, Error: err.Error()})
-				continue
-			}
-			all, err := s.ListTasks(t.ListID)
-			if err != nil {
-				out = append(out, errRow{ID: raw, Error: err.Error()})
-				continue
-			}
-			l, err := s.GetList(t.ListID)
-			if err != nil {
-				out = append(out, errRow{ID: raw, Error: err.Error()})
-				continue
-			}
-			children, err := descendantRows(s, all, id, l.CreatedBy, live)
-			if err != nil {
-				out = append(out, errRow{ID: raw, Error: err.Error()})
-				continue
-			}
-			comments, err := s.ListComments(id)
-			if err != nil {
-				out = append(out, errRow{ID: raw, Error: err.Error()})
-				continue
-			}
-			out = append(out, taskDetailsJSON{
-				ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
-				Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
-				UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt,
-				Assignee: t.Assignee, AssignedAt: t.AssignedAt,
-				AssigneeLive: assigneeLive(live, t.Assignee), Priority: string(t.Priority),
-				Children: children, Comments: commentsJSON(comments),
-			})
+			out = append(out, details)
 		}
 		return jsonResult(out)
 	})
@@ -507,13 +478,14 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set_status",
-		Description: "The one status/progress write: mark 1..50 tasks complete, reopen them, or set progress in one call. status=pending|in_progress|complete, progress=simple|subtasks|percentage, percent=0..100 (only valid with progress=percentage), comment=<text> added after the state change lands so it records the final state. Per id, applied in this order: reopen if the task is complete and the write needs it, then progress, then status, then the comment. status='complete' cascades to descendants and auto-unassigns; status='pending' reopens without cascading. At least one of status, progress, comment is required. Example: set_status(ids=['01ABC...'], status='in_progress', progress='percentage', percent=50). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
+		Description: "The one status/progress write: mark 1..50 tasks complete, reopen them, or set progress in one call. status=pending|in_progress|complete, progress=simple|subtasks|percentage, percent=0..100 (only valid with progress=percentage), comment=<text> added after the state change lands so it records the final state. Per id, applied in this order: assignment guard (a task assigned to another agent is refused unless force=true, which takes it over and records a takeover comment), then reopen if the task is complete and the write needs it, then progress, then status, then the comment. status='complete' cascades to descendants and auto-unassigns; status='pending' reopens without cascading. At least one of status, progress, comment is required. Example: set_status(ids=['01ABC...'], status='in_progress', progress='percentage', percent=50). Returns one result row per id in input order: {id,ok:true} or {id,error}; a bad id does not stop the rest.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		IDs      []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
 		Status   string   `json:"status,omitempty" jsonschema:"pending, in_progress, or complete"`
 		Progress string   `json:"progress,omitempty" jsonschema:"simple, subtasks, or percentage"`
 		Percent  *int     `json:"percent,omitempty" jsonschema:"percent 0-100, only valid when progress=percentage"`
 		Comment  string   `json:"comment,omitempty" jsonschema:"comment added to each id after the state change lands, recording the final state"`
+		Force    bool     `json:"force,omitempty" jsonschema:"true overrides another agent's assignment of the task (records a takeover comment)"`
 	}) (*mcp.CallToolResult, any, error) {
 		if len(in.IDs) == 0 {
 			return errorResult(fmt.Errorf("set_status requires at least one id")), nil, nil
@@ -543,14 +515,133 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if in.Progress == "percentage" && in.Percent == nil {
 			return errorResult(fmt.Errorf("progress=percentage requires percent")), nil, nil
 		}
+		// One presence read for the whole batch (§8): the assignment guard's
+		// conflict text needs to know whether the holder is at the keyboard.
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		return batchApply(s, identity, in.IDs, func(id string) error {
-			return applySetStatus(s, identity, id, in.Status, in.Progress, in.Percent, in.Comment)
+			return applySetStatus(s, identity, id, in.Status, in.Progress, in.Percent, in.Comment, in.Force, live)
 		})
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "assign_task",
+		Description: "The durable grab: assign 1..50 tasks to yourself (this server's identity) and get their full show_task payloads back — grabbing and reading a task is one call. release=true unassigns instead, succeeding silently if you did not hold the task. force=true takes a task another agent holds, reassigning it and writing a takeover comment that records who took it from whom and how stale it was. An explicit agent_id is rejected: an agent may only assign work to itself; assigning work TO another agent is a human action taken from the TUI. Assignment reserves the subtree: a task whose ancestor or descendant is held by a different agent is refused EVEN with force — release the blocker first. Example: assign_task(ids=['01ABC...']).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		IDs     []string `json:"ids" jsonschema:"task ids or unambiguous prefixes; 1..50"`
+		Release bool     `json:"release,omitempty" jsonschema:"true unassigns instead of assigning; a no-op when the task is not held"`
+		Force   bool     `json:"force,omitempty" jsonschema:"true takes a task held by another agent and writes a takeover comment; does not override a subtree reservation"`
+		AgentID string   `json:"agent_id,omitempty" jsonschema:"rejected if set — tasks are always assigned to the server identity"`
+	}) (*mcp.CallToolResult, any, error) {
+		if in.AgentID != "" {
+			return errorResult(fmt.Errorf("agent_id is not a supported parameter: tasks are assigned to this server's identity (%q)", identity)), nil, nil
+		}
+		if len(in.IDs) == 0 {
+			return errorResult(fmt.Errorf("assign_task requires at least one id")), nil, nil
+		}
+		if len(in.IDs) > 50 {
+			return errorResult(fmt.Errorf("assign_task capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
+		}
+		// One presence read for the whole batch (§8): the conflict text and
+		// the takeover comment both need to know whether the holder is live.
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		type errRow struct {
+			ID    string `json:"id"`
+			Error string `json:"error"`
+		}
+		type okRow struct {
+			ID string `json:"id"`
+			OK bool   `json:"ok"`
+		}
+		out := make([]any, 0, len(in.IDs))
+		for _, raw := range in.IDs {
+			id, err := s.ResolveID("task", raw)
+			if err != nil {
+				out = append(out, errRow{ID: raw, Error: err.Error()})
+				continue
+			}
+			if in.Release {
+				// Releasing a task nobody holds is a silent no-op; force
+				// releases another agent's task without any subtree check —
+				// the escape hatch §4 promises.
+				if err := s.UnassignTask(id, identity, in.Force); err != nil {
+					out = append(out, errRow{ID: id, Error: err.Error()})
+					continue
+				}
+				out = append(out, okRow{ID: id, OK: true})
+				continue
+			}
+			// The takeover comment names the previous holder, so read it
+			// before the guarded update swaps it away.
+			var prev string
+			var prevAt *int64
+			if in.Force {
+				t, err := s.GetTask(id)
+				if err != nil {
+					out = append(out, errRow{ID: id, Error: err.Error()})
+					continue
+				}
+				prev, prevAt = t.Assignee, t.AssignedAt
+			}
+			if err := s.AssignTask(id, identity, in.Force); err != nil {
+				out = append(out, errRow{ID: id, Error: assignmentConflict(s, id, err, live).Error()})
+				continue
+			}
+			if prev != "" && prev != identity {
+				if _, err := s.AddComment(id, identity, takeoverComment(identity, prev, prevAt, live)); err != nil {
+					out = append(out, errRow{ID: id, Error: err.Error()})
+					continue
+				}
+			}
+			details, err := taskDetailsJSONFor(s, id, live)
+			if err != nil {
+				out = append(out, errRow{ID: id, Error: err.Error()})
+				continue
+			}
+			out = append(out, details)
+		}
+		return jsonResult(out)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "next_task",
+		Description: "Grab and read the top eligible task in one call: atomically assigns the highest-priority eligible task (high > medium > low > none, then tree order) to you and returns its full show_task payload. Eligible means not complete, unassigned, and no ancestor or descendant assigned to a different agent. Nothing eligible is NOT an error: returns {ok:false, reason:'no eligible task in this list'}. Example: next_task(list_id='01ABC...').",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		ListID string `json:"list_id" jsonschema:"list id or unambiguous prefix"`
+	}) (*mcp.CallToolResult, any, error) {
+		listID, err := s.ResolveID("list", in.ListID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		// One presence read per request (§8), for the returned payload's
+		// assignee_live fields.
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		t, err := s.NextAssignable(listID, identity)
+		if err != nil {
+			if errors.Is(err, store.ErrNoAssignable) {
+				// An empty board is a normal state, not a failure (§4).
+				return jsonResult(map[string]any{"ok": false, "reason": "no eligible task in this list"})
+			}
+			return errorResult(err), nil, nil
+		}
+		details, err := taskDetailsJSONFor(s, t.ID, live)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(details)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_task",
-		Description: "Delete a task and its descendants. Requires force=true. Example: delete_task(id='01ABC...', force=true).",
+		Description: "Delete a task and its descendants. Requires force=true. Assignment guard: a task assigned to another agent is only deletable with that same force, which records a takeover comment first — and a task blocked by a subtree reservation stays refused. Example: delete_task(id='01ABC...', force=true).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID    string `json:"id" jsonschema:"task id or unambiguous prefix"`
 		Force bool   `json:"force" jsonschema:"must be true to confirm deletion"`
@@ -562,7 +653,25 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		// List ownership is checked BEFORE the assignment guard: the guard's
+		// force branch is itself a write (it reassigns and comments), so
+		// running it ahead of a check that can still refuse would leave the
+		// task stolen by a delete that never happened. Same rule as the
+		// re-parent gate below — a refused write never half-happens.
 		if err := requireWritableTask(s, identity, id); err != nil {
+			return errorResult(err), nil, nil
+		}
+		// One presence read per request (§8), shared by the guard below.
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		// The §7 assignment guard. delete_task already requires force (the
+		// confirmation), so the guard's force branch always runs here: a
+		// forced delete of a held task records the takeover comment, and a
+		// subtree reservation still refuses the delete — the reservation
+		// survives force on every write path (decision 4).
+		if err := requireAssignable(s, identity, id, in.Force, live); err != nil {
 			return errorResult(err), nil, nil
 		}
 		if err := s.DeleteTask(id); err != nil {
@@ -573,13 +682,14 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_task",
-		Description: "Edit a task's fields in one call. Any omitted field is left unchanged. title renames it; notes REPLACES the whole notes body (pass '' to clear); parent re-parents it under that task; to_root=true moves it to the list root. Example: edit_task(id='01ABC', title='New name', notes='updated'). Structural edit — refused on a list you do not own.",
+		Description: "Edit a task's fields in one call. Any omitted field is left unchanged. title renames it; notes REPLACES the whole notes body (pass '' to clear); parent re-parents it under that task; to_root=true moves it to the list root. Example: edit_task(id='01ABC', title='New name', notes='updated'). Structural edit — refused on a list you do not own, and on a task assigned to another agent unless force=true (which takes the task over and records a takeover comment).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		ID     string  `json:"id" jsonschema:"task id or unambiguous prefix"`
 		Title  *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
 		Notes  *string `json:"notes,omitempty" jsonschema:"replacement notes (whole body; '' clears); omit to leave unchanged"`
 		Parent *string `json:"parent,omitempty" jsonschema:"new parent task id or prefix; omit to leave unchanged"`
 		ToRoot bool    `json:"to_root,omitempty" jsonschema:"true moves the task to the list root"`
+		Force  bool    `json:"force,omitempty" jsonschema:"true overrides another agent's assignment of the task (records a takeover comment)"`
 	}) (*mcp.CallToolResult, any, error) {
 		if in.Title == nil && in.Notes == nil && in.Parent == nil && !in.ToRoot {
 			return errorResult(fmt.Errorf("edit_task needs at least one of title, notes, parent, to_root")), nil, nil
@@ -622,6 +732,22 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 					return errorResult(err), nil, nil
 				}
 			}
+		}
+
+		// The §7 assignment guard runs LAST of the checks and first of the
+		// writes: its force branch reassigns the task and records a takeover
+		// comment, so anything that can still refuse the edit — every
+		// ownership gate above, including the re-parent target's — has to
+		// have passed already. Otherwise a refused edit would leave the task
+		// taken over, which is the same half-happened write the re-parent
+		// gate exists to prevent.
+		// One presence read per request (§8), for the guard's conflict text.
+		live, err := liveAgents(s)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		if err := requireAssignable(s, identity, id, in.Force, live); err != nil {
+			return errorResult(err), nil, nil
 		}
 
 		if in.Title != nil {
@@ -704,8 +830,8 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 }
 
-// applySetStatus runs §4's per-id order — the assignment guard slot (plan
-// step 9) lands in front, then reopen-if-needed, progress, status, comment.
+// applySetStatus runs §4's per-id order — the assignment guard first (step
+// 9's requireAssignable), then reopen-if-needed, progress, status, comment.
 // The reopen step is the §4 fix for the documented gotcha where set_progress
 // on a complete task used to error: one call now reopens and sets percentage
 // on a complete task because the reopen happens first. status='in_progress'
@@ -714,7 +840,13 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 // its own it is re-applied with whatever progress the task already carries,
 // which is why marking a task started never clobbers its percentage (a task
 // just reopened above carries 'none', which SetProgress accepts).
-func applySetStatus(s *store.Store, identity, id, status, progress string, percent *int, comment string) error {
+func applySetStatus(s *store.Store, identity, id, status, progress string, percent *int, comment string, force bool, live map[string]bool) error {
+	// The guard is the first step of the per-id order: a task held by
+	// another agent is refused here; force takes it over first.
+	if err := requireAssignable(s, identity, id, force, live); err != nil {
+		return err
+	}
+
 	t, err := s.GetTask(id)
 	if err != nil {
 		return err
@@ -867,6 +999,124 @@ func requireOwnComment(s *store.Store, identity, commentID string) (store.Commen
 	return c, nil
 }
 
+// assignmentBlockerRE extracts the blocker named by a store subtree conflict
+// — "ancestor task X is held by Y" (src/store/assignment.go's
+// subtreeReserved phrasing) — so the §4 hint can name the exact task to
+// release. When the pattern does not match, the caller falls back to the raw
+// error rather than guessing.
+var assignmentBlockerRE = regexp.MustCompile(`(ancestor|descendant) task "([^"]+)" is held by "([^"]+)"`)
+
+// requireAssignable refuses a write to a task held by a different agent
+// (§7): the refuse-with-override rule applied to set_status, edit_task and
+// delete_task. When force is set it performs the takeover — reassigns the
+// task to identity and records a takeover comment — and the caller's write
+// then applies to a task the caller now holds. force does NOT override the
+// subtree reservation (plan decision 4): AssignTask enforces that under
+// force too, and the conflict is returned as-is.
+//
+// live is the caller's one-per-request presence read, passed in because the
+// guard runs once per id inside a batch (§8's per-request rule) and the
+// conflict text names whether the holder is actually at the keyboard.
+func requireAssignable(s *store.Store, identity, taskID string, force bool, live map[string]bool) error {
+	t, err := s.GetTask(taskID)
+	if err != nil {
+		return err
+	}
+	if t.Assignee == "" || t.Assignee == identity {
+		return nil
+	}
+	if !force {
+		return assignmentConflict(s, taskID, fmt.Errorf("%w: task %q is held by %q", store.ErrAssigned, taskID, t.Assignee), live)
+	}
+	if err := s.AssignTask(taskID, identity, true); err != nil {
+		return assignmentConflict(s, taskID, err, live)
+	}
+	if _, err := s.AddComment(taskID, identity, takeoverComment(identity, t.Assignee, t.AssignedAt, live)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// assignmentConflict renders the §4 conflict error for a refused AssignTask
+// or a guarded write. It names the holder and the age of the assignment, and
+// keys the remediation hint off the conflict class: force CAN take a task
+// from its holder, so the hint says so; force CANNOT override the subtree
+// reservation (decision 4), so for a subtree conflict the hint names the
+// actual escape hatch instead — release the blocker with
+// assign_task(release=true, force=true), or release the whole list from the
+// TUI. Telling an agent to retry with force on the second class sends it
+// into a loop it cannot exit (a dead agent holding a parent and its child
+// blocks both from either direction).
+func assignmentConflict(s *store.Store, taskID string, err error, live map[string]bool) error {
+	if errors.Is(err, store.ErrSubtreeAssigned) {
+		m := assignmentBlockerRE.FindStringSubmatch(err.Error())
+		if m == nil {
+			// Unknown phrasing: keep the raw error, but never emit the
+			// force hint for a conflict this class cannot resolve by
+			// force.
+			return fmt.Errorf("%v — force will not override a subtree reservation; release the blocking task first (assign_task(release=true, force=true)) or release the whole list from the TUI", err)
+		}
+		var assignedAt *int64
+		if b, gerr := s.GetTask(m[2]); gerr == nil {
+			assignedAt = b.AssignedAt
+		}
+		return fmt.Errorf("task %s is blocked by its %s %s, assigned to %q (%s ago, %s) — force will not override a subtree reservation; release that task first (assign_task(release=true, force=true)) or release the whole list from the TUI",
+			taskID, m[1], m[2], m[3], durationAgo(assignedAt), liveState(live, m[3]))
+	}
+	if errors.Is(err, store.ErrAssigned) {
+		t, gerr := s.GetTask(taskID)
+		if gerr != nil {
+			return err
+		}
+		return fmt.Errorf("task %s is assigned to %q (%s ago, %s) — pass force=true to take it",
+			taskID, t.Assignee, durationAgo(t.AssignedAt), liveState(live, t.Assignee))
+	}
+	return err
+}
+
+// takeoverComment is the audit line recorded when an agent force-takes a
+// task (§4): who took it, from whom, and how stale the handover was. The
+// same line is written by assign_task(force=true) and by requireAssignable's
+// force path, so a takeover leaves the same trail everywhere.
+func takeoverComment(identity, previous string, assignedAt *int64, live map[string]bool) string {
+	return fmt.Sprintf("%s took this task from %s (assigned %s ago, %s)",
+		identity, previous, durationAgo(assignedAt), liveState(live, previous))
+}
+
+// durationAgo renders an assignment's age for conflict text and takeover
+// comments: minutes precision above an hour, seconds below ("2h14m ago").
+// assignedAt is nil only in impossible states (assign always sets it
+// alongside assignee), so nil degrades to "unknown" rather than panicking.
+func durationAgo(unix *int64) string {
+	if unix == nil {
+		return "unknown"
+	}
+	d := time.Since(time.Unix(*unix, 0))
+	if d < time.Minute {
+		d = d.Round(time.Second)
+		if d < time.Second {
+			return "<1s"
+		}
+		return d.String()
+	}
+	d = d.Round(time.Minute)
+	if d < time.Minute {
+		return "<1m"
+	}
+	return strings.TrimSuffix(d.String(), "0s")
+}
+
+// liveState words whether a task's holder is currently at the keyboard, for
+// the conflict text and the takeover comment. The stale holder — assigned
+// and not live — is the whole reason the board has a release path, so the
+// wording is part of the contract an agent acts on.
+func liveState(live map[string]bool, holder string) string {
+	if live[holder] {
+		return "live session"
+	}
+	return "no live session"
+}
+
 // sectionRows returns the preorder task rows for a PER-TASK status filter
 // (docs/DESIGN.md §9): a row is included when its own status matches, not
 // its root ancestor's. The old root-based walk was a "section" filter
@@ -988,7 +1238,49 @@ func taskProgressJSON(s *store.Store, id string) (progressJSON, error) {
 	return p, nil
 }
 
-// descendantRows returns every descendant of rootID (the task itself
+// taskDetailsJSONFor renders the full show_task payload for one task: its
+// own fields, its entire subtree with every descendant's full notes and
+// comments (decision 8), and the task's own comments. It is also the payload
+// assign_task and next_task return after a grab — "grabbing and reading a
+// task is one call" (§3) — so the three tool surfaces share one definition
+// and cannot drift. live is the caller's one-per-request presence read; do
+// not query presence in here.
+func taskDetailsJSONFor(s *store.Store, id string, live map[string]bool) (taskDetailsJSON, error) {
+	t, err := s.GetTask(id)
+	if err != nil {
+		return taskDetailsJSON{}, err
+	}
+	prog, err := taskProgressJSON(s, id)
+	if err != nil {
+		return taskDetailsJSON{}, err
+	}
+	all, err := s.ListTasks(t.ListID)
+	if err != nil {
+		return taskDetailsJSON{}, err
+	}
+	l, err := s.GetList(t.ListID)
+	if err != nil {
+		return taskDetailsJSON{}, err
+	}
+	children, err := descendantRows(s, all, id, l.CreatedBy, live)
+	if err != nil {
+		return taskDetailsJSON{}, err
+	}
+	comments, err := s.ListComments(id)
+	if err != nil {
+		return taskDetailsJSON{}, err
+	}
+	return taskDetailsJSON{
+		ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
+		Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
+		UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt,
+		Assignee: t.Assignee, AssignedAt: t.AssignedAt,
+		AssigneeLive: assigneeLive(live, t.Assignee), Priority: string(t.Priority),
+		Children: children, Comments: commentsJSON(comments),
+	}, nil
+}
+
+// descendantRows reports every descendant of rootID (the task itself
 // excluded) as depth-annotated rows with derived progress per row, using the
 // shared apptypes.DescendantsOf so `crush show` and show_task cannot drift
 // (docs/plan/mcp-agent-todo-hardening.md §4.4). Depth is relative to rootID:
@@ -1216,65 +1508,11 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
-// addWorkTools registers the agent-presence tool claim_work
-// (docs/plan/mcp-server-enhancement.md §3.8). It absorbs the former
-// release_work via release=true; the former list_work is served by the
-// crush://work resource (docs/plan/mcp-tool-consolidation.md §4.5).
-// identity is the server's CRUSH_AGENT tag: an omitted agent_id defaults to
-// it, so a claim made without one matches the write-heartbeat in
-// TouchWork (docs/plan/mcp-agent-todo-hardening.md §4.2).
-func addWorkTools(server *mcp.Server, s *store.Store, identity string) {
-	mcp.AddTool(server, &mcp.Tool{
-		Name: "claim_work",
-		Description: "Show or stop the TUI spinner for an agent on a task or list. " +
-			"entity_type is \"task\" or \"list\". kind is \"working\" (default) or " +
-			"\"inspecting\". release=true stops the spinner (no-op if not claimed). " +
-			"Re-claiming by the same agent refreshes the timer (heartbeat); a " +
-			"different agent holding the entity returns an error. agent_id defaults " +
-			"to this server's identity (CRUSH_AGENT) — omit it unless you need a " +
-			"different label, since a claim under another agent_id is not refreshed " +
-			"by your writes. NOTE: any task write already auto-claims for you, so " +
-			"you only need this to reserve a task BEFORE you start writing.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		EntityType string `json:"entity_type"`        // "task" or "list"
-		EntityID   string `json:"entity_id"`          // task or list id, or unambiguous prefix
-		AgentID    string `json:"agent_id,omitempty"` // short label; default: this server's identity
-		Kind       string `json:"kind,omitempty"`     // "working" or "inspecting"; default "working"
-		Release    bool   `json:"release,omitempty"`  // true stops the spinner instead of starting it
-	}) (*mcp.CallToolResult, any, error) {
-		if in.EntityType != "task" && in.EntityType != "list" {
-			return errorResult(fmt.Errorf("entity_type must be \"task\" or \"list\", got %q", in.EntityType)), nil, nil
-		}
-		if in.AgentID == "" {
-			in.AgentID = identity
-		}
-		if in.Kind == "" {
-			in.Kind = "working"
-		}
-		if in.Kind != "working" && in.Kind != "inspecting" {
-			return errorResult(fmt.Errorf("kind must be \"working\" or \"inspecting\", got %q", in.Kind)), nil, nil
-		}
-		id, err := s.ResolveID(in.EntityType, in.EntityID)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		if in.Release {
-			if err := s.ReleaseWork(in.EntityType, id, in.AgentID); err != nil {
-				return errorResult(err), nil, nil
-			}
-			return jsonResult(map[string]bool{"ok": true})
-		}
-		activityID, err := s.ClaimWork(in.EntityType, id, in.AgentID, store.ActivityKind(in.Kind))
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		return jsonResult(map[string]string{"id": activityID})
-	})
-}
-
 // addWorkResource registers the crush://work static resource — a read-only
 // mirror of list_work so any MCP host that auto-reads resources surfaces it
-// (docs/plan/mcp-server-enhancement.md §3.8).
+// (docs/plan/mcp-server-enhancement.md §3.8). The claim_work tool that used
+// to write this set is gone (docs/plan/mcp-assignment-and-priorities.md §4):
+// presence claims now come only from task writes (autoClaim).
 func addWorkResource(server *mcp.Server, s *store.Store) {
 	server.AddResource(&mcp.Resource{
 		URI:         "crush://work",
@@ -1414,12 +1652,12 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 			"1. Open the session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.\n" +
 			"2. Get your tasks from Chore Crusher at the start of every session and refresh them as you go; read from it rather than working from memory.\n" +
 			"3. Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).\n" +
-			"4. Starting a task = set_status(ids, progress=...) on it: that flips it to in_progress and auto-claims it (the spinner shows), so you do not need a separate claim_work unless reserving it before you write.\n" +
+			"4. Starting a task: assign_task(ids=[...]) grabs a specific task durably; next_task(list_id) grabs the top eligible one in one call. set_status(ids, progress=...) flips it to in_progress and auto-claims it (the spinner shows).\n" +
 			"5. Set a percentage scaled to the task: progress='percentage' with percent ~= fraction of steps done for multi-step work; progress='subtasks' when it has children; progress='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +
 			"6. Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave add_comment notes at decision points on tasks you do not own.\n" +
 			"7. After finishing: re-read the task's comments, then set_status(ids, status='complete').\n" +
 			"8. Before the next task: check what changed since you last looked (list_tasks(list_id, since=<time of your last call>)) — priorities or comments may have moved.\n\n" +
-			"Pick one pending task (prefer a foreign list), claim it with claim_work, and start working. Do not fan out to show_task for tasks whose has_notes is false."
+			"Pick one pending task (prefer a foreign list), grab it with next_task (or assign_task for a specific one), and start working. Do not fan out to show_task for tasks whose has_notes is false."
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{{
 				Role:    "user",
