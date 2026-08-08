@@ -431,3 +431,57 @@ func TestSetPriorityRejectsInvalidValue(t *testing.T) {
 		t.Fatalf("SetPriority on missing task error = %v, want not found", err)
 	}
 }
+
+// TestSetPriorityBumpsUpdatedAt pins the half of SetPriority that is not
+// about the column: an accepted write bumps updated_at, so a priority change
+// surfaces in list_tasks(since=...) (docs/DESIGN.md §9 — updated_at means
+// "last activity"), and a REJECTED write touches nothing at all.
+//
+// updated_at is unix SECONDS, so a task created and re-prioritised in the
+// same second shows no change and TasksChangedSince's strict > finds nothing.
+// The backdating here is what makes the assertion about SetPriority rather
+// than about clock granularity.
+func TestSetPriorityBumpsUpdatedAt(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	id := mustTask(t, s, lid, "task", nil)
+
+	const old = int64(1000000)
+	backdate := func() {
+		t.Helper()
+		if _, err := s.db.Exec(`UPDATE Task SET updated_at = ? WHERE id = ?`, old, id); err != nil {
+			t.Fatalf("backdate: %v", err)
+		}
+	}
+
+	backdate()
+	if err := s.SetPriority(id, PriorityHigh); err != nil {
+		t.Fatalf("SetPriority(high): %v", err)
+	}
+	got, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.UpdatedAt <= old {
+		t.Fatalf("accepted SetPriority left updated_at at %d, want a bump past %d", got.UpdatedAt, old)
+	}
+	changed, err := s.TasksChangedSince(lid, old)
+	if err != nil {
+		t.Fatalf("TasksChangedSince: %v", err)
+	}
+	if len(changed) != 1 || changed[0].ID != id {
+		t.Fatalf("priority change not visible to TasksChangedSince: got %d rows", len(changed))
+	}
+
+	backdate()
+	if err := s.SetPriority(id, "urgent"); !errors.Is(err, ErrInvalidPriority) {
+		t.Fatalf("SetPriority(urgent) error = %v, want ErrInvalidPriority", err)
+	}
+	got, err = s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask after rejected write: %v", err)
+	}
+	if got.UpdatedAt != old {
+		t.Fatalf("rejected SetPriority bumped updated_at to %d; a refused write must touch nothing", got.UpdatedAt)
+	}
+}
