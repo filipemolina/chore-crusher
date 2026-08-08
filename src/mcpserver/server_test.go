@@ -1466,9 +1466,9 @@ func TestMCPWorkResource(t *testing.T) {
 // zero templates. The five that used to live here — crush:///lists,
 // crush:///lists/{id}, crush:///lists/{id}/tasks, crush:///tasks/{id} and
 // crush:///search/{query} — were row-for-row duplicates of my_list /
-// list_tasks / show_task / search_tasks and were deleted. This test is
-// what stops them coming back: a new field belongs on the tool, not on a second surface
-// that has to be kept in sync with it.
+// list_tasks / show_task / search_tasks and were deleted. This test is what
+// stops them coming back: a new field belongs on the tool, not on a second
+// surface that has to be kept in sync with it.
 func TestMCPResourcesListed(t *testing.T) {
 	session := setupMCP(t)
 
@@ -1648,7 +1648,7 @@ func TestMCPBreakdownPrompt(t *testing.T) {
 // structural write tool (add_task, edit_task, delete_task) errors on a list
 // owned by another agent — not just one of them. The server here acts as
 // "pi"; the list is created as "claude". (rename_list/delete_list are no
-// longer MCP tools — they were removed in the consolidation.)
+// longer MCP tools.)
 func TestMCPForeignListWriteRefused(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
@@ -2689,8 +2689,8 @@ func TestShowTasksCap(t *testing.T) {
 }
 
 // TestCommentAddRoundTrip pins the comment tool's add mode: it succeeds on a
-// normal task, attributes the comment to the server identity, and the comment appears in a
-// subsequent show_task.
+// normal task, attributes the comment to the server identity, and the
+// comment appears in a subsequent show_task.
 func TestCommentAddRoundTrip(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 

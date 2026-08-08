@@ -1068,9 +1068,8 @@ func autoClaim(s *store.Store, entityType, entityID, agentID string) {
 // every agent: a human manages it via the CLI/TUI, which are deliberately
 // unenforced. The check runs after ResolveID, so listID is the suffix-free
 // id; the error names that id so the agent knows which list refused it. Step
-// D wires this into the structural
-// tools; it is defined here (Step C) so the identity read and the helper
-// land together.
+// D wires this into the structural tools; it is defined here (Step C) so the
+// identity read and the helper land together.
 func requireWritable(s *store.Store, identity, listID string) error {
 	l, err := s.GetList(listID)
 	if err != nil {
@@ -1088,8 +1087,9 @@ func requireWritable(s *store.Store, identity, listID string) error {
 
 // requireWritableTask rejects a structural write to the list a task belongs
 // to. It resolves the task, reads its ListID, and applies requireWritable —
-// so rename_task/set_notes/ delete_task defer to the same owner check as the
-// task's own.
+// so rename_task/set_notes/delete_task defer to the same owner check as the
+// list tools. move_task is handled inline because its target list is the
+// *parent's* list, not the task's own.
 func requireWritableTask(s *store.Store, identity, taskID string) error {
 	t, err := s.GetTask(taskID)
 	if err != nil {
@@ -1251,10 +1251,10 @@ func liveState(live map[string]bool, holder string) string {
 // (docs/DESIGN.md §9): a row is included when its own status matches, not
 // its root ancestor's. The old root-based walk was a "section" filter
 // mirroring the TUI's Pending/Complete split and dropped whole subtrees when
-// the root was in a different state — that is the behaviour this replaces
-// The CLI's identically
-// named function (src/cli/tasks.go) KEEPS the root-based semantics for the
-// human-facing Pending/Complete sections; do not merge them back.
+// the root was in a different state — that is the behaviour this replaces.
+// The CLI's identically named function (src/cli/tasks.go) KEEPS the
+// root-based semantics for the human-facing Pending/Complete sections; do
+// not merge them back.
 //
 // A matching row's non-matching ancestors are emitted as skeleton rows
 // (context_only=true) so parent_id chains and depth stay meaningful; a
@@ -1412,12 +1412,11 @@ func taskDetailsJSONFor(s *store.Store, id string, live map[string]bool) (taskDe
 
 // descendantRows reports every descendant of rootID (the task itself
 // excluded) as depth-annotated rows with derived progress per row, using the
-// shared apptypes.DescendantsOf so `crush show` and show_task cannot drift
-// Depth is relative to rootID: direct children at depth 1. The previous
-// code ran a store-level walk
-// through apptypes.Flatten, but Flatten only emits ParentID==nil rows, so a
-// pure-descendant set (no list root) flattened to nothing and "children"
-// was always empty.
+// shared apptypes.DescendantsOf so `crush show` and show_task cannot drift.
+// Depth is relative to rootID: direct children at depth 1. The previous code
+// ran a store-level walk through apptypes.Flatten, but Flatten only emits
+// ParentID==nil rows, so a pure-descendant set (no list root) flattened to
+// nothing and "children" was always empty.
 //
 // Every row carries its full notes and comments, uncapped: a task's subtree
 // is bounded, so one show_task call must be self-contained. live maps
@@ -1559,7 +1558,7 @@ func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 //
 // Comment presence comes from ONE store.TaskIDsWithComments query for the
 // whole list, not a ListComments per row: that helper exists for this exact
-// N+1 — a per-request read stays per-request). Only rows the set says are
+// N+1 — a per-request read stays per-request. Only rows the set says are
 // commented are read.
 func inlineBodyBudget(s *store.Store, listID string, rows []taskRowJSON, tasks []store.Task, includeNotes, includeComments bool) (elided []string, budgetExceeded bool, err error) {
 	byID := make(map[string]string, len(tasks))
@@ -1692,13 +1691,12 @@ func addWorkResource(server *mcp.Server, s *store.Store) {
 //
 // crush:///lists, crush:///lists/{id}, crush:///lists/{id}/tasks,
 // crush:///tasks/{id} and crush:///search/{query} used to live here and were
-// deleted: each was a
-// row-for-row duplicate of my_list / list_tasks / show_task / search_tasks,
-// and docs/DESIGN.md §9 pins resource rows as a superset of the CLI's --json
-// shapes — so every field added to a task had to be added in three places or
-// the surfaces drifted. Hosts do not auto-read resources, so they cost
-// maintenance and bought nothing at runtime. Do not re-add them; add the
-// field to the tool instead.
+// deleted: each was a row-for-row duplicate of my_list / list_tasks /
+// show_task / search_tasks, and docs/DESIGN.md §9 pins resource rows as a
+// superset of the CLI's --json shapes — so every field added to a task had
+// to be added in three places or the surfaces drifted. Hosts do not
+// auto-read resources, so they cost maintenance and bought nothing at
+// runtime. Do not re-add them; add the field to the tool instead.
 func addResources(server *mcp.Server, s *store.Store, identity string) {
 	// Static: crush:///inbox — one-shot start-of-session context:
 	// your list plus every foreign list, each with up to 20 pending tasks
