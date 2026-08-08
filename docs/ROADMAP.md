@@ -4,8 +4,10 @@ The ordered plan from an empty repository to a usable alpha, and **why that
 order**. The alpha (phases 0–9) is shipped; the rest of this file is the
 live backlog after it.
 
-`docs/plans/` holds the original how for each shipped phase.
-`docs/plan/` holds post-alpha feature plans (MCP, UI, etc.).
+This file is the record. The per-phase and per-feature plans it was written
+from were drafting artifacts and are no longer in the repository; what they
+decided is summarised here, and the contracts they set are in
+`docs/DESIGN.md`.
 
 ## Alpha shipped
 
@@ -15,18 +17,18 @@ test ./...` green at every commit, merged with `--no-ff` so the phase can be
 reverted as a unit — the same convention stack-stitcher's roadmap sets out,
 adopted unchanged here.
 
-| # | Phase | Plan |
-| --- | --- | --- |
-| 0 | Repo scaffolding: module, directory skeleton, CI, Makefile, release config | [`docs/plans/phase-0-scaffolding.md`](plans/phase-0-scaffolding.md) |
-| 1 | Storage layer: schema, migrations, `store` package, the full state machine, unit tests | [`docs/plans/phase-1-storage.md`](plans/phase-1-storage.md) |
-| 2 | CLI surface: every subcommand in `docs/DESIGN.md` §9, wired to `store` | [`docs/plans/phase-2-cli.md`](plans/phase-2-cli.md) |
-| 3 | TUI shell: `AppModel`, ported theme system, layout, poll-tick refresh, quit/help/theme-picker | [`docs/plans/phase-3-tui-shell.md`](plans/phase-3-tui-shell.md) |
-| 4 | Task tree: hierarchical rendering, vim/arrow nav, expand/collapse, `space` toggle with cascade | [`docs/plans/phase-4-task-tree.md`](plans/phase-4-task-tree.md) |
-| 5 | Add input: the level rules from `docs/DESIGN.md` §4, submit/clear | [`docs/plans/phase-5-add-input.md`](plans/phase-5-add-input.md) |
-| 6 | Lists panel: toggle, CRUD gated on visible+focused, switching lists | [`docs/plans/phase-6-lists-panel.md`](plans/phase-6-lists-panel.md) |
-| 7 | Details screen: notes textarea, progress-kind/percent editor | [`docs/plans/phase-7-details-screen.md`](plans/phase-7-details-screen.md) |
-| 8 | Search: local fuzzy filter (`/`) and the cross-list picker (`F`) | [`docs/plans/phase-8-search.md`](plans/phase-8-search.md) |
-| 9 | Polish and release: narrow-terminal handling, `crush mv`, VHS demo, tagged release | [`docs/plans/phase-9-polish-release.md`](plans/phase-9-polish-release.md) |
+| # | Phase |
+| --- | --- |
+| 0 | Repo scaffolding: module, directory skeleton, CI, Makefile, release config |
+| 1 | Storage layer: schema, migrations, `store` package, the full state machine, unit tests |
+| 2 | CLI surface: every subcommand in `docs/DESIGN.md` §9, wired to `store` |
+| 3 | TUI shell: `AppModel`, ported theme system, layout, poll-tick refresh, quit/help/theme-picker |
+| 4 | Task tree: hierarchical rendering, vim/arrow nav, expand/collapse, `space` toggle with cascade |
+| 5 | Add input: the level rules from `docs/DESIGN.md` §4, submit/clear |
+| 6 | Lists panel: toggle, CRUD gated on visible+focused, switching lists |
+| 7 | Details screen: notes textarea, progress-kind/percent editor |
+| 8 | Search: local fuzzy filter (`/`) and the cross-list picker (`F`) |
+| 9 | Polish and release: narrow-terminal handling, `crush mv`, VHS demo, tagged release |
 
 ### Decisions already taken
 
@@ -87,8 +89,7 @@ equivalent list asks for:
 
 The founding use case after alpha: **agents use Chore Crusher as their todo
 list, and humans create tasks for agents to work on**, with the TUI as the live
-dashboard. Plans live under `docs/plan/` (and the comfort plan at the repo
-root).
+dashboard.
 
 **Surface today:** `crush mcp` — **12 tools, 2 resources, 2 prompts**. The
 identity an agent acts under comes from `CRUSH_AGENT` when set, and is
@@ -197,11 +198,11 @@ decision it depends on.
 - **Due dates and a `StatusOverdue` that means something.** The theme
   registry already reserves the color (`docs/DESIGN.md` §11); nothing reads
   it until this lands.
-- ~~**Priorities and assignees.**~~ **Shipped** — both landed with
-  `docs/plan/mcp-assignment-and-priorities.md` as `Task.priority` and
-  `Task.assignee`, along with the tools, CLI commands and TUI badges that
-  read them. The "Decisions already taken" note above deferring them was
-  scoped to the *first alpha* and stands as a record of that scope.
+- ~~**Priorities and assignees.**~~ **Shipped** — both landed with the
+  assignment-and-priorities work as `Task.priority` and `Task.assignee`,
+  along with the tools, CLI commands and TUI badges that read them. The
+  "Decisions already taken" note above deferring them was scoped to the
+  *first alpha* and stands as a record of that scope.
 - **Sync or export** (git-friendly export a la Backlog.md; a CalDAV bridge).
   Needs a decision about which, if either, before any code — see
   `docs/DESIGN.md` §1.
