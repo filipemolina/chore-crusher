@@ -107,9 +107,11 @@ is the planning-layer state; the animated spinner the TUI renders on a row
 is *presence* — the claim that an agent's fingers are on this task right
 now. Any task write — add, rename, notes, comment, move, or a status/
 progress change — lights the spinner too (server-managed `autoClaim`), so
-an agent that just starts working needs no separate call to be visible.
+an agent that just starts working needs no separate call to be visible. The
+spinner clears when the claim expires after two minutes of silence — an
+assignment that outlives its spinner is the stale-assignment signal.
 Status and progress writes keep a live claim alive (a write-heartbeat), and
-he skill tells the agent to re-claim after a pause. The lists panel shows
+the skill tells the agent to re-claim after a pause. The lists panel shows
 the spinner on any list an agent is working inside, not just on lists claimed
 as a whole. The
 pane stays open, and you see *which* row the agent is on — not just that the
@@ -161,9 +163,10 @@ can discover without reading source. Two jobs, one board:
   comments) for 1–50 tasks in one call; `list_tasks(list_id, since=…)`
   incrementally checks whether a list moved since your last call (scoped per
   list via `updated_at`); `set_status(ids, status?, progress?, percent?,
-  comment?)` is the one status/progress write, collapsing N writes into one
-  and reopening a complete task before applying progress; `edit_task` merges
-  rename + notes + move into a single call; `assign_task(ids, release?,
+  comment?, force?)` is the one status/progress write, collapsing N writes
+  into one and reopening a complete task before applying progress;
+  `edit_task` merges rename + notes + move into a single call;
+  `assign_task(ids, release?,
   force?)` durably assigns 1–50 tasks to you and returns their full
   `show_task` payloads (release=true unassigns, force=true takes a task
   from its holder and records a takeover comment); `next_task(list_id)`

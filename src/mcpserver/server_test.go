@@ -1067,6 +1067,67 @@ func TestMCPGuardedWriteForceTakeover(t *testing.T) {
 	}
 }
 
+// TestMCPRefusedForcedWriteLeavesAssignmentAlone pins the ORDER of the two
+// gates on edit_task and delete_task: list ownership first, the §7
+// assignment guard last. The guard's force branch is itself a write — it
+// reassigns the task and records a takeover comment — so running it ahead
+// of a check that can still refuse leaves the task taken over by a write
+// that never landed. That is the same half-happened write the re-parent
+// gate exists to prevent (docs/DESIGN.md §9), and it is not covered by
+// TestMCPGuardedWriteForceTakeover, whose foreign-list probe runs when the
+// caller already holds the task and so returns before the force branch.
+func TestMCPRefusedForcedWriteLeavesAssignmentAlone(t *testing.T) {
+	dataDir := t.TempDir()
+
+	alice := sessionAs(t, dataDir, "alice")
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_list", map[string]any{"name": "Work"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, alice, "add_task", map[string]any{
+		"list_id": list["id"], "title": "Write docs",
+	}), &task)
+	callTool(t, alice, "assign_task", map[string]any{"ids": []string{task["id"]}})
+
+	// bob owns neither the list nor the task. Both forced structural writes
+	// must be refused by list ownership.
+	bob := sessionAs(t, dataDir, "bob")
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"edit_task", map[string]any{"id": task["id"], "title": "stolen", "force": true}},
+		{"delete_task", map[string]any{"id": task["id"], "force": true}},
+	} {
+		msg := callToolErr(t, bob, tc.tool, tc.args)
+		if !strings.Contains(msg, "owned by alice") {
+			t.Fatalf("forced %s on alice's list = %q, want the list-owner refusal", tc.tool, msg)
+		}
+	}
+
+	// The refusals left no trace: alice still holds the task, the title is
+	// untouched, and no takeover comment was written.
+	var got []struct {
+		Title    string `json:"title"`
+		Assignee string `json:"assignee"`
+		Comments []struct {
+			Author string `json:"author"`
+			Note   string `json:"note"`
+		} `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, alice, "show_task", map[string]any{"ids": []string{task["id"]}}), &got)
+	if len(got) != 1 || got[0].Assignee != "alice" {
+		t.Fatalf("a refused forced write must not reassign, got %+v", got)
+	}
+	if got[0].Title != "Write docs" {
+		t.Fatalf("title = %q, want the refused edit to have changed nothing", got[0].Title)
+	}
+	for _, c := range got[0].Comments {
+		if strings.Contains(c.Note, "took this task") {
+			t.Fatalf("a refused forced write recorded a takeover comment: %q", c.Note)
+		}
+	}
+}
+
 // TestMCPAssignTaskRelease guards the release semantics (§4): release=true
 // succeeds silently when nobody holds the task; ids validation is enforced.
 func TestMCPAssignTaskRelease(t *testing.T) {
