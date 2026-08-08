@@ -64,7 +64,7 @@ func setupMCPAs(t *testing.T, identity string) *mcp.ClientSession {
 // multiple sessions from this helper share one store (the same pattern
 // TestInboxResourceReturnsMineAndForeign builds inline for a human+pi pair).
 // Used where a test needs two distinct CRUSH_AGENT identities acting on the
-// same data, e.g. the delete_comment cross-author refusal.
+// same data, e.g. the comment tool's delete-mode cross-author refusal.
 func sessionAs(t *testing.T, dataDir, identity string) *mcp.ClientSession {
 	t.Helper()
 	t.Setenv("XDG_DATA_HOME", dataDir)
@@ -244,7 +244,7 @@ func TestMCPToolSurface(t *testing.T) {
 	want := []string{
 		"my_list", "list_tasks", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_status",
-		"add_comment", "delete_comment", "add_list", "assign_task", "next_task",
+		"comment", "add_list", "assign_task", "next_task",
 	}
 	for _, name := range want {
 		if !got[name] {
@@ -255,7 +255,7 @@ func TestMCPToolSurface(t *testing.T) {
 		"list_lists", "show_tasks", "toggle_task", "update_tasks", "rename_task",
 		"set_notes", "move_task", "rename_list", "delete_list", "release_work",
 		"list_work", "set_progress", "complete_task", "reopen_task",
-		"claim_work", "list_changes",
+		"claim_work", "list_changes", "add_comment", "delete_comment",
 	} {
 		if got[name] {
 			t.Errorf("removed tool %q is still registered", name)
@@ -361,7 +361,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	wantTools := []string{
 		"my_list", "list_tasks", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_status",
-		"add_comment", "delete_comment", "add_list", "assign_task", "next_task",
+		"comment", "add_list", "assign_task", "next_task",
 	}
 	lower := strings.ToLower(instructions)
 	if !strings.Contains(lower, "chore_crusher_") {
@@ -379,7 +379,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	removed := []string{"list_lists", "release_work", "list_work", "rename_list",
 		"delete_list", "update_tasks", "toggle_task", "rename_task", "set_notes",
 		"move_task", "show_tasks", "set_progress", "complete_task", "reopen_task",
-		"claim_work", "list_changes"}
+		"claim_work", "list_changes", "add_comment", "delete_comment"}
 	for _, name := range removed {
 		if strings.Contains(lower, name+"(") {
 			t.Fatalf("Instructions still names removed tool %q;\nfull text:\n%s", name, instructions)
@@ -2178,7 +2178,7 @@ func TestListTasksSinceSeesNewComment(t *testing.T) {
 
 	cutoff := time.Now().Unix()
 	time.Sleep(1100 * time.Millisecond)
-	callTool(t, session, "add_comment", map[string]any{"task_id": a["id"], "note": "ping"})
+	callTool(t, session, "comment", map[string]any{"task_id": a["id"], "note": "ping"})
 
 	rows := listTasks(t, session, map[string]any{
 		"list_id": list["id"], "since": cutoff,
@@ -2350,11 +2350,11 @@ func TestShowTasksBatch(t *testing.T) {
 	}), &b)
 	// Add a comment to A so we can assert the merged show_task includes it.
 	cid, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "add_comment",
+		Name:      "comment",
 		Arguments: map[string]any{"task_id": a["id"], "note": "hi"},
 	})
 	if err != nil {
-		t.Fatalf("add_comment: %v", err)
+		t.Fatalf("comment: %v", err)
 	}
 	var cres struct {
 		ID string `json:"id"`
@@ -2427,7 +2427,7 @@ func TestMCPShowTaskReturnsDescendantNotesAndComments(t *testing.T) {
 		"parent":  child["id"],
 	}), &grand)
 
-	callTool(t, session, "add_comment", map[string]any{
+	callTool(t, session, "comment", map[string]any{
 		"task_id": child["id"],
 		"note":    "checking in",
 	})
@@ -2491,10 +2491,11 @@ func TestShowTasksCap(t *testing.T) {
 	}
 }
 
-// TestMCPAddCommentRoundTrip pins the add_comment tool (docs/plan/task-comments.md §4):
-// it succeeds on a normal task, attributes the comment to the server identity,
-// and the comment appears in a subsequent show_task.
-func TestMCPAddCommentRoundTrip(t *testing.T) {
+// TestCommentAddRoundTrip pins the comment tool's add mode (plan step 10,
+// merging docs/plan/task-comments.md §4): it succeeds on a normal task,
+// attributes the comment to the server identity, and the comment appears in a
+// subsequent show_task.
+func TestCommentAddRoundTrip(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
@@ -2505,18 +2506,18 @@ func TestMCPAddCommentRoundTrip(t *testing.T) {
 	}), &task)
 
 	cid, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "add_comment",
+		Name:      "comment",
 		Arguments: map[string]any{"task_id": task["id"], "note": "hello"},
 	})
 	if err != nil {
-		t.Fatalf("add_comment: %v", err)
+		t.Fatalf("comment: %v", err)
 	}
 	var res struct {
 		ID string `json:"id"`
 	}
 	mustUnmarshal(t, textContent(t, cid), &res)
 	if res.ID == "" {
-		t.Fatal("add_comment returned empty id")
+		t.Fatal("comment returned empty id")
 	}
 
 	var detailsArr []struct {
@@ -2548,9 +2549,9 @@ func TestMCPAddCommentRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMCPAddCommentRefusedOnDisabledList pins the list-level disable flag
+// TestCommentAddRefusedOnDisabledList pins the list-level disable flag
 // enforcement over MCP (docs/plan/task-comments.md §4).
-func TestMCPAddCommentRefusedOnDisabledList(t *testing.T) {
+func TestCommentAddRefusedOnDisabledList(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
@@ -2571,7 +2572,7 @@ func TestMCPAddCommentRefusedOnDisabledList(t *testing.T) {
 		t.Fatalf("disable: %v", err)
 	}
 
-	msg := callToolErr(t, session, "add_comment", map[string]any{
+	msg := callToolErr(t, session, "comment", map[string]any{
 		"task_id": task["id"], "note": "hello",
 	})
 	if !strings.Contains(msg, "disabled") {
@@ -2579,10 +2580,10 @@ func TestMCPAddCommentRefusedOnDisabledList(t *testing.T) {
 	}
 }
 
-// TestMCPAddCommentRejectsExplicitAuthor pins the plan's recommendation to
+// TestCommentAddRejectsExplicitAuthor pins the plan's recommendation to
 // reject an explicit author rather than silently ignoring it — comments are
 // always attributed to the server's identity.
-func TestMCPAddCommentRejectsExplicitAuthor(t *testing.T) {
+func TestCommentAddRejectsExplicitAuthor(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
@@ -2592,7 +2593,7 @@ func TestMCPAddCommentRejectsExplicitAuthor(t *testing.T) {
 		"list_id": list["id"], "title": "task",
 	}), &task)
 
-	msg := callToolErr(t, session, "add_comment", map[string]any{
+	msg := callToolErr(t, session, "comment", map[string]any{
 		"task_id": task["id"], "note": "hello", "author": "someone-else",
 	})
 	if !strings.Contains(msg, "author") {
@@ -2600,10 +2601,10 @@ func TestMCPAddCommentRejectsExplicitAuthor(t *testing.T) {
 	}
 }
 
-// TestMCPAddCommentRefusedOnMissingTask verifies the existence check.
-func TestMCPAddCommentRefusedOnMissingTask(t *testing.T) {
+// TestCommentAddRefusedOnMissingTask verifies the existence check.
+func TestCommentAddRefusedOnMissingTask(t *testing.T) {
 	session := setupMCP(t)
-	msg := callToolErr(t, session, "add_comment", map[string]any{
+	msg := callToolErr(t, session, "comment", map[string]any{
 		"task_id": "01ARZ", "note": "hello",
 	})
 	if !strings.Contains(msg, "not found") {
@@ -2611,10 +2612,11 @@ func TestMCPAddCommentRefusedOnMissingTask(t *testing.T) {
 	}
 }
 
-// TestMCPDeleteCommentRefusesAnotherAuthor pins the ownership rule that
-// makes delete_comment safe to expose to agents at all: an identity may
-// never delete a comment it did not write, even on a list it owns.
-func TestMCPDeleteCommentRefusesAnotherAuthor(t *testing.T) {
+// TestCommentDeleteRefusesAnotherAuthor pins the ownership rule that
+// makes the comment tool's delete mode safe to expose to agents at all: an
+// identity may never delete a comment it did not write, even on a list it
+// owns.
+func TestCommentDeleteRefusesAnotherAuthor(t *testing.T) {
 	dataDir := t.TempDir()
 
 	piSession := sessionAs(t, dataDir, "pi")
@@ -2625,13 +2627,13 @@ func TestMCPDeleteCommentRefusesAnotherAuthor(t *testing.T) {
 		"list_id": list["id"], "title": "task",
 	}), &task)
 	var comment map[string]string
-	mustUnmarshal(t, callTool(t, piSession, "add_comment", map[string]any{
+	mustUnmarshal(t, callTool(t, piSession, "comment", map[string]any{
 		"task_id": task["id"], "note": "pi's comment",
 	}), &comment)
 
 	claudeSession := sessionAs(t, dataDir, "claude")
-	msg := callToolErr(t, claudeSession, "delete_comment", map[string]any{
-		"id": comment["id"], "force": true,
+	msg := callToolErr(t, claudeSession, "comment", map[string]any{
+		"id": comment["id"], "delete": true, "force": true,
 	})
 	if !strings.Contains(msg, "owned by pi") {
 		t.Errorf("expected error naming pi as owner, got %q", msg)
@@ -2652,9 +2654,9 @@ func TestMCPDeleteCommentRefusesAnotherAuthor(t *testing.T) {
 	}
 }
 
-// TestMCPDeleteCommentOwnSucceeds pins the success path: an identity may
+// TestCommentDeleteOwnSucceeds pins the success path: an identity may
 // delete its own comment.
-func TestMCPDeleteCommentOwnSucceeds(t *testing.T) {
+func TestCommentDeleteOwnSucceeds(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
@@ -2664,16 +2666,16 @@ func TestMCPDeleteCommentOwnSucceeds(t *testing.T) {
 		"list_id": list["id"], "title": "task",
 	}), &task)
 	var comment map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_comment", map[string]any{
+	mustUnmarshal(t, callTool(t, session, "comment", map[string]any{
 		"task_id": task["id"], "note": "mine",
 	}), &comment)
 
 	var ok map[string]bool
-	mustUnmarshal(t, callTool(t, session, "delete_comment", map[string]any{
-		"id": comment["id"], "force": true,
+	mustUnmarshal(t, callTool(t, session, "comment", map[string]any{
+		"id": comment["id"], "delete": true, "force": true,
 	}), &ok)
 	if !ok["ok"] {
-		t.Errorf("delete_comment = %+v, want ok:true", ok)
+		t.Errorf("comment delete = %+v, want ok:true", ok)
 	}
 
 	var detailsArr []struct {
@@ -2687,8 +2689,8 @@ func TestMCPDeleteCommentOwnSucceeds(t *testing.T) {
 	}
 }
 
-// TestMCPDeleteCommentRequiresForce mirrors TestMCPDeleteTaskRequiresForce.
-func TestMCPDeleteCommentRequiresForce(t *testing.T) {
+// TestCommentDeleteRequiresForce mirrors TestMCPDeleteTaskRequiresForce.
+func TestCommentDeleteRequiresForce(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	var list map[string]string
@@ -2698,15 +2700,19 @@ func TestMCPDeleteCommentRequiresForce(t *testing.T) {
 		"list_id": list["id"], "title": "task",
 	}), &task)
 	var comment map[string]string
-	mustUnmarshal(t, callTool(t, session, "add_comment", map[string]any{
+	mustUnmarshal(t, callTool(t, session, "comment", map[string]any{
 		"task_id": task["id"], "note": "mine",
 	}), &comment)
 
-	// A missing force key is refused by the tool schema itself before the
-	// handler runs (the same behavior TestMCPDeleteTaskRequiresForce pins for
-	// delete_task) — callToolErr only asserts that it errors, not the exact
-	// message, since that message comes from schema validation, not this code.
-	callToolErr(t, session, "delete_comment", map[string]any{"id": comment["id"]})
+	// With the two comment tools merged, force can no longer be a
+	// schema-required field (add mode never uses it) — the refusal is the
+	// handler's own check, so the message text is now ours to pin.
+	msg := callToolErr(t, session, "comment", map[string]any{
+		"id": comment["id"], "delete": true,
+	})
+	if !strings.Contains(msg, "force=true") {
+		t.Errorf("expected 'deleting a comment requires force=true', got %q", msg)
+	}
 
 	var detailsArr []struct {
 		Comments []struct{ ID string } `json:"comments"`
@@ -2716,6 +2722,64 @@ func TestMCPDeleteCommentRequiresForce(t *testing.T) {
 	}), &detailsArr)
 	if len(detailsArr[0].Comments) != 1 {
 		t.Errorf("comment deleted despite missing force, got %+v", detailsArr[0].Comments)
+	}
+}
+
+// TestCommentAllowedOnAssignedTask pins §4: posting a comment is never
+// blocked by assignment — the §7 guard does not apply to comment, because
+// leaving a note on another agent's task is how coordination is meant to
+// work. Here the task is durably held by pi; claude comments on it with no
+// force and no refusal, and the note lands attributed to claude.
+func TestCommentAllowedOnAssignedTask(t *testing.T) {
+	dataDir := t.TempDir()
+
+	piSession := sessionAs(t, dataDir, "pi")
+	claudeSession := sessionAs(t, dataDir, "claude")
+
+	var list map[string]string
+	mustUnmarshal(t, callTool(t, piSession, "add_list", map[string]any{"name": "Home"}), &list)
+	var task map[string]string
+	mustUnmarshal(t, callTool(t, piSession, "add_task", map[string]any{
+		"list_id": list["id"], "title": "task",
+	}), &task)
+
+	// pi durably grabs the task; the assign payload proves it is held.
+	var assigned []struct {
+		Assignee string `json:"assignee"`
+	}
+	mustUnmarshal(t, callTool(t, piSession, "assign_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &assigned)
+	if len(assigned) != 1 || assigned[0].Assignee != "pi" {
+		t.Fatalf("task must be durably assigned to pi, got %+v", assigned)
+	}
+
+	// claude comments on pi's task — no force, no assignment-guard refusal.
+	var res struct {
+		ID string `json:"id"`
+	}
+	mustUnmarshal(t, callTool(t, claudeSession, "comment", map[string]any{
+		"task_id": task["id"], "note": "headsup, working alongside",
+	}), &res)
+	if res.ID == "" {
+		t.Fatal("comment returned empty id")
+	}
+
+	// The comment is there for pi to see, attributed to claude.
+	var detailsArr []struct {
+		Comments []struct {
+			Author string `json:"author"`
+			Note   string `json:"note"`
+		} `json:"comments"`
+	}
+	mustUnmarshal(t, callTool(t, piSession, "show_task", map[string]any{
+		"ids": []string{task["id"]},
+	}), &detailsArr)
+	if len(detailsArr) != 1 || len(detailsArr[0].Comments) != 1 {
+		t.Fatalf("show_task comments = %+v, want 1", detailsArr[0].Comments)
+	}
+	if detailsArr[0].Comments[0].Author != "claude" || detailsArr[0].Comments[0].Note != "headsup, working alongside" {
+		t.Errorf("comment = %+v, want claude's note", detailsArr[0].Comments[0])
 	}
 }
 
@@ -2732,7 +2796,7 @@ func hasClaim(t *testing.T, session *mcp.ClientSession, taskID, agent string) bo
 	return false
 }
 
-func TestAddCommentAutoClaims(t *testing.T) {
+func TestCommentAutoClaims(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
 	mustUnmarshal(t, callTool(t, session, "add_list", map[string]any{"name": "T"}), &list)
@@ -2740,13 +2804,14 @@ func TestAddCommentAutoClaims(t *testing.T) {
 	mustUnmarshal(t, callTool(t, session, "add_task", map[string]any{
 		"list_id": list["id"], "title": "work",
 	}), &task)
-	// add_task now auto-claims too, so release first to prove add_comment claims.
+	// add_task now auto-claims too, so release first to prove comment's add
+	// mode claims.
 	releaseWork(t, "task", task["id"], "pi")
-	callTool(t, session, "add_comment", map[string]any{
+	callTool(t, session, "comment", map[string]any{
 		"task_id": task["id"], "note": "checking in",
 	})
 	if !hasClaim(t, session, task["id"], "pi") {
-		t.Errorf("add_comment should have auto-claimed the task")
+		t.Errorf("comment add should have auto-claimed the task")
 	}
 }
 

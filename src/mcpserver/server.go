@@ -137,7 +137,7 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 		Version: constants.Version(),
 	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
 
-IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: delete_comment only removes a comment whose author is your own tag, regardless of who owns the list it's on.
+IDENTITY & OWNERSHIP. You act under the tag CRUSH_AGENT (here: "` + identity + `"). Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything and change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: only the comment tool's delete mode (comment(id=..., delete=true, force=true)) removes a comment, and only one whose author is your own tag, regardless of who owns the list it's on.
 
 IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
@@ -150,8 +150,7 @@ TOOLS (chore_crusher_<name>):
 - edit_task(id, title?, notes?, parent?, to_root?) — change any field; notes replaces the whole body; parent re-parents; to_root moves to the list root
 - delete_task(id, force=true)
 - set_status(ids, status?, progress?, percent?, comment?, force?) — the one status/progress write; status=pending|in_progress|complete (complete cascades and auto-unassigns), progress=simple|subtasks|percentage flips the task to in_progress (percent only with percentage), comment lands after the state change; a complete task is reopened first, so progress never errors; force=true performs the write on a task assigned to another agent and records a takeover comment
-- add_comment(task_id, note) — attributed to your tag
-- delete_comment(id, force=true) — only your own comments (author == your tag), regardless of list ownership
+- comment(task_id, note) — add a comment on any task, never blocked by assignment (coordination between agents); attributed to your tag. comment(id=..., delete=true, force=true) — delete only your own comments (author == your tag), regardless of list ownership
 - add_list(name, created_by?) — owned by you
 - assign_task(ids, release?, force?) — the durable grab: assign 1..50 tasks to yourself (this server's identity) and get their full show_task payloads; release=true unassigns (silently succeeds if you did not hold it); force=true takes a task from its holder and records a takeover comment — but a task blocked by an ancestor/descendant assigned to another agent is refused EVEN with force; release the blocker first
 - next_task(list_id) — atomically grab and read the top eligible task for you: highest priority (high > medium > low > none), then tree order; nothing eligible returns {ok:false, reason:'no eligible task in this list'} (not an error)
@@ -159,7 +158,7 @@ TOOLS (chore_crusher_<name>):
 KEEP THE BOARD LIVE (do this yourself, unasked):
 - Grab before you research: next_task(list_id) hands you the top eligible task and everything about it in one call; assign_task(ids=[...]) grabs a specific one.
 - Start a task = set_status(ids, progress=...) on it (flips it to in_progress and lights the spinner). Advance the percentage as you go, not only at the end — the human watches the TUI live.
-- On a list you do not own: read the whole list plus the task's notes and comments first; leave add_comment at decision points; never edit its content.
+- On a list you do not own: read the whole list plus the task's notes and comments first; leave comments at decision points; never edit its content.
 - Finish = set_status(ids, status='complete'). A percentage of 100 does NOT auto-complete.
 
 For the full working loop and a one-read session opener, use the crush_inbox prompt or read the crush:///inbox resource.
@@ -430,13 +429,28 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "add_comment",
-		Description: "Add a comment to a task. Anyone may comment on any task regardless of ownership, unless the list has comments disabled. Example: add_comment(task_id='01ABC...', note='checking in'). author is not accepted — comments are attributed to this server's identity (CRUSH_AGENT).",
+		Name:        "comment",
+		Description: "Add a comment on a task, or delete one of your own. Add: comment(task_id='01ABC...', note='checking in') — anyone may comment on any task regardless of ownership or assignment (posting is never blocked by the assignment guard: leaving a note on another agent's task is how coordination works), unless the list has comments disabled; author is not accepted — comments are attributed to this server's identity (CRUSH_AGENT). Delete: comment(id='01XYZ...', delete=true, force=true) — deletion requires force=true and removes only a comment whose author is this server's identity, regardless of who owns the list it's on; a foreign comment is refused.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		TaskID string `json:"task_id" jsonschema:"task id or unambiguous prefix"`
-		Note   string `json:"note" jsonschema:"the comment text"`
+		TaskID string `json:"task_id,omitempty" jsonschema:"task id or unambiguous prefix (add mode)"`
+		Note   string `json:"note,omitempty" jsonschema:"the comment text (add mode)"`
+		ID     string `json:"id,omitempty" jsonschema:"comment id (delete mode)"`
+		Delete bool   `json:"delete,omitempty" jsonschema:"true deletes the comment instead of adding (delete mode)"`
+		Force  bool   `json:"force,omitempty" jsonschema:"must be true to confirm deletion (delete mode)"`
 		Author string `json:"author,omitempty" jsonschema:"rejected if set — comments are always attributed to the server identity"`
 	}) (*mcp.CallToolResult, any, error) {
+		if in.Delete {
+			if !in.Force {
+				return errorResult(fmt.Errorf("deleting a comment requires force=true")), nil, nil
+			}
+			if _, err := requireOwnComment(s, identity, in.ID); err != nil {
+				return errorResult(err), nil, nil
+			}
+			if err := s.DeleteComment(in.ID); err != nil {
+				return errorResult(err), nil, nil
+			}
+			return jsonResult(map[string]bool{"ok": true})
+		}
 		if in.Author != "" {
 			return errorResult(fmt.Errorf("author is not a supported parameter: comments are attributed to this server's identity (%q)", identity)), nil, nil
 		}
@@ -455,25 +469,6 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		// agent, same as a status/progress write (docs/plan/mcp-presence-on-all-writes.md).
 		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]string{"id": cid})
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "delete_comment",
-		Description: "Delete a comment. Requires force=true. Only your own comments (author == this server's identity) may be deleted, regardless of who owns the comment's list — a foreign comment is refused. Example: delete_comment(id='01ABC...', force=true).",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-		ID    string `json:"id" jsonschema:"comment id"`
-		Force bool   `json:"force" jsonschema:"must be true to confirm deletion"`
-	}) (*mcp.CallToolResult, any, error) {
-		if !in.Force {
-			return errorResult(fmt.Errorf("deleting a comment requires force=true")), nil, nil
-		}
-		if _, err := requireOwnComment(s, identity, in.ID); err != nil {
-			return errorResult(err), nil, nil
-		}
-		if err := s.DeleteComment(in.ID); err != nil {
-			return errorResult(err), nil, nil
-		}
-		return jsonResult(map[string]bool{"ok": true})
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -1654,7 +1649,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 			"3. Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).\n" +
 			"4. Starting a task: assign_task(ids=[...]) grabs a specific task durably; next_task(list_id) grabs the top eligible one in one call. set_status(ids, progress=...) flips it to in_progress and auto-claims it (the spinner shows).\n" +
 			"5. Set a percentage scaled to the task: progress='percentage' with percent ~= fraction of steps done for multi-step work; progress='subtasks' when it has children; progress='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +
-			"6. Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave add_comment notes at decision points on tasks you do not own.\n" +
+			"6. Advance the percentage as you go, not only at the end — the human watches the TUI live. Leave comment notes at decision points on tasks you do not own.\n" +
 			"7. After finishing: re-read the task's comments, then set_status(ids, status='complete').\n" +
 			"8. Before the next task: check what changed since you last looked (list_tasks(list_id, since=<time of your last call>)) — priorities or comments may have moved.\n\n" +
 			"Pick one pending task (prefer a foreign list), grab it with next_task (or assign_task for a specific one), and start working. Do not fan out to show_task for tasks whose has_notes is false."
