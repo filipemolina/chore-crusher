@@ -225,8 +225,7 @@ func validStatusFilter(s string) bool {
 // so a pending root's complete children stay in Pending), applying the
 // --status filter at the root — a root's whole subtree is included or not as
 // a unit. The store rows are converted to apptypes at the boundary, so the
-// shared Flatten (and its Row type) never sees store.Task
-// (docs/plans/phase-3-tui-shell.md step 3).
+// shared Flatten (and its Row type) never sees store.Task.
 func sectionRows(tasks []store.Task, status string) (pending, complete []apptypes.Row) {
 	converted := apptypes.FromStoreTasks(tasks)
 	rows := apptypes.Flatten(converted)
@@ -557,8 +556,7 @@ func formatTime(unix int64) string {
 
 // osUser returns the current OS username for human-authored writes
 // (comments, task creation). Falls back to $USER/$LOGNAME when
-// os/user.Current fails — some minimal containers lack /etc/passwd
-// (docs/plan/task-comments.md §1).
+// os/user.Current fails — some minimal containers lack /etc/passwd.
 func osUser() string {
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		return u.Username
@@ -718,8 +716,7 @@ func runProgress(cmd *cobra.Command, args []string) error {
 // runMv wires `crush mv` to store.Reparent. The --parent flag carries the
 // new parent's id (prefix accepted); an empty --parent — the flag's default,
 // so omitting it entirely — is how a caller asks to move a task to the list
-// root, recorded in docs/DESIGN.md §9 (docs/plans/phase-9-polish-release.md
-// step 1).
+// root, recorded in docs/DESIGN.md §9.
 func runMv(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
@@ -830,8 +827,8 @@ func runUnassign(cmd *cobra.Command, args []string) error {
 // runPriority rejects an empty --level with the §9 error shape rather than
 // defaulting it to none: store.SetPriority refuses the zero value, so an
 // omitted flag must surface as a failure, not a silent re-prioritisation
-// (docs/plan/mcp-assignment-and-priorities.md §6.5). The level's value
-// itself is store.SetPriority's validation, like runProgress's mode.
+// (§6.5). The level's value itself is store.SetPriority's validation, like
+// runProgress's mode.
 func runPriority(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")

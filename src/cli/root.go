@@ -104,7 +104,7 @@ marks the task with that id complete (cascading to descendants).`,
 		},
 	}
 	// Phase 0 printed "crush <version>"; keep that exact shape now that
-	// Cobra owns the flag (docs/plans/phase-2-cli.md step 6).
+	// Cobra owns the flag.
 	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
 	root.PersistentFlags().Bool("json", false,

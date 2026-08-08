@@ -15,7 +15,7 @@ import (
 // keeps the selected row reachable when there are more lists than fit in the
 // panel body: Update forwards navigation to m.list, which scrolls its own
 // viewport. This is Commit 5 step 1 — a passing regression here means the Lists
-// panel needs no second scrolling system (docs/plan/ui-improvements.md).
+// panel needs no second scrolling system.
 func TestListsPanelScrollsToSelection(t *testing.T) {
 	m := New().(Model)
 

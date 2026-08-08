@@ -60,8 +60,7 @@ func TestFooterIsBlankWhileDetailsIsOpen(t *testing.T) {
 
 // TestFooterEmptyTreeAdvertisesNew verifies the empty task tree advertises
 // only n (new) as its context hint: the inline input is the empty state's
-// way in, and navigation/toggle keys have nothing to act on
-// (docs/plan/task-row-cards-and-status.md).
+// way in, and navigation/toggle keys have nothing to act on.
 func TestFooterEmptyTreeAdvertisesNew(t *testing.T) {
 	m := New()
 	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})

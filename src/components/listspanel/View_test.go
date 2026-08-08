@@ -12,7 +12,7 @@ import (
 )
 
 // TestListSpinnerFgRule pins the list-row spinner color rule: Accent on the
-// selected row, TextDim otherwise (docs/plan/mcp-server-enhancement.md §3.7).
+// selected row, TextDim otherwise (§3.7).
 func TestListSpinnerFgRule(t *testing.T) {
 	if got := spinnerFg(true); got != appstyles.Active.Accent {
 		t.Errorf("selected spinner fg = %v, want Accent", got)
@@ -23,10 +23,9 @@ func TestListSpinnerFgRule(t *testing.T) {
 }
 
 // TestRenderListRowShowsSpinnerWhenClaimed pins the agent-presence render for
-// list rows (docs/plan/mcp-server-enhancement.md §3.7): a claimed list
-// appends the animated spinner glyph for the delegate's animFrame plus the
-// short agent id after the pending/done count, and an unclaimed list renders
-// none.
+// list rows (§3.7): a claimed list appends the animated spinner glyph for
+// the delegate's animFrame plus the short agent id after the pending/done
+// count, and an unclaimed list renders none.
 func TestRenderListRowShowsSpinnerWhenClaimed(t *testing.T) {
 	item := apptypes.ListSummary{
 		List:          apptypes.List{ID: "L1", Name: "Groceries"},
@@ -62,9 +61,8 @@ func TestRenderListRowShowsSpinnerWhenClaimed(t *testing.T) {
 }
 
 // TestRenderListRowShowsSpinnerWhenTaskClaimed pins the task-claim aggregate
-// (docs/plan/agent-presence-heartbeat.md §3.4): a list with any live task
-// claim renders the spinner without an agent id, and a simultaneous
-// list-level claim wins (spinner + agent id).
+// (§3.4): a list with any live task claim renders the spinner without an
+// agent id, and a simultaneous list-level claim wins (spinner + agent id).
 func TestRenderListRowShowsSpinnerWhenTaskClaimed(t *testing.T) {
 	item := apptypes.ListSummary{
 		List:          apptypes.List{ID: "L1", Name: "Groceries"},

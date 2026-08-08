@@ -7,7 +7,7 @@ var spinner = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"
 
 // Spinner returns the braille spinner glyph for the given frame index.
 // Frame is taken modulo 8 so callers can just increment without bounds
-// checking (docs/plan/mcp-server-enhancement.md §3.7).
+// checking.
 func Spinner(frame int) string {
 	return spinner[frame%len(spinner)]
 }

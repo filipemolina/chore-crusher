@@ -15,7 +15,7 @@ const focusedZoneID = constants.COMPONENT_LISTS_PANEL
 
 // Model is the lists-panel zone. It renders the store's lists as a bubbles
 // list with the same card-style rows as stack-stitcher's groups list
-// (docs/plans/stack-stitcher-sister-tui.md, phase B step 1).
+// (phase B step 1).
 type Model struct {
 	focused      bool
 	body         cmds.SetBodyLayoutMsg

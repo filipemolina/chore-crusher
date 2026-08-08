@@ -52,8 +52,7 @@ func newListsCmd() *cobra.Command {
 			}
 			// --owner provisions the list for an agent up front (the MCP server
 			// refuses structural writes on an untagged list); empty keeps the
-			// human-managed behaviour where only the human restructures it
-			// (docs/plan/mcp-agent-todo-hardening.md §4.6).
+			// human-managed behaviour where only the human restructures it.
 			addCmd.Flags().String("owner", "", "owning agent tag (e.g. pi); empty keeps the list human-managed")
 			return addCmd
 		}(),

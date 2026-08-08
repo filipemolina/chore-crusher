@@ -6,9 +6,9 @@ import (
 )
 
 // rank runs store.SearchTasks across all lists and orders the results the
-// same way the CLI's rankSearch does (docs/plans/phase-2-cli.md step 5): title
-// matches first, ranked by fuzzy score, then candidates that matched only on
-// notes in store order. Each result carries its list's name for context.
+// same way the CLI's rankSearch does (step 5): title matches first, ranked
+// by fuzzy score, then candidates that matched only on notes in store
+// order. Each result carries its list's name for context.
 func rank(s *store.Store, query string) []Result {
 	if query == "" {
 		return nil

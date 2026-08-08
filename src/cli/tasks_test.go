@@ -288,9 +288,9 @@ func TestTasksJSONCarriesListOwner(t *testing.T) {
 	}
 }
 
-// TestCommentRoundTrip pins the CLI comment surface (docs/plan/task-comments.md
-// §5): `crush tasks comment` writes a comment attributed to the OS username,
-// and `crush show --json` includes it in the comments array, oldest first.
+// TestCommentRoundTrip pins the CLI comment surface (§5): `crush tasks
+// comment` writes a comment attributed to the OS username, and
+// `crush show --json` includes it in the comments array, oldest first.
 func TestCommentRoundTrip(t *testing.T) {
 	data := t.TempDir()
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
@@ -348,9 +348,8 @@ func TestCommentAuthorIsOSUsername(t *testing.T) {
 	}
 }
 
-// TestCommentRefusedOnDisabledList pins (docs/plan/task-comments.md §1): a
-// task whose list has comments_disabled refuses new comments with a domain
-// error (exit 1).
+// TestCommentRefusedOnDisabledList pins (§1): a task whose list has
+// comments_disabled refuses new comments with a domain error (exit 1).
 func TestCommentRefusedOnDisabledList(t *testing.T) {
 	data := t.TempDir()
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
@@ -630,7 +629,7 @@ func TestPriorityJSONShapes(t *testing.T) {
 	}
 
 	// An omitted --level fails with the §9 error shape and does not default
-	// to none (docs/plan/mcp-assignment-and-priorities.md §6.5).
+	// to none (§6.5).
 	code, out, _ = runCLI(t, data, "priority", tid, "--json")
 	if code != 1 {
 		t.Fatalf("missing --level: exit %d, want 1", code)

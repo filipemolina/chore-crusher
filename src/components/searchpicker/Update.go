@@ -9,7 +9,7 @@ import (
 
 // navBinding is the up/down arrow pair the picker uses to move the result
 // cursor. It deliberately excludes j/k — those are printable characters the
-// text input needs, so only the arrows navigate (docs/plans/phase-8-search.md).
+// text input needs, so only the arrows navigate.
 var navBinding = key.NewBinding(key.WithKeys("up", "down"))
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -152,7 +152,7 @@ func TestHumanErrorGoesToStderr(t *testing.T) {
 }
 
 // TestVersionMatchesPhaseZero keeps the phase-0 output shape ("crush
-// <version>") now that Cobra owns the flag — docs/plans/phase-2-cli.md step 6.
+// <version>") now that Cobra owns the flag.
 func TestVersionMatchesPhaseZero(t *testing.T) {
 	data := t.TempDir()
 	_, out, _ := runCLI(t, data, "--version")

@@ -73,13 +73,12 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// rankSearch orders the LIKE-candidates store.SearchTasks returns
-// (docs/plans/phase-2-cli.md step 5): title matches first, ranked by fuzzy
-// score, then candidates that matched only on notes — which cannot
-// fuzzy-match a title they never hit — in store order, so a notes hit is
-// still a hit, just a weaker one. This is the minimal single-pass version;
-// phase 8 refines the ranking for the TUI's picker rather than rebuilding
-// it.
+// rankSearch orders the LIKE-candidates store.SearchTasks returns: title
+// matches first, ranked by fuzzy score, then candidates that matched only on
+// notes — which cannot fuzzy-match a title they never hit — in store order,
+// so a notes hit is still a hit, just a weaker one. This is the minimal
+// single-pass version; phase 8 refines the ranking for the TUI's picker
+// rather than rebuilding it.
 func rankSearch(s *store.Store, query string, candidates []store.Task) ([]searchResultJSON, error) {
 	lists, err := s.ListLists()
 	if err != nil {

@@ -16,8 +16,7 @@ import (
 // The Priority zone cycles through exactly the four values decision 6 locks,
 // in rank order, wrapping both ways — → always means "more important" until it
 // wraps. Alphabetical order would put high next to low, which is what makes a
-// text column the wrong thing to sort on in the first place
-// (docs/plan/mcp-assignment-and-priorities.md §6.5).
+// text column the wrong thing to sort on in the first place.
 func TestPriorityCyclesThroughFourValuesBothWays(t *testing.T) {
 	m, _, _ := loaded(t, "")
 	m = zoneFor(t, m, focusPriority)
