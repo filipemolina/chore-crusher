@@ -86,7 +86,7 @@ func TestEmptyRefreshClearsSelection(t *testing.T) {
 
 // A 3-level tree whose only title match is a leaf. The /-filter must keep the
 // leaf's whole ancestor chain visible even though none of them match, so the
-// leaf never floats with no visible parent (docs/plans/phase-8-search.md step 1).
+// leaf never floats with no visible parent.
 func TestFilterKeepsAncestorsOfMatchedLeaf(t *testing.T) {
 	root := apptypes.Row{Task: apptypes.Task{ID: "root", Title: "Project"}, Depth: 0, HasChildren: true}
 	sub := apptypes.Row{Task: apptypes.Task{ID: "sub", ParentID: strPtr("root"), Title: "Milestone"}, Depth: 1, HasChildren: true}
@@ -301,7 +301,7 @@ func TestStartCreatingEntersCreateMode(t *testing.T) {
 
 // An empty active list auto-enters inline creation mode: the input is the
 // empty state's way in. It can be left with esc — see
-// TestEscCancelsOnAutoEmpty (docs/plan/task-row-cards-and-status.md).
+// TestEscCancelsOnAutoEmpty.
 func TestEmptyListAutoCreates(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
@@ -465,9 +465,8 @@ func TestCreateRowGlyphForLevelOffset(t *testing.T) {
 }
 
 // TestEscCancelsDiscardsText verifies single-press esc on a list that has
-// rows: one esc cancels creating outright and discards the text
-// (docs/plan/task-row-cards-and-status.md). An EMPTY list parks instead of
-// cancelling — see TestEscParksTheInputOnAnEmptyList.
+// rows: one esc cancels creating outright and discards the text. An EMPTY
+// list parks instead of cancelling — see TestEscParksTheInputOnAnEmptyList.
 func TestEscCancelsDiscardsText(t *testing.T) {
 	m := &Model{}
 	m.applyRows([]apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "one"}}})

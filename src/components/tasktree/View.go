@@ -291,7 +291,7 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 	// An empty list's create row opens under the Pending header: the input
 	// creates a pending task (store.CreateTask inserts status 'pending'), so
 	// the card belongs to the Pending section even while that section has
-	// nothing in it yet (docs/plan/task-row-cards-and-status.md).
+	// nothing in it yet.
 	if m.creating && len(pending) == 0 && len(complete) == 0 {
 		plan = append(plan, sectionLine("Pending", 0))
 		plan = append(plan, chromeLine(""))
@@ -407,8 +407,8 @@ func sectionHeader(name string, count int) string {
 // planFiltered builds the line plan for the /-filter view: the filter bar over
 // the flat filtered row list. The Pending/Complete section headers are
 // suppressed while filtering — there is no honest way to split a half-filtered
-// set into them (docs/plans/phase-8-search.md step 1). The empty-match case is
-// handled directly in ViewInPanel, so this is only reached with rows to show.
+// set into them. The empty-match case is handled directly in ViewInPanel, so
+// this is only reached with rows to show.
 func (m *Model) planFiltered(width int, bg color.Color) []panelLine {
 	rows, matched := matchVisible(m.rows, m.filterQuery)
 
@@ -454,8 +454,7 @@ func (m *Model) renderFilterBar(matches int) string {
 
 // renderFilterRow renders one filtered row. A directly-matched row renders like
 // a normal task row; an ancestor that only stays visible to anchor a match
-// renders dimmed so the two are distinguishable (docs/plans/phase-8-search.md
-// step 1's unmatched styling).
+// renders dimmed so the two are distinguishable.
 func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, matchedIndexes []int, bg color.Color) string {
 	if dimmed {
 		cardIndent := strings.Repeat(" ", 2*row.Depth)
@@ -635,16 +634,15 @@ type taskRowCols struct {
 // statusColWidth is the fixed width of the status column: the longest status
 // label, "IN PROGRESS" (11 runes). Every status label is right-aligned inside
 // this width so PENDING / IN PROGRESS / COMPLETE all end at the same column and
-// the trailing icon column begins at the same offset on every row (decision 2,
-// docs/plan/ui-improvements.md; docs/DESIGN.md §12).
+// the trailing icon column begins at the same offset on every row (decision 2;
+// docs/DESIGN.md §12).
 const statusColWidth = 11
 
 // detailsColWidth is the fixed width of the trailing icon column — two display
 // cells: the document glyph (notes) on the left and the comments glyph on the
 // right, both right-aligned within the column. Each glyph is one cell; an
 // absent glyph is a single space, so the combined string is always exactly two
-// cells and every row's right edge stays aligned (docs/DESIGN.md §12;
-// docs/plan/task-comments.md §6, Commit 4).
+// cells and every row's right edge stays aligned (docs/DESIGN.md §12).
 const detailsColWidth = 2
 
 // titleFloor is the fewest columns of title text a row will show before it
@@ -669,12 +667,12 @@ const titleGutter = 1
 // title under titleFloor, the passengers shed whole, in this order: the
 // status+icon block first, then the agent-spinner unit, then the assignee
 // badge, then the priority badge. Priority outlives the assignee because at
-// 40 columns "what should I pick up next" outlives "who has it"
-// (docs/plan/mcp-assignment-and-priorities.md §11). The percentage sheds
-// only to stop the row overflowing, because it is the one thing on the row
-// that appears nowhere else — the status label, by contrast, is still carried
-// by the ◻/◼ glyph, the row's foreground colour, and the Pending/Complete
-// section the row sits in, so dropping it costs the user nothing.
+// 40 columns "what should I pick up next" outlives "who has it". The
+// percentage sheds only to stop the row overflowing, because it is the one
+// thing on the row that appears nowhere else — the status label, by contrast,
+// is still carried by the ◻/◼ glyph, the row's foreground colour, and the
+// Pending/Complete section the row sits in, so dropping it costs the user
+// nothing.
 //
 // This reverses the older order (progress first, status last) recorded in
 // docs/plan/mcp-server-enhancement.md §3.7 and
@@ -684,9 +682,8 @@ const titleGutter = 1
 // while the title shrank to a stub. docs/DESIGN.md §12 records the current
 // rule. The status column is a fixed statusColWidth allocation and the
 // trailing icon column a fixed detailsColWidth allocation — reserved and shed
-// together regardless of whether the row has notes (decision 2 of
-// docs/plan/ui-improvements.md) — so the label and the glyph (or its blank
-// cell) align across rows.
+// together regardless of whether the row has notes (decision 2) — so the
+// label and the glyph (or its blank cell) align across rows.
 func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSpinner, assignee, priority string) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 
@@ -817,8 +814,7 @@ func assigneeFg(live bool) color.Color {
 	return appstyles.Active.StatusOverdue
 }
 
-// statusLabel returns the display label for a task status, all caps
-// (docs/plan/task-row-cards-and-status.md).
+// statusLabel returns the display label for a task status, all caps.
 func statusLabel(status apptypes.Status) string {
 	switch status {
 	case apptypes.StatusPending:
@@ -834,8 +830,7 @@ func statusLabel(status apptypes.Status) string {
 // statusFg returns the color the status label (and, unselected, the row's
 // bar column) draws with for a task's status: muted grey for pending, the
 // theme's warning amber for in progress, and its success green for complete.
-// All three are active-theme tokens — no hardcoded colors
-// (docs/plan/task-row-cards-and-status.md).
+// All three are active-theme tokens — no hardcoded colors.
 func statusFg(status apptypes.Status) color.Color {
 	switch status {
 	case apptypes.StatusInProgress:
@@ -848,7 +843,7 @@ func statusFg(status apptypes.Status) color.Color {
 }
 
 // barFgFor is the bar-column rule: accent on the selected row, otherwise the
-// row's own status color (docs/plan/task-row-cards-and-status.md).
+// row's own status color.
 func barFgFor(status apptypes.Status, isSelected bool) color.Color {
 	if isSelected {
 		return appstyles.Active.Accent
@@ -856,10 +851,9 @@ func barFgFor(status apptypes.Status, isSelected bool) color.Color {
 	return statusFg(status)
 }
 
-// spinnerFg is the agent-spinner color rule (docs/plan/mcp-server-enhancement.md
-// §3.7): accent on the selected row, TextDim otherwise — the same selected-row
-// rule as the bar column, so a claimed selected row reads accent all the way
-// across.
+// spinnerFg is the agent-spinner color rule: accent on the selected row,
+// TextDim otherwise — the same selected-row rule as the bar column, so a
+// claimed selected row reads accent all the way across.
 func spinnerFg(isSelected bool) color.Color {
 	if isSelected {
 		return appstyles.Active.Accent
@@ -904,9 +898,9 @@ const detailsIcon = "🗎"
 
 // commentsIcon marks a task that has at least one comment. It pairs with
 // detailsIcon in the fixed two-cell trailing icon column: notes on the left,
-// comments on the right (docs/plan/task-comments.md §6, Commit 4). U+1F4AC
-// (💬) measures two cells in go-runewidth, so — unlike the one-cell 🗎 — it
-// cannot share a one-cell slot in the column. U+1F5E8 LEFT SPEECH BUBBLE
+// comments on the right. U+1F4AC (💬) measures two cells in go-runewidth,
+// so — unlike the one-cell 🗎 — it cannot share a one-cell slot in the
+// column. U+1F5E8 LEFT SPEECH BUBBLE
 // (🗨) is the one-cell form (verified via go-runewidth v0.0.23, 2026-08-06)
 // and is used instead, accepting the same emoji-font widening caveat the
 // document glyph already carries.

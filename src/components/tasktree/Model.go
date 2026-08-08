@@ -16,11 +16,10 @@ import (
 
 // Model is the task-tree zone with hierarchical rendering, navigation,
 // and collapse state. Selection is preserved across refreshes by id
-// (docs/DESIGN.md §7), collapsed state is view-only and not persisted
-// (docs/plans/phase-4-task-tree.md step 1). Phase 8 adds the local `/`
-// fuzzy filter: while a filter is active the visible rows are narrowed to
-// each match plus its ancestor chain, and the collapse state stops driving
-// visibility in favour of the filter set (docs/plans/phase-8-search.md).
+// (docs/DESIGN.md §7), collapsed state is view-only and not persisted.
+// Phase 8 adds the local `/` fuzzy filter: while a filter is active the
+// visible rows are narrowed to each match plus its ancestor chain, and the
+// collapse state stops driving visibility in favour of the filter set.
 type Model struct {
 	focused    bool
 	body       cmds.SetBodyLayoutMsg
@@ -60,8 +59,7 @@ type Model struct {
 
 	// Inline creation state. While creating is true the tree takes every
 	// keystroke for itself and renders a special "new task" row at the
-	// computed insertion point (task-row redesign + inline creation,
-	// docs/plans/task-row-redesign-and-inline-creation.md).
+	// computed insertion point (task-row redesign + inline creation).
 	creating bool
 	// createBeforeID is the data-insertion anchor: the task the new task is
 	// created as a sibling of (at createLevelOffset's relationship). The
@@ -454,8 +452,7 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmds.CloseModalMsg:
 		// A modal closing returns the tree to an unfiltered view so a
-		// leftover query cannot surprise the user after the picker closes
-		// (docs/plans/phase-8-search.md's independence case).
+		// leftover query cannot surprise the user after the picker closes.
 		m.clearFilter()
 	}
 
@@ -951,8 +948,8 @@ func (m *Model) toggleComplete() tea.Cmd {
 // filterMatches returns the rows the /-filter keeps visible for a query: every
 // row whose title fuzzy-matches plus every ancestor of every such row, in the
 // tree's original order. An ancestor that does not itself match stays visible,
-// so a matched leaf never floats without a visible parent anchor
-// (docs/plans/phase-8-search.md step 1). An empty query shows everything.
+// so a matched leaf never floats without a visible parent anchor. An empty
+// query shows everything.
 func filterMatches(rows []apptypes.Row, query string) []apptypes.Row {
 	visible, _ := matchVisible(rows, query)
 	return visible
@@ -1065,7 +1062,7 @@ func (m *Model) lastPendingIDAtDepth(depth int) string {
 }
 
 // CancelCreating exits inline creation mode and resets the input, removing the
-// create row (docs/plan/task-row-cards-and-status.md).
+// create row.
 func (m *Model) CancelCreating() {
 	m.creating = false
 	m.createBeforeID = ""
@@ -1125,7 +1122,7 @@ func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	if key.Matches(msg, keys.Overlay.Cancel) {
 		// Single press always discards any typed text. On a list with rows it
-		// also removes the create row (docs/plan/task-row-cards-and-status.md).
+		// also removes the create row.
 		//
 		// On an EMPTY list the row is the empty state itself, so removing it
 		// would leave the surface bare and give the same condition two

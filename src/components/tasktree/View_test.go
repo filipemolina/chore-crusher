@@ -90,8 +90,7 @@ func TestComputeTaskRowColsDropOrder(t *testing.T) {
 // asserts the card never exceeds the panel, spans it exactly, keeps the bar
 // column and checkbox identity, and — when there is room — ends with the
 // right-aligned status label. This is the mechanical backstop for
-// docs/DESIGN.md §12's width sweep, extended for the card chrome
-// (docs/plan/task-row-cards-and-status.md).
+// docs/DESIGN.md §12's width sweep, extended for the card chrome.
 func TestRenderTaskRowNeverOverflows(t *testing.T) {
 	m := &Model{}
 	title := "Water the ferns before the weekend meeting"
@@ -102,8 +101,7 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 	m.rows = []apptypes.Row{row}
 	m.selectedID = "1"
 	// The sweep row is claimed: the spinner+agent unit is part of the budget
-	// this overflow sweep must exercise (§6 #1 of
-	// docs/plan/mcp-server-enhancement.md).
+	// this overflow sweep must exercise (§6 #1).
 	m.work = map[string]apptypes.AgentActivity{
 		"1": {EntityType: "task", EntityID: "1", AgentID: "claude", Kind: "working"},
 	}
@@ -203,10 +201,10 @@ func TestSubtaskCardIsIndented(t *testing.T) {
 }
 
 // TestDetailsIconInTrailingColumn pins the notes and comments markers to the
-// fixed two-cell trailing icon column (decision 2, docs/plan/ui-improvements.md;
-// docs/DESIGN.md §12): the column holds the notes glyph on the left and the
-// comments glyph on the right, each one cell, an absent glyph rendered as a
-// single space. A noted-only task ends in "PENDING 🗎 " (notes glyph, then a
+// fixed two-cell trailing icon column (decision 2; docs/DESIGN.md §12): the
+// column holds the notes glyph on the left and the comments glyph on the
+// right, each one cell, an absent glyph rendered as a single space. A
+// noted-only task ends in "PENDING 🗎 " (notes glyph, then a
 // blank for the absent comments glyph); a commented-only task ends in
 // "PENDING  🗨" (a blank for absent notes, then the comments glyph); a task
 // with both ends in "PENDING 🗎🗨"; and a clean task ends in "PENDING" with
@@ -269,9 +267,9 @@ func TestDetailsIconInTrailingColumn(t *testing.T) {
 // TestStatusColumnIsFixedWidth pins the fixed status column: rows of varying
 // status label length all place the trailing icon column at the same display
 // column — so the status label and the two-cell notes+comments glyph column
-// line up across rows regardless of the label's length (decision 2,
-// docs/plan/ui-improvements.md; docs/DESIGN.md §12). Every row here carries
-// notes, so the notes glyph is always present at a fixed column; commented
+// line up across rows regardless of the label's length (decision 2;
+// docs/DESIGN.md §12). Every row here carries notes, so the notes glyph is
+// always present at a fixed column; commented
 // rows must additionally place the comments glyph immediately after it, so
 // the two share the fixed 2-cell trailing column.
 func TestStatusColumnIsFixedWidth(t *testing.T) {
@@ -341,7 +339,7 @@ func TestStatusLabelCaps(t *testing.T) {
 }
 
 // TestStatusFgComesFromTheme pins the status-label colors to the active
-// theme's tokens — never a literal hex (docs/plan/task-row-cards-and-status.md).
+// theme's tokens — never a literal hex.
 func TestStatusFgComesFromTheme(t *testing.T) {
 	if got := statusFg(apptypes.StatusPending); got != appstyles.Active.TextMuted {
 		t.Errorf("pending fg = %v, want TextMuted", got)
@@ -368,7 +366,7 @@ func TestBarFgRule(t *testing.T) {
 }
 
 // TestSpinnerFgRule pins the spinner color rule: Accent on the selected row,
-// TextDim otherwise (docs/plan/mcp-server-enhancement.md §3.7).
+// TextDim otherwise.
 func TestSpinnerFgRule(t *testing.T) {
 	if got := spinnerFg(true); got != appstyles.Active.Accent {
 		t.Errorf("selected spinner fg = %v, want Accent", got)
@@ -378,10 +376,10 @@ func TestSpinnerFgRule(t *testing.T) {
 	}
 }
 
-// TestRenderRowShowsSpinnerWhenClaimed pins the agent-presence render
-// (docs/plan/mcp-server-enhancement.md §3.7): a row whose task is in m.work
-// appends the animated spinner glyph for m.animFrame plus the short agent id
-// after the status label, and an unclaimed row renders no spinner.
+// TestRenderRowShowsSpinnerWhenClaimed pins the agent-presence render: a row
+// whose task is in m.work appends the animated spinner glyph for m.animFrame
+// plus the short agent id after the status label, and an unclaimed row
+// renders no spinner.
 func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 	m := &Model{
 		rows: []apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "claimed", Status: apptypes.StatusPending}}},
@@ -461,7 +459,7 @@ func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
 
 // TestRenderCreateRowCard checks the create row's card: it spans the panel
 // width, opens with the bar column, shows the placeholder, and no longer
-// renders the → prompt (docs/plan/task-row-cards-and-status.md).
+// renders the → prompt.
 func TestRenderCreateRowCard(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
@@ -487,8 +485,7 @@ func TestRenderCreateRowCard(t *testing.T) {
 // opens: under the Pending header. The input creates a pending task
 // (store.CreateTask inserts status 'pending'), so the card belongs to the
 // Pending section even while it has nothing in it yet — it must not float at
-// the top of the panel with no section above it
-// (docs/plan/task-row-cards-and-status.md).
+// the top of the panel with no section above it.
 func TestEmptyListCreateRowUnderPending(t *testing.T) {
 	m := &Model{}
 	m.activeList = true
