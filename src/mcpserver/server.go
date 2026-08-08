@@ -20,20 +20,18 @@ import (
 )
 
 // ownerTagPattern is the human-readable form of createdByRE, used in error
-// messages (docs/plan/list-ownership-enforcement.md §4.C).
+// messages.
 const ownerTagPattern = "^[A-Za-z0-9_-]{1,32}$"
 
 // createdByRE validates an explicit created_by tag an agent may pass to
-// add_list (docs/plan/list-ownership-enforcement.md §4.C). The store does not
-// re-validate the tag format, so the MCP layer is the only place this check
-// lives.
+// add_list. The store does not re-validate the tag format, so the MCP
+// layer is the only place this check lives.
 var createdByRE = regexp.MustCompile(ownerTagPattern)
 
 // serverIdentity returns the agent tag this server acts as. CRUSH_AGENT wins
 // verbatim when set, so a human who wants a stable tag across sessions keeps
 // one. When it is unset the tag is unique to this PROCESS — "agent-" plus six
-// random hex digits — rather than the constant it used to be
-// (docs/plan/session-scoped-agent-identity.md decision 1).
+// random hex digits — rather than the constant it used to be.
 //
 // The constant was the bug: identity is what every cross-agent guard compares
 // on, so two unconfigured clients sharing one tag compared equal and wrote
@@ -121,9 +119,9 @@ type taskDetailsJSON struct {
 	Comments     []commentJSON `json:"comments"`
 }
 
-// commentJSON mirrors store.Comment for the MCP surface (docs/plan/task-comments.md
-// §4). It appears in taskDetailsJSON (show_task). Author is the OS username
-// (CLI/TUI path) or the server identity (agent path).
+// commentJSON mirrors store.Comment for the MCP surface. It appears in
+// taskDetailsJSON (show_task). Author is the OS username (CLI/TUI path) or
+// the server identity (agent path).
 type commentJSON struct {
 	ID        string `json:"id"`
 	Author    string `json:"author"`
@@ -249,8 +247,7 @@ func Run(ctx context.Context) error {
 	}
 	// Then the assignments. A per-session identity never returns, so work it
 	// still holds would be stranded — no other session can take it without
-	// force, and no future session answers to this tag
-	// (docs/plan/session-scoped-agent-identity.md decision 3).
+	// force, and no future session answers to this tag.
 	if _, rErr := s.UnassignAgent(identity); rErr != nil {
 		fmt.Fprintf(os.Stderr, "releasing assignments on session end: %v\n", rErr)
 	}
@@ -491,8 +488,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		}
 		out := make([]any, 0, len(in.IDs))
 		// One presence read for the whole batch: assignee_live on every row
-		// joins against this map instead of querying per row
-		// (docs/plan/mcp-assignment-and-priorities.md §8).
+		// joins against this map instead of querying per row.
 		live, err := liveAgents(s)
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -558,7 +554,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			return errorResult(err), nil, nil
 		}
 		// A comment is activity on the task: paint the spinner under this
-		// agent, same as a status/progress write (docs/plan/mcp-presence-on-all-writes.md).
+		// agent, same as a status/progress write.
 		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]string{"id": cid})
 	})
@@ -826,9 +822,8 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		}
 		// Re-parenting needs the TARGET list writable: the parent's list for a
 		// cross-list move, or the task's own list when moving to root. This
-		// preserves move_task's rule (docs/plan/list-ownership-enforcement.md
-		// §4.D, §7) — a task must never be half-moved into a list the
-		// requester does not own.
+		// preserves move_task's rule — a task must never be half-moved into a
+		// list the requester does not own.
 		var parentID *string
 		if in.Parent != nil || in.ToRoot {
 			if in.Parent != nil && strings.TrimSpace(*in.Parent) != "" {
@@ -1054,12 +1049,11 @@ func batchApply(s *store.Store, identity string, ids []string, fn func(id string
 
 // autoClaim renews the writing agent's live claim on entityID, or opens
 // one if none exists. Best-effort: any error is swallowed because the
-// write already committed and presence tracking is not a write guarantee
-// (docs/plan/agent-presence-heartbeat.md §7). If another agent already
-// holds the entity, ClaimWork returns an error which is silently dropped
-// here — we do not steal their spinner; the write itself is allowed today
-// because the write path does not gate on claims; this behaviour is
-// unchanged.
+// write already committed and presence tracking is not a write guarantee.
+// If another agent already holds the entity, ClaimWork returns an error which
+// is silently dropped here — we do not steal their spinner; the write itself
+// is allowed today because the write path does not gate on claims; this
+// behaviour is unchanged.
 func autoClaim(s *store.Store, entityType, entityID, agentID string) {
 	if err := s.TouchWork(entityType, entityID, agentID); err == nil {
 		_, _ = s.ClaimWork(entityType, entityID, agentID, store.ActivityWorking)
@@ -1067,14 +1061,14 @@ func autoClaim(s *store.Store, entityType, entityID, agentID string) {
 }
 
 // requireWritable rejects a structural write to a list the requester does
-// not own (docs/plan/list-ownership-enforcement.md §3.8), UNLESS the list's
-// Collaborative flag is set — an explicit human opt-in that lets any agent
-// make structural edits regardless of created_by (docs/DESIGN.md §9, "Tag a
-// list as collaborative"). An untagged, non-collaborative list is owned by
-// nobody and is therefore foreign to every agent: a human manages it via the
-// CLI/TUI, which are deliberately unenforced. The check runs after
-// ResolveID, so listID is the suffix-free id; the error names that id so the
-// agent knows which list refused it. Step D wires this into the structural
+// not own, UNLESS the list's Collaborative flag is set — an explicit human
+// opt-in that lets any agent make structural edits regardless of
+// created_by (docs/DESIGN.md §9, "Tag a list as collaborative"). An untagged,
+// non-collaborative list is owned by nobody and is therefore foreign to
+// every agent: a human manages it via the CLI/TUI, which are deliberately
+// unenforced. The check runs after ResolveID, so listID is the suffix-free
+// id; the error names that id so the agent knows which list refused it. Step
+// D wires this into the structural
 // tools; it is defined here (Step C) so the identity read and the helper
 // land together.
 func requireWritable(s *store.Store, identity, listID string) error {
@@ -1093,10 +1087,8 @@ func requireWritable(s *store.Store, identity, listID string) error {
 }
 
 // requireWritableTask rejects a structural write to the list a task belongs
-// to (docs/plan/list-ownership-enforcement.md §4.D). It resolves the task,
-// reads its ListID, and applies requireWritable — so rename_task/set_notes/
-// delete_task defer to the same owner check as the list tools. move_task is
-// handled inline because its target list is the *parent's* list, not the
+// to. It resolves the task, reads its ListID, and applies requireWritable —
+// so rename_task/set_notes/ delete_task defer to the same owner check as the
 // task's own.
 func requireWritableTask(s *store.Store, identity, taskID string) error {
 	t, err := s.GetTask(taskID)
@@ -1260,7 +1252,7 @@ func liveState(live map[string]bool, holder string) string {
 // its root ancestor's. The old root-based walk was a "section" filter
 // mirroring the TUI's Pending/Complete split and dropped whole subtrees when
 // the root was in a different state — that is the behaviour this replaces
-// (docs/plan/mcp-assignment-and-priorities.md §5.1). The CLI's identically
+// The CLI's identically
 // named function (src/cli/tasks.go) KEEPS the root-based semantics for the
 // human-facing Pending/Complete sections; do not merge them back.
 //
@@ -1273,7 +1265,7 @@ func liveState(live map[string]bool, holder string) string {
 // live is read once per request by the caller and passed in, exactly like
 // descendantRows: the inbox resource calls this once per list, so reading
 // presence in here would run one ListWork query per list rather than one per
-// request (docs/plan/mcp-assignment-and-priorities.md §8).
+// request.
 func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner string, live map[string]bool) ([]taskRowJSON, error) {
 	converted := apptypes.FromStoreTasks(tasks)
 	rows := apptypes.Flatten(converted)
@@ -1421,15 +1413,14 @@ func taskDetailsJSONFor(s *store.Store, id string, live map[string]bool) (taskDe
 // descendantRows reports every descendant of rootID (the task itself
 // excluded) as depth-annotated rows with derived progress per row, using the
 // shared apptypes.DescendantsOf so `crush show` and show_task cannot drift
-// (docs/plan/mcp-agent-todo-hardening.md §4.4). Depth is relative to rootID:
-// direct children at depth 1. The previous code ran a store-level walk
+// Depth is relative to rootID: direct children at depth 1. The previous
+// code ran a store-level walk
 // through apptypes.Flatten, but Flatten only emits ParentID==nil rows, so a
 // pure-descendant set (no list root) flattened to nothing and "children"
 // was always empty.
 //
 // Every row carries its full notes and comments, uncapped: a task's subtree
-// is bounded, so one show_task call must be self-contained
-// (docs/plan/mcp-assignment-and-priorities.md §4, decision 8). live maps
+// is bounded, so one show_task call must be self-contained. live maps
 // agent tags to a live presence claim and is read once per request by the
 // caller — do not query presence per row here.
 func descendantRows(s *store.Store, tasks []store.Task, rootID string, listOwner string, live map[string]bool) ([]taskRowJSON, error) {
@@ -1523,7 +1514,7 @@ func validStatusFilter(status string) bool {
 // (§5.3). A row's body is never cut mid-text: a row that would push the
 // response past the budget keeps its (has_notes, notes_len) flags but its
 // body stays out, and its id is reported in `elided` — it comes back whole
-// or not at all (docs/plan/mcp-assignment-and-priorities.md §5.3, decision 8).
+// or not at all.
 const notesBudget = 40000
 
 // inlineNotes fills the Notes fields on rows from the matching store tasks.
@@ -1534,7 +1525,7 @@ const notesBudget = 40000
 // Skeleton rows are skipped: the inbox filters per task like list_tasks, so it
 // emits context_only ancestors too, and a skeleton is tree scaffolding rather
 // than content — §5.2 keeps bodies off it on every surface, not just
-// list_tasks (docs/plan/mcp-assignment-and-priorities.md §5.2).
+// list_tasks.
 func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 	byID := make(map[string]string, len(tasks))
 	for _, t := range tasks {
@@ -1568,8 +1559,8 @@ func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 //
 // Comment presence comes from ONE store.TaskIDsWithComments query for the
 // whole list, not a ListComments per row: that helper exists for this exact
-// N+1 (docs/plan/mcp-assignment-and-priorities.md §8 — a per-request read
-// stays per-request). Only rows the set says are commented are read.
+// N+1 — a per-request read stays per-request). Only rows the set says are
+// commented are read.
 func inlineBodyBudget(s *store.Store, listID string, rows []taskRowJSON, tasks []store.Task, includeNotes, includeComments bool) (elided []string, budgetExceeded bool, err error) {
 	byID := make(map[string]string, len(tasks))
 	for _, t := range tasks {
@@ -1647,10 +1638,9 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 }
 
 // addWorkResource registers the crush://work static resource — a read-only
-// mirror of list_work so any MCP host that auto-reads resources surfaces it
-// (docs/plan/mcp-server-enhancement.md §3.8). The claim_work tool that used
-// to write this set is gone (docs/plan/mcp-assignment-and-priorities.md §4):
-// presence claims now come only from task writes (autoClaim).
+// mirror of list_work so any MCP host that auto-reads resources surfaces it.
+// The claim_work tool that used to write this set is gone: presence claims
+// now come only from task writes (autoClaim).
 func addWorkResource(server *mcp.Server, s *store.Store) {
 	server.AddResource(&mcp.Resource{
 		URI:         "crush://work",
@@ -1698,11 +1688,11 @@ func addWorkResource(server *mcp.Server, s *store.Store) {
 }
 
 // addResources registers crush:///inbox, the one read-only resource that is
-// not a duplicate of a tool (docs/plan/mcp-server-enhancement.md §4.1).
+// not a duplicate of a tool.
 //
 // crush:///lists, crush:///lists/{id}, crush:///lists/{id}/tasks,
 // crush:///tasks/{id} and crush:///search/{query} used to live here and were
-// deleted (docs/plan/mcp-assignment-and-priorities.md §8): each was a
+// deleted: each was a
 // row-for-row duplicate of my_list / list_tasks / show_task / search_tasks,
 // and docs/DESIGN.md §9 pins resource rows as a superset of the CLI's --json
 // shapes — so every field added to a task had to be added in three places or
@@ -1734,7 +1724,7 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 			Tasks         []taskRowJSON `json:"tasks"`
 		}
 		// Hoisted out of the loop: one presence read for the whole inbox, not
-		// one per list (docs/plan/mcp-assignment-and-priorities.md §8).
+		// one per list.
 		live, err := liveAgents(s)
 		if err != nil {
 			return nil, err
@@ -1775,12 +1765,11 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 
 // addPrompts registers canned agent workflows that embed the current app
 // state, so an agent that reads prompts/list can pick one and get a
-// ready-made message (docs/plan/mcp-server-enhancement.md §4.2).
+// ready-made message.
 func addPrompts(server *mcp.Server, s *store.Store) {
 	// crush_inbox is the canonical one-shot opener (registered below). The old
 	// crush_daily_agenda prompt overlapped it and embedded a second, heavier
-	// copy of app state, so it was dropped (docs/plan/mcp-tool-consolidation.md
-	// §8) — one opener prompt is enough.
+	// copy of app state, so it was dropped — one opener prompt is enough.
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "crush_inbox",
 		Description: "One-shot start-of-session triage: read the crush:///inbox resource and pick the next task. Carries the full working loop so the agent does not need the heavy blob every session.",

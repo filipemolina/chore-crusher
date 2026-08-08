@@ -1,7 +1,7 @@
 // Internal test: serverIdentity, createdByRE and ownerTagPattern are
-// unexported, and the tag-generation contract is exactly what needs pinning
-// (docs/plan/session-scoped-agent-identity.md decision 1). The rest of the
-// package is exercised from mcpserver_test through the MCP surface.
+// unexported, and the tag-generation contract is exactly what needs pinning.
+// The rest of the package is exercised from mcpserver_test through the MCP
+// surface.
 package mcpserver
 
 import (
@@ -9,11 +9,11 @@ import (
 	"testing"
 )
 
-// TestServerIdentityIsUniquePerProcess pins docs/plan/session-scoped-agent-identity.md
-// decision 1: CRUSH_AGENT wins verbatim, and when it is unset the tag is
-// unique per resolution rather than the constant "agent" it used to be. The
-// constant is what made two unconfigured clients compare equal and write over
-// each other; see TestTwoUnconfiguredSessionsCannotWriteEachOthersTasks.
+// TestServerIdentityIsUniquePerProcess pins decision 1: CRUSH_AGENT wins
+// verbatim, and when it is unset the tag is unique per resolution rather than
+// the constant "agent" it used to be. The constant is what made two
+// unconfigured clients compare equal and write over each other; see
+// TestTwoUnconfiguredSessionsCannotWriteEachOthersTasks.
 //
 // The generated tag must satisfy ownerTagPattern because it is written to
 // list.created_by, where add_list validates it — a tag that failed the pattern

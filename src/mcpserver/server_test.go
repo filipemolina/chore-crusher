@@ -26,11 +26,11 @@ func setupMCP(t *testing.T) *mcp.ClientSession {
 	// Keep every test isolated on its own temp data directory.
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	// Pin the identity. Unset, CRUSH_AGENT now yields a per-process tag
-	// (docs/plan/session-scoped-agent-identity.md decision 1), which would make
-	// every assertion about the "agent" tag unrepeatable. These tests are about
-	// behaviour under a known identity, not about what the default is —
-	// TestServerIdentityIsUniquePerProcess covers the default itself.
+	// Pin the identity. Unset, CRUSH_AGENT now yields a per-process tag,
+	// which would make every assertion about the "agent" tag unrepeatable.
+	// These tests are about behaviour under a known identity, not about what
+	// the default is — TestServerIdentityIsUniquePerProcess covers the
+	// default itself.
 	if os.Getenv("CRUSH_AGENT") == "" {
 		t.Setenv("CRUSH_AGENT", "agent")
 	}
@@ -152,9 +152,8 @@ func mustUnmarshal(t *testing.T, s string, v any) {
 }
 
 // readResourceText reads a resource and returns its single text body. Only
-// crush:///inbox and crush://work remain (docs/plan/mcp-assignment-and-priorities.md
-// §8); crush://work still backfills the removed list_work tool
-// (docs/plan/mcp-tool-consolidation.md §4.5).
+// crush:///inbox and crush://work remain; crush://work still backfills the
+// removed list_work tool.
 func readResourceText(t *testing.T, session *mcp.ClientSession, uri string) string {
 	t.Helper()
 	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: uri})
@@ -168,12 +167,11 @@ func readResourceText(t *testing.T, session *mcp.ClientSession, uri string) stri
 }
 
 // listsJSON replaces the removed list_lists tool. It used to read the
-// crush:///lists resource; that resource was deleted as a duplicate of my_list
-// (docs/plan/mcp-assignment-and-priorities.md §8), so the helper now calls
-// my_list and flattens {mine, foreign_lists} back into the single row array
-// its callers assert against. identity fills in created_by for the agent's own
-// block, which my_list omits because it is the caller's own tag by
-// construction.
+// crush:///lists resource; that resource was deleted as a duplicate of
+// my_list, so the helper now calls my_list and flattens {mine,
+// foreign_lists} back into the single row array its callers assert against.
+// identity fills in created_by for the agent's own block, which my_list
+// omits because it is the caller's own tag by construction.
 func listsJSON(t *testing.T, session *mcp.ClientSession, identity string) string {
 	t.Helper()
 	var out struct {
@@ -253,19 +251,17 @@ var (
 		"claim_work", "list_changes", "add_comment", "delete_comment",
 	}
 	// The resource surface is the same fact in the same shape: two survivors
-	// (docs/plan/mcp-assignment-and-priorities.md §8) and five deletions. The
-	// agent-facing text has to name the survivors and must not send a session
-	// at a URI the server stopped serving.
+	// and five deletions. The agent-facing text has to name the survivors and
+	// must not send a session at a URI the server stopped serving.
 	mcpResourceSurface  = []string{"crush:///inbox", "crush://work"}
 	removedResourceURIs = []string{
 		"crush:///lists", "crush:///tasks/", "crush:///search",
 	}
 )
 
-// TestMCPToolSurface pins the consolidated tool surface
-// (docs/plan/mcp-tool-consolidation.md §2, docs/plan/mcp-assignment-and-priorities.md
-// §4): exactly the 12 tools below, and none of the removed ones. A new tool
-// must be a deliberate edit here — the ceiling is the point of the plan.
+// TestMCPToolSurface pins the consolidated tool surface: exactly the 12
+// tools below, and none of the removed ones. A new tool must be a
+// deliberate edit here — the ceiling is the point of the plan.
 func TestMCPToolSurface(t *testing.T) {
 	session := setupMCP(t)
 
@@ -692,8 +688,7 @@ func TestMCPShowTaskIncludesChildren(t *testing.T) {
 		t.Fatalf("show_task root = %+v", details)
 	}
 	// The assignment/priority fields land on the root and every descendant
-	// row (docs/plan/mcp-assignment-and-priorities.md §8); nothing is
-	// assigned here, so they report their zero values.
+	// row; nothing is assigned here, so they report their zero values.
 	if details.Assignee != "" || details.Priority != "none" {
 		t.Fatalf("show_task root assignee/priority = %q/%q, want \"\"/none",
 			details.Assignee, details.Priority)
@@ -717,9 +712,8 @@ func TestMCPShowTaskIncludesChildren(t *testing.T) {
 	}
 
 	// The crush:///tasks/{id} resource used to be asserted here as a second
-	// code path; it was deleted as a duplicate of show_task
-	// (docs/plan/mcp-assignment-and-priorities.md §8), and show_task's own
-	// children are already asserted above.
+	// code path; it was deleted as a duplicate of show_task, and show_task's
+	// own children are already asserted above.
 }
 
 func TestMCPDeleteTaskRequiresForce(t *testing.T) {
@@ -803,7 +797,7 @@ func TestMCPTaskShapesCarryListOwner(t *testing.T) {
 	now := time.Now().Unix()
 	// Seed the task already assigned to claude at high priority, so the read
 	// shapes' assignee/assigned_at/assignee_live/priority fields have real
-	// values to carry (docs/plan/mcp-assignment-and-priorities.md §8).
+	// values to carry.
 	if _, err := db.Exec(
 		`INSERT INTO Task (id, list_id, parent_id, title, notes, status, progress_kind, progress_pct, position, created_at, updated_at, completed_at, assignee, assigned_at, priority)
 		 VALUES (?, ?, NULL, ?, '', 'pending', 'none', NULL, 0, ?, ?, NULL, 'claude', ?, 'high')`,
@@ -1472,9 +1466,8 @@ func TestMCPWorkResource(t *testing.T) {
 // zero templates. The five that used to live here — crush:///lists,
 // crush:///lists/{id}, crush:///lists/{id}/tasks, crush:///tasks/{id} and
 // crush:///search/{query} — were row-for-row duplicates of my_list /
-// list_tasks / show_task / search_tasks and were deleted
-// (docs/plan/mcp-assignment-and-priorities.md §8). This test is what stops
-// them coming back: a new field belongs on the tool, not on a second surface
+// list_tasks / show_task / search_tasks and were deleted. This test is
+// what stops them coming back: a new field belongs on the tool, not on a second surface
 // that has to be kept in sync with it.
 func TestMCPResourcesListed(t *testing.T) {
 	session := setupMCP(t)
@@ -1655,7 +1648,7 @@ func TestMCPBreakdownPrompt(t *testing.T) {
 // structural write tool (add_task, edit_task, delete_task) errors on a list
 // owned by another agent — not just one of them. The server here acts as
 // "pi"; the list is created as "claude". (rename_list/delete_list are no
-// longer MCP tools — docs/plan/mcp-tool-consolidation.md §4.4.)
+// longer MCP tools — they were removed in the consolidation.)
 func TestMCPForeignListWriteRefused(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
@@ -2336,7 +2329,7 @@ func TestListTasksOmitsEmptyProgress(t *testing.T) {
 
 // The five TestListChanges* cases fold into list_tasks(since=...): the
 // list_changes tool is gone, and `since` is how change-detection is asked
-// for now (docs/plan/mcp-assignment-and-priorities.md §4).
+// for now.
 
 func TestListTasksSinceReturnsOnlyChanged(t *testing.T) {
 	session := setupMCP(t)
@@ -2575,9 +2568,8 @@ func TestShowTasksBatch(t *testing.T) {
 	if got[0]["title"] != "A" || got[0]["notes"] != "aa" {
 		t.Errorf("row 0: %#v", got[0])
 	}
-	// The assignment/priority fields are present on every row
-	// (docs/plan/mcp-assignment-and-priorities.md §8); nothing is assigned
-	// here, so they report their zero values.
+	// The assignment/priority fields are present on every row; nothing is
+	// assigned here, so they report their zero values.
 	if got[0]["assignee"] != "" || got[0]["priority"] != "none" || got[0]["assignee_live"] != false {
 		t.Errorf("row 0 assignment fields = assignee %#v priority %#v assignee_live %#v, want \"\"/none/false",
 			got[0]["assignee"], got[0]["priority"], got[0]["assignee_live"])
@@ -2696,9 +2688,8 @@ func TestShowTasksCap(t *testing.T) {
 	}
 }
 
-// TestCommentAddRoundTrip pins the comment tool's add mode (plan step 10,
-// merging docs/plan/task-comments.md §4): it succeeds on a normal task,
-// attributes the comment to the server identity, and the comment appears in a
+// TestCommentAddRoundTrip pins the comment tool's add mode: it succeeds on a
+// normal task, attributes the comment to the server identity, and the comment appears in a
 // subsequent show_task.
 func TestCommentAddRoundTrip(t *testing.T) {
 	session := setupMCPAs(t, "pi")
@@ -2755,7 +2746,7 @@ func TestCommentAddRoundTrip(t *testing.T) {
 }
 
 // TestCommentAddRefusedOnDisabledList pins the list-level disable flag
-// enforcement over MCP (docs/plan/task-comments.md §4).
+// enforcement over MCP.
 func TestCommentAddRefusedOnDisabledList(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
@@ -3748,7 +3739,7 @@ func TestMain(m *testing.M) {
 // every list in the inbox, not just the first. The inbox calls sectionRows
 // once per list, so the presence map is read once by the resource and passed
 // down; reading it inside sectionRows instead would run one ListWork query
-// per list (docs/plan/mcp-assignment-and-priorities.md §8).
+// per list.
 //
 // Liveness is a property of the AGENT, not the task, so the two rows need two
 // different assignees: pi (writing, therefore present) on its own list, and a
