@@ -4,7 +4,7 @@ import tea "charm.land/bubbletea/v2"
 
 // SetSelectionMsg tells the add-input component which task is currently
 // selected in the tree, so it can compute valid level-offset transitions
-// (§2).
+// transitions.
 type SetSelectionMsg struct {
 	TaskID string
 	Depth  int

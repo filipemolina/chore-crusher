@@ -17,8 +17,8 @@ import (
 // listDelegate renders each list row as a Height-4 card with a full-height ▌
 // bar, matching stack-stitcher's groups-list card contract (phase B step 1).
 // When an agent has claimed the list, a spinner glyph and short agent id
-// are appended after the count line (§3.7); when only a task inside the
-// list is claimed, a bare spinner is appended (§3.4).
+// are appended after the count line; when only a task inside the list is
+// claimed, a bare spinner is appended.
 type listDelegate struct {
 	isParentFocused bool
 	work            map[string]apptypes.AgentActivity
@@ -30,7 +30,7 @@ func (d listDelegate) Height() int                             { return 4 }
 func (d listDelegate) Spacing() int                            { return 0 }
 func (d listDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
-// spinnerFg is the agent-spinner color rule (§3.7): Accent on the selected
+// spinnerFg is the agent-spinner color rule: Accent on the selected
 // row, TextDim otherwise — matching the task tree's spinner and this
 // delegate's bar rule.
 func spinnerFg(isSelected bool) color.Color {
@@ -75,7 +75,7 @@ func (d listDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 	// If this list is claimed by an agent, append the spinner + agent id,
 	// colored per the row's selection: Accent when selected, TextDim otherwise
-	// — matching the task-tree spinner (§3.7). If instead only a task inside
+	// — matching the task-tree spinner. If instead only a task inside
 	// the list is claimed, append a bare spinner: the row is an aggregate, so
 	// no single agent id is named.
 	claimedLine := countLine

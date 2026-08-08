@@ -155,7 +155,7 @@ func TestAddCommentRefusedWhenDisabled(t *testing.T) {
 }
 
 // TestTaskIDsWithComments pins the batch predicate used by RefreshTasks to
-// set HasComments on every row of a list (§6, Commit 4): only tasks that
+// set HasComments on every row of a list: only tasks that
 // actually have a comment appear in the map, comments on tasks in other
 // lists are excluded, and a list with no comments at all yields an empty
 // (non-nil) map.

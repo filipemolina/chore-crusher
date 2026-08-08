@@ -10,7 +10,7 @@ import (
 
 // listOwnerOf opens the store behind a CLI data dir and returns the list's
 // created_by — the CLI's own shapes don't expose it, so the assertion goes
-// through the store (hardening §6 assertions 6 and 8).
+// through the store.
 func listOwnerOf(t *testing.T, dataDir, id string) string {
 	t.Helper()
 	s, err := store.Open(config.DBPath())
@@ -88,9 +88,9 @@ func TestListsAddRejectsEmptyName(t *testing.T) {
 	}
 }
 
-// TestCLIListsAddOwner pins hardening §6 assertion 6 (H9): `crush lists add
-// --owner pi` provisions a list owned by pi, and omitting the flag keeps the
-// human-managed behaviour (empty owner).
+// TestCLIListsAddOwner pins H9: `crush lists add --owner pi` provisions a
+// list owned by pi, and omitting the flag keeps the human-managed behaviour
+// (empty owner).
 func TestCLIListsAddOwner(t *testing.T) {
 	data := t.TempDir()
 	owned := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Sprint", "--owner", "pi"))
@@ -104,8 +104,8 @@ func TestCLIListsAddOwner(t *testing.T) {
 	}
 }
 
-// TestCLICanRenameForeignOwnedList pins hardening §6 assertion 8 / ownership
-// §3.5: the CLI is deliberately unenforced — renaming a list owned by another
+// TestCLICanRenameForeignOwnedList pins the CLI's deliberate lack of
+// ownership enforcement — renaming a list owned by another
 // agent succeeds here, where the MCP's rename_list would refuse.
 func TestCLICanRenameForeignOwnedList(t *testing.T) {
 	data := t.TempDir()

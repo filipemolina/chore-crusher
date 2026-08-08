@@ -122,7 +122,7 @@ type Model struct {
 	// priority is the draft rank; origPriority is what the store held when the
 	// task was hydrated, so a save writes only a rank the user actually
 	// changed. store.SetPriority rejects the zero value, and a rename must
-	// never clear a priority as a side effect (§6.5).
+	// never clear a priority as a side effect.
 	priority     apptypes.Priority
 	origPriority apptypes.Priority
 
@@ -767,7 +767,7 @@ func (m *Model) save() (tea.Model, tea.Cmd) {
 
 	// Only a changed rank is written: store.SetPriority rejects the zero value
 	// and bumps updated_at, so a save that touched only the title must not
-	// re-write a priority nobody edited (§6.5).
+	// re-write a priority nobody edited.
 	if m.priority != m.origPriority {
 		if err := m.store.SetPriority(m.taskID, store.Priority(m.priority)); err != nil {
 			m.errMsg = fmt.Sprintf("failed to save priority: %v", err)

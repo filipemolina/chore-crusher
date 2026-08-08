@@ -80,7 +80,7 @@ type taskRowJSON struct {
 	ListOwner    string        `json:"list_owner"`
 	HasNotes     bool          `json:"has_notes"`
 	NotesLen     int           `json:"notes_len"`
-	Notes        string        `json:"notes,omitempty"`        // populated only when include=notes; never cut mid-text (§5.3)
+	Notes        string        `json:"notes,omitempty"`        // populated only when include=notes; never cut mid-text
 	Assignee     string        `json:"assignee"`               // "" when unassigned
 	AssignedAt   *int64        `json:"assigned_at"`            // null when unassigned
 	AssigneeLive bool          `json:"assignee_live"`          // live presence claim by the assignee
@@ -90,7 +90,7 @@ type taskRowJSON struct {
 }
 
 // listTasksResult is the list_tasks return envelope: the tasks array plus
-// the ids of the rows the §5.3 body budget dropped (so the caller can
+// the ids of the rows the body budget dropped (so the caller can
 // re-fetch them with show_task) and whether the budget was exceeded at all
 // — true exactly when elided is non-empty.
 type listTasksResult struct {
@@ -434,7 +434,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		Priority string `json:"priority,omitempty" jsonschema:"none, low, medium or high; omit to leave it at none"`
 	}) (*mcp.CallToolResult, any, error) {
 		// An omitted priority leaves the column at its 'none' default rather
-		// than calling SetPriority("") (plan §6.5) — the zero value is not
+		// than calling SetPriority("") — the zero value is not
 		// PriorityNone, it is invalid.
 		if in.Priority != "" {
 			if err := checkPriority(in.Priority); err != nil {
@@ -598,7 +598,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if in.Progress == "percentage" && in.Percent == nil {
 			return errorResult(fmt.Errorf("progress=percentage requires percent")), nil, nil
 		}
-		// One presence read for the whole batch (§8): the assignment guard's
+		// One presence read for the whole batch: the assignment guard's
 		// conflict text needs to know whether the holder is at the keyboard.
 		live, err := liveAgents(s)
 		if err != nil {
@@ -627,7 +627,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if len(in.IDs) > 50 {
 			return errorResult(fmt.Errorf("assign_task capped at 50 ids per call, got %d", len(in.IDs))), nil, nil
 		}
-		// One presence read for the whole batch (§8): the conflict text and
+		// One presence read for the whole batch: the conflict text and
 		// the takeover comment both need to know whether the holder is live.
 		live, err := liveAgents(s)
 		if err != nil {
@@ -651,7 +651,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			if in.Release {
 				// Releasing a task nobody holds is a silent no-op; force
 				// releases another agent's task without any subtree check —
-				// the escape hatch §4 promises.
+				// the escape hatch force exists to be.
 				if err := s.UnassignTask(id, identity, in.Force); err != nil {
 					out = append(out, errRow{ID: id, Error: err.Error()})
 					continue
@@ -683,7 +683,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			// be: the takeover comment reports the PREVIOUS holder's
 			// liveness), so record our own claim in it rather than paying a
 			// second ListWork — we just made it, so it is live by
-			// construction, and §8's one-presence-read-per-request holds.
+			// construction, and one-presence-read-per-request holds.
 			autoClaim(s, "task", id, identity)
 			live[identity] = true
 			if prev != "" && prev != identity {
@@ -712,7 +712,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		// One presence read per request (§8), for the returned payload's
+		// One presence read per request, for the returned payload's
 		// assignee_live fields.
 		live, err := liveAgents(s)
 		if err != nil {
@@ -721,7 +721,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		t, err := s.NextAssignable(listID, identity)
 		if err != nil {
 			if errors.Is(err, store.ErrNoAssignable) {
-				// An empty board is a normal state, not a failure (§4).
+				// An empty board is a normal state, not a failure.
 				return jsonResult(map[string]any{"ok": false, "reason": "no eligible task in this list"})
 			}
 			return errorResult(err), nil, nil
@@ -759,12 +759,12 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if err := requireWritableTask(s, identity, id); err != nil {
 			return errorResult(err), nil, nil
 		}
-		// One presence read per request (§8), shared by the guard below.
+		// One presence read per request, shared by the guard below.
 		live, err := liveAgents(s)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		// The §7 assignment guard. delete_task already requires force (the
+		// The assignment guard. delete_task already requires force (the
 		// confirmation), so the guard's force branch always runs here: a
 		// forced delete of a held task records the takeover comment, and a
 		// subtree reservation still refuses the delete — the reservation
@@ -796,9 +796,9 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		if in.Parent != nil && in.ToRoot {
 			return errorResult(fmt.Errorf("pass either parent or to_root, not both")), nil, nil
 		}
-		// Presence of the parameter, not its emptiness, is what means "set it"
-		// (plan §6.5): an omitted priority must leave a high someone set
-		// alone, so the pointer is checked for nil and "" is a rejected value
+		// Presence of the parameter, not its emptiness, is what means "set
+		// it": an omitted priority must leave a high someone set alone, so
+		// the pointer is checked for nil and "" is a rejected value
 		// rather than a silent none. Validated up front, before the renames
 		// below write anything.
 		if in.Priority != nil {
@@ -846,14 +846,14 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 			}
 		}
 
-		// The §7 assignment guard runs LAST of the checks and first of the
+		// The assignment guard runs LAST of the checks and first of the
 		// writes: its force branch reassigns the task and records a takeover
 		// comment, so anything that can still refuse the edit — every
 		// ownership gate above, including the re-parent target's — has to
 		// have passed already. Otherwise a refused edit would leave the task
 		// taken over, which is the same half-happened write the re-parent
 		// gate exists to prevent.
-		// One presence read per request (§8), for the guard's conflict text.
+		// One presence read per request, for the guard's conflict text.
 		live, err := liveAgents(s)
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -947,9 +947,9 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 	})
 }
 
-// applySetStatus runs §4's per-id order — the assignment guard first (step
+// applySetStatus runs the per-id order — the assignment guard first (step
 // 9's requireAssignable), then reopen-if-needed, progress, status, comment.
-// The reopen step is the §4 fix for the documented gotcha where set_progress
+// The reopen step is the fix for the documented gotcha where set_progress
 // on a complete task used to error: one call now reopens and sets percentage
 // on a complete task because the reopen happens first. status='in_progress'
 // has no direct store write of its own — SetProgress is the only transition
@@ -1103,7 +1103,7 @@ func requireWritableTask(s *store.Store, identity, taskID string) error {
 // something else first — add_task creates the task, edit_task may already
 // have renamed it — so a value rejected at write time would leave the
 // half-happened write the re-parent gate exists to prevent. The empty string
-// is invalid here on purpose: Priority("") is not PriorityNone (plan §6.5),
+// is invalid here on purpose: Priority("") is not PriorityNone,
 // and "omitted" is signalled by not passing the parameter at all, never by
 // passing "".
 func checkPriority(p string) error {
@@ -1131,13 +1131,13 @@ func requireOwnComment(s *store.Store, identity, commentID string) (store.Commen
 
 // assignmentBlockerRE extracts the blocker named by a store subtree conflict
 // — "ancestor task X is held by Y" (src/store/assignment.go's
-// subtreeReserved phrasing) — so the §4 hint can name the exact task to
+// subtreeReserved phrasing) — so the hint can name the exact task to
 // release. When the pattern does not match, the caller falls back to the raw
 // error rather than guessing.
 var assignmentBlockerRE = regexp.MustCompile(`(ancestor|descendant) task "([^"]+)" is held by "([^"]+)"`)
 
 // requireAssignable refuses a write to a task held by a different agent
-// (§7): the refuse-with-override rule applied to set_status, edit_task and
+// — the refuse-with-override rule applied to set_status, edit_task and
 // delete_task. When force is set it performs the takeover — reassigns the
 // task to identity and records a takeover comment — and the caller's write
 // then applies to a task the caller now holds. force does NOT override the
@@ -1145,7 +1145,7 @@ var assignmentBlockerRE = regexp.MustCompile(`(ancestor|descendant) task "([^"]+
 // force too, and the conflict is returned as-is.
 //
 // live is the caller's one-per-request presence read, passed in because the
-// guard runs once per id inside a batch (§8's per-request rule) and the
+// guard runs once per id inside a batch (the per-request rule) and the
 // conflict text names whether the holder is actually at the keyboard.
 func requireAssignable(s *store.Store, identity, taskID string, force bool, live map[string]bool) error {
 	t, err := s.GetTask(taskID)
@@ -1167,7 +1167,7 @@ func requireAssignable(s *store.Store, identity, taskID string, force bool, live
 	return nil
 }
 
-// assignmentConflict renders the §4 conflict error for a refused AssignTask
+// assignmentConflict renders the conflict error for a refused AssignTask
 // or a guarded write. It names the holder and the age of the assignment, and
 // keys the remediation hint off the conflict class: force CAN take a task
 // from its holder, so the hint says so; force CANNOT override the subtree
@@ -1205,7 +1205,7 @@ func assignmentConflict(s *store.Store, taskID string, err error, live map[strin
 }
 
 // takeoverComment is the audit line recorded when an agent force-takes a
-// task (§4): who took it, from whom, and how stale the handover was. The
+// task: who took it, from whom, and how stale the handover was. The
 // same line is written by assign_task(force=true) and by requireAssignable's
 // force path, so a takeover leaves the same trail everywhere.
 func takeoverComment(identity, previous string, assignedAt *int64, live map[string]bool) string {
@@ -1258,7 +1258,7 @@ func liveState(live map[string]bool, holder string) string {
 //
 // A matching row's non-matching ancestors are emitted as skeleton rows
 // (context_only=true) so parent_id chains and depth stay meaningful; a
-// skeleton never receives an inlined body even under include (§5.2), and a
+// skeleton never receives an inlined body even under include, and a
 // row that matches in its own right is a full row even when it is also
 // someone's ancestor. Emitted rows keep the original preorder.
 //
@@ -1281,7 +1281,7 @@ func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner st
 		}
 	}
 
-	// The §5.2 ancestor skeleton: a match's non-matching ancestors come back
+	// The ancestor skeleton: a match's non-matching ancestors come back
 	// as context rows, so a pending child of a complete parent still arrives
 	// with its parent chain intact.
 	skeletons := make(map[string]bool)
@@ -1337,7 +1337,7 @@ func sectionRows(s *store.Store, tasks []store.Task, status string, listOwner st
 }
 
 // matchesStatus reports whether a task's own status satisfies the list_tasks
-// filter; "open" means pending + in_progress (§4). Unknown statuses match
+// filter; "open" means pending + in_progress. Unknown statuses match
 // nothing — the handler validates the value before calling.
 func matchesStatus(t apptypes.Task, status string) bool {
 	switch status {
@@ -1372,7 +1372,7 @@ func taskProgressJSON(s *store.Store, id string) (progressJSON, error) {
 // own fields, its entire subtree with every descendant's full notes and
 // comments (decision 8), and the task's own comments. It is also the payload
 // assign_task and next_task return after a grab — "grabbing and reading a
-// task is one call" (§3) — so the three tool surfaces share one definition
+// task is one call" — so the three tool surfaces share one definition
 // and cannot drift. live is the caller's one-per-request presence read; do
 // not query presence in here.
 func taskDetailsJSONFor(s *store.Store, id string, live map[string]bool) (taskDetailsJSON, error) {
@@ -1510,7 +1510,7 @@ func validStatusFilter(status string) bool {
 }
 
 // notesBudget caps the total inlined body bytes in one list_tasks response
-// (§5.3). A row's body is never cut mid-text: a row that would push the
+// A row's body is never cut mid-text: a row that would push the
 // response past the budget keeps its (has_notes, notes_len) flags but its
 // body stays out, and its id is reported in `elided` — it comes back whole
 // or not at all.
@@ -1523,7 +1523,7 @@ const notesBudget = 40000
 //
 // Skeleton rows are skipped: the inbox filters per task like list_tasks, so it
 // emits context_only ancestors too, and a skeleton is tree scaffolding rather
-// than content — §5.2 keeps bodies off it on every surface, not just
+// than content — bodies stay off it on every surface, not just
 // list_tasks.
 func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 	byID := make(map[string]string, len(tasks))
@@ -1542,19 +1542,19 @@ func inlineNotes(rows []taskRowJSON, tasks []store.Task) {
 	}
 }
 
-// inlineBodyBudget inlines notes and comments into rows under the §5.3 byte
+// inlineBodyBudget inlines notes and comments into rows under the byte
 // budget, walking rows in preorder and accumulating len(notes) +
 // sum(len(comment.note)). Once a row's body would push the running total
 // past notesBudget, that row and every later row keep has_notes/notes_len
 // but get no inlined body, and their ids are returned in elided — never cut
 // mid-text. Skeleton rows (context_only) never take from the budget: their
-// bodies are never inlined (§5.2). budgetExceed reports whether the budget
+// bodies are never inlined. budgetExceed reports whether the budget
 // was hit at all, which is exactly len(elided) > 0.
 //
 // Only rows that actually have a body are charged to the budget or named in
 // elided. elided exists so the agent can re-fetch the dropped bodies with
 // show_task, so listing a row with no notes and no comments would buy it a
-// round-trip that returns nothing — the cost §2 exists to remove.
+// round-trip that returns nothing — a cost worth removing.
 //
 // Comment presence comes from ONE store.TaskIDsWithComments query for the
 // whole list, not a ListComments per row: that helper exists for this exact
@@ -1603,7 +1603,7 @@ func inlineBodyBudget(s *store.Store, listID string, rows []taskRowJSON, tasks [
 		if used+cost > notesBudget {
 			// This row and every later one keep has_notes/notes_len but get no
 			// body; rows with nothing to inline are not "dropped" and so are
-			// not named (skeletons among them — they never had a body, §5.2).
+			// not named (skeletons among them — they never had a body).
 			for j := i; j < len(rows); j++ {
 				if !hasBody(&rows[j]) {
 					continue

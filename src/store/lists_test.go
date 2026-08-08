@@ -163,8 +163,8 @@ func TestGetOrCreateAgentList(t *testing.T) {
 	}
 }
 
-// TestRenameListAdoptsTagIntoOwner pins hardening §4.7 / §6 assertion 7: a
-// rename into the "<tag>:" convention adopts the tag as owner in the same
+// TestRenameListAdoptsTagIntoOwner pins adopt-on-tag: a rename into the
+// "<tag>:" convention adopts the tag as owner in the same
 // write (no store.Open needed), and an existing owner is never overwritten
 // by a rename.
 func TestRenameListAdoptsTagIntoOwner(t *testing.T) {
@@ -219,7 +219,7 @@ func TestRenameListAdoptsTagIntoOwner(t *testing.T) {
 	}
 }
 
-// TestGetOrCreateAgentListIsOwnerFirst pins hardening §4.3 (H3): the lookup
+// TestGetOrCreateAgentListIsOwnerFirst pins H3: the lookup
 // must be by created_by, not by the "<identity>:" name prefix. A list the
 // human created in the CLI/TUI with a pi: name but an empty owner is foreign
 // to every agent — returning it would make the next add_task fail with

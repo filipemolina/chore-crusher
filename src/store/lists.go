@@ -86,7 +86,7 @@ func (s *Store) RenameList(id, name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("list name must not be empty")
 	}
-	// Adopt-on-tag (§4.7): renaming an untagged list into the "<tag>:"
+	// Adopt-on-tag: renaming an untagged list into the "<tag>:"
 	// convention adopts the tag as owner in the same write — the human
 	// handoff path (rename Groceries to "pi: Groceries") takes effect
 	// immediately instead of at the next store.Open. An existing owner is

@@ -239,7 +239,7 @@ func TestWCAGContrastAgainstSurfaces(t *testing.T) {
 			// focused/selected (ModalBg) and TextDim otherwise (BackgroundPanel).
 			// Floors match the existing Accent/modal (3.0) and TextDim/panel (2.2)
 			// tiers — the spinner is a small decorative glyph, not body text.
-			// (§3.7, §12 glyph vocabulary.)
+			// (docs/DESIGN.md §12, glyph vocabulary.)
 			spinnerCases := []struct {
 				label   string
 				ink     color.Color

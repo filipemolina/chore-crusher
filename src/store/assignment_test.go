@@ -88,7 +88,7 @@ func TestAssignTaskSubtreeReservation(t *testing.T) {
 }
 
 // TestSubtreeConflictIsDistinguishable pins the difference the MCP layer has
-// to render (plan §4): a conflict on the task itself is fixable with
+// to render: a conflict on the task itself is fixable with
 // force=true, a conflict via the subtree is NOT — force overrides a holder,
 // never decision 4's invariant. Both wrap ErrAssigned; only the subtree case
 // wraps ErrSubtreeAssigned, and step 9 must key its hint off that. Without

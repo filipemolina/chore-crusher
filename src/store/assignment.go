@@ -15,7 +15,7 @@ var ErrAssigned = errors.New("task is assigned to another agent")
 
 // ErrNoAssignable reports that NextAssignable found no eligible task. It is
 // a normal outcome, not a failure — the MCP layer maps it to the
-// {ok: false, reason: ...} shape (plan §4), never to a tool error.
+// {ok: false, reason: ...} shape, never to a tool error.
 var ErrNoAssignable = errors.New("no eligible task in this list")
 
 // ErrSubtreeAssigned reports that the blocker is an ancestor or descendant,
@@ -26,7 +26,7 @@ var ErrNoAssignable = errors.New("no eligible task in this list")
 // task from its holder, but it does NOT override the subtree invariant
 // (decision 4), so the "pass force=true to take it" hint is correct for
 // ErrAssigned and WRONG for this. Tell the caller to release the named
-// blocker instead (plan §4).
+// blocker instead.
 var ErrSubtreeAssigned = fmt.Errorf("%w (via its subtree)", ErrAssigned)
 
 // ErrInvalidPriority is returned when SetPriority receives a value outside
@@ -56,7 +56,7 @@ func (s *Store) SetPriority(taskID string, p Priority) error {
 // priorityRank orders priorities for NextAssignable: high > medium > low >
 // none. The column is TEXT and its values collate the wrong way
 // ("high" < "low" < "medium" < "none" alphabetically), so the rank is
-// spelled out, not derived from the strings (plan §6.5, trap 1). Anything
+// spelled out, not derived from the strings (trap 1). Anything
 // unrecognised sorts last, like none.
 func priorityRank(p Priority) int {
 	switch p {
@@ -201,7 +201,7 @@ func (s *Store) UnassignList(listID string) (int, error) {
 // different agent. Ordering is priority descending (high > medium > low >
 // none), then ListTasks' depth-first preorder — a rank, not a collation,
 // spliced onto a tree order ListTasks builds in Go, so it cannot be one SQL
-// ORDER BY (plan §6.5).
+// ORDER BY.
 //
 // The pick is in Go and the write is the same guarded UPDATE as AssignTask,
 // so losing a race between pick and write just advances to the next
@@ -238,7 +238,7 @@ func (s *Store) NextAssignable(listID, agentID string) (Task, error) {
 // it would across separate statements (AssignTask holds the same invariant
 // the same way). taken is false — with a nil error — when the subtree is
 // reserved or another process won the row; the caller moves to the next
-// candidate rather than failing (plan §6.5, trap 3).
+// candidate rather than failing (trap 3).
 func (s *Store) tryGrab(taskID, agentID string) (Task, bool, error) {
 	tx, err := s.db.Begin()
 	if err != nil {

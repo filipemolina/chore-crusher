@@ -285,7 +285,7 @@ var Details = DetailsKeys{
 	// tree's inline create), and enter posts it — distinct from ctrl+s (which
 	// saves notes/progress), so the two write paths never collide. A terminal
 	// cannot reliably distinguish ctrl+enter from enter, so enter is the submit
-	// key (§6, Commit 5).
+	// key.
 	CommentNew:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "add comment")),
 	CommentSubmit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "post comment")),
 	CopyCommentID: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy comment id")),

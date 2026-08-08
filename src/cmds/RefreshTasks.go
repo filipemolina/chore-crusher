@@ -9,7 +9,7 @@ import (
 // RefreshTasksMsg carries one list's tasks as flattened tree rows, converted
 // to apptypes at the boundary. Rows is nil when the query failed; Err holds
 // the failure. Activities carries the live agent-claim set so the TUI can
-// render spinners on claimed rows (§3.5). The poll loop's RefreshTasks
+// render spinners on claimed rows. The poll loop's RefreshTasks
 // routes this to the task tree.
 type RefreshTasksMsg struct {
 	ListID     string
@@ -42,7 +42,7 @@ func RefreshTasks(s *store.Store, listID string) tea.Cmd {
 		rows := apptypes.Flatten(apptypes.FromStoreTasks(tasks))
 		// One batch query for which tasks in this list have comments, so the
 		// tasktree can draw the comments glyph on every row without an N+1
-		// per-row lookup (§6, Commit 4).
+		// per-row lookup.
 		commented, err := s.TaskIDsWithComments(listID)
 		if err != nil {
 			return RefreshTasksMsg{ListID: listID, Err: err}

@@ -51,10 +51,10 @@ func assertNoZeroField(t *testing.T, v reflect.Value, name string) {
 	}
 }
 
-// TestFromStoreConvertersCopyEveryField guards the boundary that §6.4 names
-// as a silent failure mode: the store -> apptypes conversions are functions
-// rather than type aliases so a field cannot leak between the layers, but
-// nothing made that promise enforceable. A field added to a store struct AND to its apptypes
+// TestFromStoreConvertersCopyEveryField guards a known silent failure mode:
+// the store -> apptypes conversions are functions rather than type aliases so
+// a field cannot leak between the layers, but nothing made that promise
+// enforceable. A field added to a store struct AND to its apptypes
 // mirror but forgotten in the converter compiles fine and reads empty in
 // every component — exactly how Assignee, AssignedAt and Priority could have
 // arrived broken in step 2.

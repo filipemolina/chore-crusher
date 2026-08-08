@@ -434,7 +434,7 @@ func (s *Store) DeleteTask(id string) error {
 
 	for _, tid := range ids {
 		// AgentActivity has no FK to Task, so claim rows for the deleted
-		// subtree must be removed explicitly (§4). TaskComment cascades via
+		// subtree must be removed explicitly. TaskComment cascades via
 		// its task_id FK, so it needs no explicit delete here.
 		if _, err := tx.Exec(`DELETE FROM AgentActivity WHERE entity_type = 'task' AND entity_id = ?`, tid); err != nil {
 			return err
@@ -519,7 +519,7 @@ func (s *Store) ListTasks(listID string) ([]Task, error) {
 // TasksChangedSince returns the tasks in listID whose updated_at is strictly
 // greater than since (unix seconds), ordered by updated_at ascending. "Changed"
 // covers creation, status/progress, rename, notes, re-parent, and a new comment
-// (§1, which makes AddComment bump updated_at). Deletions are not
+// (AddComment bumps updated_at for exactly this reason). Deletions are not
 // represented — a task removed after `since` is simply absent from the
 // result.
 func (s *Store) TasksChangedSince(listID string, since int64) ([]Task, error) {

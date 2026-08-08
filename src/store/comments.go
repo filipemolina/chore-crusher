@@ -61,8 +61,8 @@ func (s *Store) AddComment(taskID, author, note string) (string, error) {
 		return "", err
 	}
 	// A comment is activity on the task: bump updated_at so list_tasks(since=…)
-	// reports it as changed (docs/plan/mcp-list-changes-since.md §1, decision (a);
-	// the list_changes tool that plan added is now that since parameter).
+	// reports it as changed. (The since parameter replaced a separate
+	// list_changes tool; this is the write that makes it see new comments.)
 	if _, err := s.db.Exec(
 		`UPDATE Task SET updated_at = ? WHERE id = ?`, now, taskID,
 	); err != nil {
@@ -153,11 +153,10 @@ func (s *Store) DeleteComment(id string) error {
 	return requireAffected(res, "comment", id)
 }
 
-// SetCommentsDisabled toggles the list-level comments_disabled flag. The
-// plan leaves the "how a human turns it on" question as a follow-up — this
-// store method exists so the flag can be set for testing and so a future
-// CLI/TUI toggle has the one writer it needs, rather than every caller
-// reaching into raw SQL.
+// SetCommentsDisabled toggles the list-level comments_disabled flag. How a
+// human turns it on is still an open question — this store method exists so
+// the flag can be set for testing and so a future CLI/TUI toggle has the one
+// writer it needs, rather than every caller reaching into raw SQL.
 func (s *Store) SetCommentsDisabled(listID string, disabled bool) error {
 	flag := 0
 	if disabled {

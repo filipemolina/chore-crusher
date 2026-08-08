@@ -17,7 +17,7 @@ type AnimTickMsg time.Time
 
 // AnimTick fires once after interval. Re-issue it from inside the handler
 // that receives AnimTickMsg to schedule the next cycle — the same
-// self-rescheduling shape as PollTick (§3.5).
+// self-rescheduling shape as PollTick.
 func AnimTick(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return AnimTickMsg(t)

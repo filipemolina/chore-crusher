@@ -674,10 +674,8 @@ const titleGutter = 1
 // Pending/Complete section the row sits in, so dropping it costs the user
 // nothing.
 //
-// This reverses the older order (progress first, status last) recorded in
-// docs/plan/mcp-server-enhancement.md §3.7 and
-// docs/plan/task-row-redesign-and-inline-creation.md: those plans budgeted for
-// overflow alone and had no notion of a title floor, so at narrow widths they
+// This reverses an older order (progress first, status last) that budgeted
+// for overflow alone, with no notion of a title floor: at narrow widths it
 // spent eleven columns on a label the row already showed three other ways
 // while the title shrank to a stub. docs/DESIGN.md §12 records the current
 // rule. The status column is a fixed statusColWidth allocation and the

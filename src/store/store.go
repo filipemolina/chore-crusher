@@ -153,14 +153,14 @@ func Open(path string) (*Store, error) {
 }
 
 // ownerTagRE matches the leading "<tag>:" prefix of a list name — A's
-// ownership convention (§3.7). The capture is the owner tag.
-// modernc.org/sqlite exposes no REGEXP, so the scan runs in Go over the rows
-// whose created_by is still empty.
+// ownership convention. The capture is the owner tag. modernc.org/sqlite
+// exposes no REGEXP, so the scan runs in Go over the rows whose created_by is
+// still empty.
 var ownerTagRE = regexp.MustCompile(`^([A-Za-z0-9_-]+):`)
 
 // adoptOwnerTag returns the owner tag a "<tag>:" name adopts, or "" when the
 // name has no tag. Shared by the Open-time backfill and RenameList's
-// adopt-on-tag write (§4.7) so the two use exactly the same regex.
+// adopt-on-tag write, so the two use exactly the same regex.
 func adoptOwnerTag(name string) string {
 	if m := ownerTagRE.FindStringSubmatch(name); m != nil {
 		return m[1]
@@ -178,7 +178,7 @@ func adoptOwnerTag(name string) string {
 // The pass is idempotent: it only touches rows where created_by = "", and a
 // row once tagged keeps its tag, so re-opening never re-adopts it. Lists
 // created after Open with a "<tag>:" name stay untagged until the next Open —
-// a documented limitation (§3.7).
+// a documented limitation.
 func (s *Store) backfillOwners() error {
 	rows, err := s.db.Query(`SELECT id, name FROM List WHERE created_by = ''`)
 	if err != nil {

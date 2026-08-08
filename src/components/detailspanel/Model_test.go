@@ -244,7 +244,7 @@ func beginCompose(t *testing.T, m *Model) *Model {
 // comment thread into the panel. Ordering by created_at is the store's
 // responsibility (TestAddCommentAndListComments pins it); here we assert the
 // panel surfaces every comment the store returns, with the author and note
-// intact (§6, Commit 5).
+// intact.
 func TestCommentsAppearAfterRefresh(t *testing.T) {
 	m, s, taskID := loaded(t, "notes")
 	if _, err := s.AddComment(taskID, "alice", "second"); err != nil {
@@ -275,7 +275,7 @@ func TestCommentsAppearAfterRefresh(t *testing.T) {
 
 // TestPostCommentAppearsImmediately verifies that posting a comment through
 // the inline compose card appends it to the live thread without a poll
-// round-trip, and that enter is the submit key (§6, Commit 5).
+// round-trip, and that enter is the submit key.
 func TestPostCommentAppearsImmediately(t *testing.T) {
 	m, s, taskID := loaded(t, "")
 	m = beginCompose(t, m)
@@ -315,9 +315,8 @@ func TestPostCommentAppearsImmediately(t *testing.T) {
 
 // TestCtrlSWhileComposingDoesNotPost verifies the compose card and the
 // notes/progress save path are independent: ctrl+s is never bound to posting a
-// comment, even while the compose card owns the keyboard (§6 — "NOT
-// ctrl+s"). Posting is enter; ctrl+s while composing is a no-op that keeps
-// the draft in place.
+// comment, even while the compose card owns the keyboard. Posting is enter;
+// ctrl+s while composing is a no-op that keeps the draft in place.
 func TestCtrlSWhileComposingDoesNotPost(t *testing.T) {
 	m, _, _ := loaded(t, "")
 	m = beginCompose(t, m)

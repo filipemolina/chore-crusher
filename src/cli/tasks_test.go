@@ -177,8 +177,8 @@ func TestShow(t *testing.T) {
 	}
 }
 
-// TestCLIShowIncludesChildren pins hardening §6 assertion 4 (H4): `crush
-// show --json` must emit non-empty children with depth relative to the shown
+// TestCLIShowIncludesChildren pins H4: `crush show --json` must emit
+// non-empty children with depth relative to the shown
 // task (child at 1, grandchild at 2) — the old code ran the descendant set
 // through apptypes.Flatten, which only emits ParentID==nil rows, so children
 // was always empty and the CLI diverged from the MCP's show_task.
@@ -263,7 +263,7 @@ func TestMoveReparents(t *testing.T) {
 	}
 }
 
-// TestTasksJSONCarriesListOwner pins §10.5: the list_owner field (the
+// TestTasksJSONCarriesListOwner pins the list_owner field (the
 // parent list's created_by) appears on task rows and show output. An owner
 // tag is set via `crush lists add --owner`, which is the CLI analogue of
 // the MCP add_list(created_by=...) path.
@@ -288,7 +288,7 @@ func TestTasksJSONCarriesListOwner(t *testing.T) {
 	}
 }
 
-// TestCommentRoundTrip pins the CLI comment surface (§5): `crush tasks
+// TestCommentRoundTrip pins the CLI comment surface: `crush tasks
 // comment` writes a comment attributed to the OS username, and
 // `crush show --json` includes it in the comments array, oldest first.
 func TestCommentRoundTrip(t *testing.T) {
@@ -348,8 +348,9 @@ func TestCommentAuthorIsOSUsername(t *testing.T) {
 	}
 }
 
-// TestCommentRefusedOnDisabledList pins (§1): a task whose list has
-// comments_disabled refuses new comments with a domain error (exit 1).
+// TestCommentRefusedOnDisabledList pins the list-level disable flag: a task
+// whose list has comments_disabled refuses new comments with a domain error
+// (exit 1).
 func TestCommentRefusedOnDisabledList(t *testing.T) {
 	data := t.TempDir()
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
@@ -588,7 +589,7 @@ func TestUnassignListJSONShape(t *testing.T) {
 }
 
 // TestPriorityJSONShapes pins `crush priority`: the echoed level on success,
-// the §9 error shape for an invalid level, and — the §6.5 trap — an omitted
+// the §9 error shape for an invalid level, and — the trap — an omitted
 // --level failing as an error rather than defaulting to none.
 func TestPriorityJSONShapes(t *testing.T) {
 	data := t.TempDir()
@@ -629,7 +630,7 @@ func TestPriorityJSONShapes(t *testing.T) {
 	}
 
 	// An omitted --level fails with the §9 error shape and does not default
-	// to none (§6.5).
+	// to none.
 	code, out, _ = runCLI(t, data, "priority", tid, "--json")
 	if code != 1 {
 		t.Fatalf("missing --level: exit %d, want 1", code)

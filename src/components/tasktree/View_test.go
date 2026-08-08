@@ -28,10 +28,10 @@ func intPtr(v int) *int { return &v }
 // still shows its status through the ◻/◼ glyph, its colour, and its section,
 // while the percentage appears nowhere else.
 //
-// That is the reverse of the order this test pinned when it was written for
-// docs/plan/task-row-redesign-and-inline-creation.md step 1, which budgeted
-// for overflow alone; docs/DESIGN.md §12 now records the floor-driven rule.
-// The title and checkbox are never dropped: the title is always at least one
+// That is the reverse of the order this test pinned when it was written,
+// against a budget that considered overflow alone; docs/DESIGN.md §12 now
+// records the floor-driven rule. The title and checkbox are never dropped:
+// the title is always at least one
 // column, and the checkbox keeps its fixed width. The status column is a fixed
 // statusColWidth and the icon column a fixed detailsColWidth, reserved
 // together regardless of notes.
@@ -101,7 +101,7 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 	m.rows = []apptypes.Row{row}
 	m.selectedID = "1"
 	// The sweep row is claimed: the spinner+agent unit is part of the budget
-	// this overflow sweep must exercise (§6 #1).
+	// this overflow sweep must exercise.
 	m.work = map[string]apptypes.AgentActivity{
 		"1": {EntityType: "task", EntityID: "1", AgentID: "claude", Kind: "working"},
 	}
@@ -269,8 +269,8 @@ func TestDetailsIconInTrailingColumn(t *testing.T) {
 // column — so the status label and the two-cell notes+comments glyph column
 // line up across rows regardless of the label's length (decision 2;
 // docs/DESIGN.md §12). Every row here carries notes, so the notes glyph is
-// always present at a fixed column; commented
-// rows must additionally place the comments glyph immediately after it, so
+// always present at a fixed column; commented rows must additionally place
+// the comments glyph immediately after it, so
 // the two share the fixed 2-cell trailing column.
 func TestStatusColumnIsFixedWidth(t *testing.T) {
 	const width = 60
@@ -408,12 +408,13 @@ func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 // unit is atomic (full width or zero, never a fragment), the status+icon block
 // sheds first, then the agent-spinner unit, and the percentage last.
 //
-// docs/plan/mcp-server-enhancement.md §3.7 ordered these the other way round
-// (progress, then spinner, then status) when the only constraint was overflow.
-// The title floor reverses it: the label is the cheapest thing to lose and the
+// An earlier design ordered these the other way round (progress, then
+// spinner, then status), when the only constraint was overflow. The title
+// floor reverses it: the label is the cheapest thing to lose and the
 // percentage the dearest. The spinner's position relative to status and
-// progress is unchanged — it is still the middle one — so §3.7's actual point,
-// that the spinner unit is atomic and never clipped, still holds here.
+// progress is unchanged — it is still the middle one — so that design's
+// actual point, that the spinner unit is atomic and never clipped, still
+// holds here.
 func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
 	const checkbox = 1
 	status := "IN PROGRESS" // any label -> fixed status column, statusColWidth+1

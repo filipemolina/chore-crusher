@@ -49,7 +49,7 @@ type AppModel struct {
 
 	// animFrame is the current spinner frame (0..7), advanced by AnimTickMsg.
 	// animActive tracks whether any agent claim is live — the spinner only
-	// ticks when this is true (§3.6).
+	// ticks when this is true.
 	animFrame  int
 	animActive bool
 

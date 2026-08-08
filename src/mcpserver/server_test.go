@@ -368,8 +368,8 @@ func TestMyListIncludesForeign(t *testing.T) {
 // agent reads at session start must list tools with the host-registered
 // chore_crusher_<name> prefix. An unprefixed name (the original bug) makes the
 // agent's first call fail to resolve. The blob lists every tool under a TOOLS
-// heading as `name(...)`; scan the whole blob (not a fixed block) so the §9
-// rewrite does not force a brittle diff.
+// heading as `name(...)`; scan the whole blob (not a fixed block) so a
+// rewrite of the blob does not force a brittle diff.
 func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 	session := setupMCP(t)
 
@@ -454,7 +454,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	if instructions == "" {
 		t.Fatal("Instructions is empty")
 	}
-	// The blob stays slim (§9): it points at the crush_inbox prompt for the
+	// The blob stays slim: it points at the crush_inbox prompt for the
 	// full loop instead of embedding it. Assert it names the loop and the
 	// opener, and that the loop itself lives in the crush_inbox prompt.
 	lower := strings.ToLower(instructions)
@@ -463,7 +463,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 		"crush_inbox",
 		"crush:///inbox",
 		"set_status",
-		// The loop is now grab-first (plan §3): the blob has to say that
+		// The loop is now grab-first: the blob has to say that
 		// assignment is durable ownership, distinct from the presence
 		// spinner, or an agent reads assignee as another word for the claim
 		// and skips the grab that stops two agents researching one task.
@@ -925,7 +925,7 @@ func TestMCPAssignAndReleaseWork(t *testing.T) {
 	}), &task)
 
 	// assign_task hands back the full task payload, already assigned to the
-	// server identity — grabbing and reading a task is one call (§3).
+	// server identity — grabbing and reading a task is one call.
 	var got []struct {
 		ID         string `json:"id"`
 		Title      string `json:"title"`
@@ -982,7 +982,7 @@ func TestMCPAssignTaskConflict(t *testing.T) {
 	callTool(t, alice, "assign_task", map[string]any{"ids": []string{task["id"]}})
 
 	// bob's assign is refused, naming the holder and the force escape. The
-	// refusal is a per-row error, not a tool error (§2's fail-soft rule).
+	// refusal is a per-row error, not a tool error (the fail-soft rule).
 	bob := sessionAs(t, dataDir, "bob")
 	var got []struct {
 		ID    string `json:"id"`
@@ -996,7 +996,7 @@ func TestMCPAssignTaskConflict(t *testing.T) {
 		t.Fatalf("assign conflict error = %q, want holder + force hint", got[0].Error)
 	}
 
-	// bob's guarded status write refuses the same way (§7): per-row error.
+	// bob's guarded status write refuses the same way: per-row error.
 	var srows []struct {
 		Error string `json:"error"`
 	}
@@ -1018,7 +1018,7 @@ func TestMCPAssignTaskConflict(t *testing.T) {
 }
 
 // TestMCPGuardedWriteForceTakeover covers the refuse-with-override rule
-// (§2) end to end: with force=true bob's assign performs the takeover and
+// end to end: with force=true bob's assign performs the takeover and
 // records a takeover comment naming the previous holder; the same guard
 // gates set_status, and force lets the write land.
 func TestMCPGuardedWriteForceTakeover(t *testing.T) {
@@ -1131,7 +1131,7 @@ func TestMCPGuardedWriteForceTakeover(t *testing.T) {
 }
 
 // TestMCPRefusedForcedWriteLeavesAssignmentAlone pins the ORDER of the two
-// gates on edit_task and delete_task: list ownership first, the §7
+// gates on edit_task and delete_task: list ownership first, the
 // assignment guard last. The guard's force branch is itself a write — it
 // reassigns the task and records a takeover comment — so running it ahead
 // of a check that can still refuse leaves the task taken over by a write
@@ -1191,7 +1191,7 @@ func TestMCPRefusedForcedWriteLeavesAssignmentAlone(t *testing.T) {
 	}
 }
 
-// TestMCPAssignTaskRelease guards the release semantics (§4): release=true
+// TestMCPAssignTaskRelease guards the release semantics: release=true
 // succeeds silently when nobody holds the task; ids validation is enforced.
 func TestMCPAssignTaskRelease(t *testing.T) {
 	session := setupMCPAs(t, "pi")
@@ -1294,7 +1294,7 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 	}
 }
 
-// TestMCPAssignDefaultsToIdentity pins §3's "assignment always lands on
+// TestMCPAssignDefaultsToIdentity pins the "assignment always lands on
 // this server's identity" rule: assign_task and next_task take no agent_id,
 // so the assignment always matches the CRUSH_AGENT that all the takeover
 // and heartbeat logic keys off. The old claim_work's agent_id default
@@ -1644,7 +1644,7 @@ func TestMCPBreakdownPrompt(t *testing.T) {
 	}
 }
 
-// TestMCPForeignListWriteRefused guards §4.D / §5 assertion 2: every
+// TestMCPForeignListWriteRefused guards the list-ownership rule: every
 // structural write tool (add_task, edit_task, delete_task) errors on a list
 // owned by another agent — not just one of them. The server here acts as
 // "pi"; the list is created as "claude". (rename_list/delete_list are no
@@ -1679,7 +1679,7 @@ func TestMCPForeignListWriteRefused(t *testing.T) {
 	}
 
 	// One table for every gated structural tool: a new gated tool is added as
-	// a row here, not as a hand-written case (hardening §5.I, H14).
+	// a row here, not as a hand-written case (H14).
 	for _, tc := range []struct {
 		name string
 		tool string
@@ -1745,7 +1745,7 @@ func TestMCPOwnerCanWriteEverything(t *testing.T) {
 	}
 }
 
-// TestMCPStatusToolsOpenOnForeignList guards §5 assertion 3: status/progress
+// TestMCPStatusToolsOpenOnForeignList guards the status/progress carve-out:
 // writes are never list-gated, so set_status succeeds on a list owned by
 // another agent.
 func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
@@ -1792,7 +1792,7 @@ func TestMCPStatusToolsOpenOnForeignList(t *testing.T) {
 	}
 }
 
-// TestMCPUntaggedListForeignToEveryAgent guards §5 assertion 4: a list with
+// TestMCPUntaggedListForeignToEveryAgent guards the untagged case: a list with
 // no owner (created the human/CLI way, created_by="") is foreign to *every*
 // agent identity — structural writes error for all of them, yet
 // status/progress writes succeed. MCP's add_list defaults the owner to the
@@ -1920,7 +1920,7 @@ func TestMCPCollaborativeListAllowsStructuralEdits(t *testing.T) {
 	}
 }
 
-// TestMCPAddListDefaultsToIdentity guards §5 assertion 5 (default owner):
+// TestMCPAddListDefaultsToIdentity guards the default owner:
 // add_list with no created_by yields a list_lists entry whose created_by is
 // the server identity.
 func TestMCPAddListDefaultsToIdentity(t *testing.T) {
@@ -1941,7 +1941,7 @@ func TestMCPAddListDefaultsToIdentity(t *testing.T) {
 	}
 }
 
-// TestMCPListListsIncludesCreatedBy guards §5 assertion 5: list_lists reports
+// TestMCPListListsIncludesCreatedBy guards the owner field: list_lists reports
 // the owner of each list.
 func TestMCPListListsIncludesCreatedBy(t *testing.T) {
 	session := setupMCPAs(t, "pi")
@@ -1992,8 +1992,8 @@ func TestMCPListListsIncludesCreatedBy(t *testing.T) {
 	}
 }
 
-// TestMCPAddListRejectsBadTag guards §4.C: an explicit created_by that fails
-// the tag pattern is rejected.
+// TestMCPAddListRejectsBadTag guards tag validation: an explicit created_by
+// that fails the tag pattern is rejected.
 func TestMCPAddListRejectsBadTag(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
@@ -2216,7 +2216,7 @@ func TestMCPAgentLivePresenceSurvivesOtherAgentSessionEnd(t *testing.T) {
 
 // listTasksResponse is the list_tasks envelope — a bare array until step 7
 // turned it into {tasks, elided, budget_exceeded}: elided names the rows the
-// §5.3 body budget dropped whole (fetch them with show_task), and
+// body budget dropped whole (fetch them with show_task), and
 // budget_exceeded is true exactly when any body was dropped.
 type listTasksResponse struct {
 	Tasks          []map[string]any `json:"tasks"`
@@ -2293,7 +2293,7 @@ func TestListTasksIncludeNotes(t *testing.T) {
 		t.Errorf("long notes must come back WHOLE — the 2000-char truncation is gone — got %d", len(byTitle["long"]["notes"].(string)))
 	}
 	// The notes_truncated field was deleted with the truncation it described
-	// (§5.3): a body is now inlined whole or dropped whole, never cut.
+	// A body is now inlined whole or dropped whole, never cut.
 	for _, r := range res.Tasks {
 		if _, tr := r["notes_truncated"]; tr {
 			t.Errorf("notes_truncated must not exist any more: %#v", r)
@@ -2411,8 +2411,9 @@ func TestListTasksSinceBeforeAnyTimestamp(t *testing.T) {
 	}
 }
 
-// TestListTasksSkeletonAncestorContextOnly pins §5.2: a pending child of a
-// complete parent matches the default 'open' filter, and its non-matching
+// TestListTasksSkeletonAncestorContextOnly pins the skeleton rule: a pending
+// child of a complete parent matches the default 'open' filter, and its
+// non-matching
 // ancestor comes back as a context_only skeleton so the parent_id chain and
 // depth stay meaningful — the skeleton never carries an inlined body even
 // under include=notes, and the same row is a full row again (no
@@ -2475,7 +2476,7 @@ func TestListTasksSkeletonAncestorContextOnly(t *testing.T) {
 	}
 }
 
-// TestListTasksBudgetWholeOrNotAll pins §5.3 and decision 8: ten notes of
+// TestListTasksBudgetWholeOrNotAll pins the whole-or-nothing budget: ten notes of
 // 5000 chars double the 40000-byte notesBudget, so the first eight come
 // back WHOLE and the last two stay in the response without a body — their
 // ids land in elided, never a body cut to a prefix. budget_exceeded
@@ -2578,7 +2579,7 @@ func TestShowTasksBatch(t *testing.T) {
 		t.Errorf("row 1: %#v", got[1])
 	}
 	// The merged tool must include comments (the old singular show_task did;
-	// the old batch show_tasks omitted them — §4.1 pins the fix).
+	// the old batch show_tasks omitted them).
 	comments, ok := got[0]["comments"].([]any)
 	if !ok || len(comments) != 1 {
 		t.Fatalf("row 0 comments = %#v, want 1 comment", got[0]["comments"])
@@ -2960,9 +2961,9 @@ func TestCommentDeleteRequiresForce(t *testing.T) {
 	}
 }
 
-// TestCommentAllowedOnAssignedTask pins §4: posting a comment is never
-// blocked by assignment — the §7 guard does not apply to comment, because
-// leaving a note on another agent's task is how coordination is meant to
+// TestCommentAllowedOnAssignedTask pins that posting a comment is never
+// blocked by assignment — the assignment guard does not apply to comment,
+// because leaving a note on another agent's task is how coordination is meant to
 // work. Here the task is durably held by pi; claude comments on it with no
 // force and no refusal, and the note lands attributed to claude.
 func TestCommentAllowedOnAssignedTask(t *testing.T) {
@@ -3098,7 +3099,7 @@ func TestEditTaskAutoClaims(t *testing.T) {
 }
 
 // TestEditTaskTitleOnlyLeavesNotes verifies a title-only edit does not touch
-// the notes body (§4.3: omitted fields are left unchanged).
+// the notes body (omitted fields are left unchanged).
 func TestEditTaskTitleOnlyLeavesNotes(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
@@ -3137,7 +3138,8 @@ func TestEditTaskNotesClear(t *testing.T) {
 }
 
 // TestEditTaskReparentAndForeignParent checks the happy re-parent path and the
-// refusal when the target parent lives on a foreign list (§4.3 target-list rule).
+// refusal when the target parent lives on a foreign list (the target-list
+// rule).
 func TestEditTaskReparentAndForeignParent(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
@@ -3261,11 +3263,10 @@ func taskPriority(t *testing.T, session *mcp.ClientSession, id string) string {
 	return p
 }
 
-// TestAddTaskPriority covers the priority parameter §2's final-surface table
-// gives add_task: it lands on the created task, an omitted one leaves the
-// column at its 'none' default (never SetPriority(""), which the store
-// rejects — plan §6.5), and a bad value is refused BEFORE the task is
-// created, so a rejected call leaves nothing behind.
+// TestAddTaskPriority covers the priority parameter add_task takes: it lands
+// on the created task, an omitted one leaves the column at its 'none' default
+// (never SetPriority(""), which the store rejects), and a bad value is refused
+// BEFORE the task is created, so a rejected call leaves nothing behind.
 func TestAddTaskPriority(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 	var list map[string]string
@@ -3304,7 +3305,7 @@ func TestAddTaskPriority(t *testing.T) {
 	}
 }
 
-// TestEditTaskPriority covers §6.5's dangerous row: the parameter's PRESENCE
+// TestEditTaskPriority covers the dangerous case: the parameter's PRESENCE
 // is what means "set it". An edit that omits priority must leave the stored
 // value alone — a rename silently clearing a high someone set is the bug the
 // pointer type exists to prevent — and "" is a rejected value, not a quiet
@@ -3387,7 +3388,7 @@ func TestEditTaskPriorityForeignListRefused(t *testing.T) {
 	}
 }
 
-// TestEditTaskForeignListRefusesContent guards §6: title/notes edits on a task
+// TestEditTaskForeignListRefusesContent guards that title/notes edits on a task
 // the server does not own are refused (mirrors the old rename_task/set_notes
 // refusal, now under edit_task).
 func TestEditTaskForeignListRefusesContent(t *testing.T) {
@@ -3497,7 +3498,7 @@ func TestSetStatusBatchPercentage(t *testing.T) {
 	}
 }
 
-// TestSetStatusReopensAndSetsProgressOnCompleteTask pins the §4 fix: the old
+// TestSetStatusReopensAndSetsProgressOnCompleteTask pins the fix: the old
 // set_progress refused a completed task ("reopen it before setting
 // progress"), so the agent needed two calls. set_status applies the reopen
 // first, so one call returns the task to open AND sets its percentage — the
@@ -3664,7 +3665,7 @@ func TestSetStatusPercentRequired(t *testing.T) {
 func TestSetStatusRejectsEmptyRequest(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
-	// §4: at least one of status, progress, comment is required. None of the
+	// At least one of status, progress, comment is required. None of the
 	// three is not "leave everything alone" — it is a caller bug, rejected
 	// before any write.
 	msg := callToolErr(t, session, "set_status", map[string]any{"ids": []string{"x"}})
@@ -3744,7 +3745,7 @@ func TestMain(m *testing.M) {
 // Liveness is a property of the AGENT, not the task, so the two rows need two
 // different assignees: pi (writing, therefore present) on its own list, and a
 // tag that never appears in AgentActivity on the foreign one. The second is
-// the stale-assignment tier (§3), and it has to stay false across the
+// the stale-assignment tier, and it has to stay false across the
 // mine/foreign_lists split.
 func TestInboxAssigneeLiveAcrossLists(t *testing.T) {
 	data := t.TempDir()
@@ -3868,7 +3869,7 @@ func TestUnassignedRowIsNeverLive(t *testing.T) {
 }
 
 // TestListTasksSinceSurfacesCompletedTasks pins the DESIGN §9 change-detection
-// contract against the §4 `open` default. DESIGN writes the call as
+// contract against the `open` default. DESIGN writes the call as
 // `list_tasks(list_id, since=<unix>)` and promises it returns tasks whose
 // activity changed — explicitly including "status/progress edited". Completing
 // a task is the most common change there is, so composing `since` with the
@@ -3906,10 +3907,10 @@ func TestListTasksSinceSurfacesCompletedTasks(t *testing.T) {
 }
 
 // TestListTasksElidedNamesOnlyRowsWithBodies pins what `elided` is for: it
-// names rows whose body the §5.3 budget withheld, so the agent can fetch them
+// names rows whose body the budget withheld, so the agent can fetch them
 // with show_task. A row with no notes and no comments had no body to withhold,
-// so naming it sends the agent on a pointless round-trip — the exact cost §2
-// exists to remove.
+// so naming it sends the agent on a pointless round-trip, the exact cost
+// worth removing.
 func TestListTasksElidedNamesOnlyRowsWithBodies(t *testing.T) {
 	session := setupMCP(t)
 	var list map[string]string
@@ -3937,8 +3938,9 @@ func TestListTasksElidedNamesOnlyRowsWithBodies(t *testing.T) {
 	}
 }
 
-// TestInboxSkeletonRowsCarryNoNotes pins §5.2 on the one remaining resource:
-// list_tasks' per-task filter also drives crush:///inbox, so the inbox now
+// TestInboxSkeletonRowsCarryNoNotes pins the skeleton rule on the one
+// remaining resource: list_tasks' per-task filter also drives crush:///inbox,
+// so the inbox now
 // produces context_only skeleton rows too. A skeleton is tree scaffolding, not
 // content — it must never carry an inlined body on any surface.
 func TestInboxSkeletonRowsCarryNoNotes(t *testing.T) {
@@ -3975,7 +3977,7 @@ func TestInboxSkeletonRowsCarryNoNotes(t *testing.T) {
 	}
 }
 
-// TestMCPNextTaskGrabsDifferentTasks guards §3's next_task contract: each
+// TestMCPNextTaskGrabsDifferentTasks guards the next_task contract: each
 // call atomically grabs the top eligible task, so two calls on a list of
 // two free tasks return two different tasks; priority (high > medium > low
 // > none) beats tree order.
@@ -4030,7 +4032,7 @@ func TestMCPNextTaskGrabsDifferentTasks(t *testing.T) {
 	}
 }
 
-// TestMCPNextTaskEmptyBoard guards §4's shape: nothing eligible is NOT an
+// TestMCPNextTaskEmptyBoard guards the shape: nothing eligible is NOT an
 // error — the tool returns {ok:false, reason:'no eligible task in this
 // list'}, and the reason string is part of the contract agents act on.
 func TestMCPNextTaskEmptyBoard(t *testing.T) {
@@ -4068,7 +4070,7 @@ func TestMCPNextTaskEmptyBoard(t *testing.T) {
 // purposes, on both grab paths. docs/DESIGN.md §3 defines assignee != "" with
 // assignee_live false as ABANDONED work, so an agent that has just grabbed a
 // task and is demonstrably alive must not read back that way — otherwise the
-// TUI's stale tier lights up on work nobody has let go of, and the §4 conflict
+// TUI's stale tier lights up on work nobody has let go of, and the conflict
 // text tells a second agent "no live session" about an agent still holding the
 // keyboard. Asserted from a SECOND identity's read, so it pins the claim in
 // the store rather than a value patched into the returned payload.
@@ -4141,7 +4143,7 @@ func TestMCPGrabClaimsPresence(t *testing.T) {
 // TestMCPAssignReleaseDoesNotClaimPresence is the other half of the rule above:
 // releasing is letting go, so it must not light a spinner on a task the agent
 // no longer holds. Uses the release-when-nobody-held-it path, which succeeds
-// silently (§4), so no earlier grab can have left a claim behind.
+// silently, so no earlier grab can have left a claim behind.
 func TestMCPAssignReleaseDoesNotClaimPresence(t *testing.T) {
 	dataDir := t.TempDir()
 	alice := sessionAs(t, dataDir, "alice")
@@ -4241,7 +4243,7 @@ func TestMCPAssignSubtreeConflict(t *testing.T) {
 	callTool(t, bob, "assign_task", map[string]any{"ids": []string{parent["id"]}})
 }
 
-// TestMCPAssignRejectsAgentID guards §3: assign_task takes no agent_id —
+// TestMCPAssignRejectsAgentID guards that assign_task takes no agent_id —
 // an agent may only assign work to itself; assigning work TO another agent
 // is a human action taken from the TUI.
 func TestMCPAssignRejectsAgentID(t *testing.T) {

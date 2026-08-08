@@ -827,7 +827,7 @@ func runUnassign(cmd *cobra.Command, args []string) error {
 // runPriority rejects an empty --level with the §9 error shape rather than
 // defaulting it to none: store.SetPriority refuses the zero value, so an
 // omitted flag must surface as a failure, not a silent re-prioritisation
-// (§6.5). The level's value itself is store.SetPriority's validation, like
+// The level's value itself is store.SetPriority's validation, like
 // runProgress's mode.
 func runPriority(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)

@@ -498,7 +498,8 @@ func TestCreateTaskAfterWithNoAfterIDAppends(t *testing.T) {
 
 // TestTasksChangedSince pins the contract: a task created before `since` is
 // absent from the result; one mutated after `since` (here via SetNotes) is
-// present. Deletions are not representable — see the plan docstring.
+// present. Deletions are not representable — see TasksChangedSince's own
+// docstring.
 func TestTasksChangedSince(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "L")
@@ -600,7 +601,7 @@ func openStoreAtMigration(t *testing.T, path string, upto int) *Store {
 // and priority. A database created before 0006 (here: at 0005, holding real
 // tasks) must be upgraded in place with every pre-existing task landing on
 // the new defaults — assignee ”, assigned_at NULL, priority 'none' — and
-// both read paths must return the new fields (§6.1, §6.2).
+// both read paths must return the new fields.
 func TestMigration0006PreservesExistingTasks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 

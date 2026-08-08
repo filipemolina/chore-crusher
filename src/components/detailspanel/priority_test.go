@@ -132,7 +132,7 @@ func TestPrioritySavesThroughTheStore(t *testing.T) {
 	}
 }
 
-// The §6.5 trap, on this surface: store.SetPriority rejects the zero value and
+// The trap, on this surface: store.SetPriority rejects the zero value and
 // bumps updated_at, so a save that touched only the title must not write the
 // priority at all. A rename silently clearing (or merely re-stamping) a rank
 // someone set is exactly the failure that section exists to prevent.

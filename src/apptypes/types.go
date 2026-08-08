@@ -145,7 +145,7 @@ func FromStoreLists(ls []store.ListSummary) []ListSummary {
 
 // AgentActivity is a live claim that an agent is working on an entity.
 // It mirrors store.AgentActivity — the TUI reads this from the store
-// via the cmds layer and uses it to render a spinner on claimed rows (§3.4).
+// via the cmds layer and uses it to render a spinner on claimed rows.
 type AgentActivity struct {
 	ID         string
 	EntityType string // "task" | "list"
@@ -155,7 +155,7 @@ type AgentActivity struct {
 	AcquiredAt int64
 }
 
-// Comment is a task's append-only v1 comment thread (§1): a note authored
+// Comment is a task's append-only v1 comment thread: a note authored
 // by a user (OS username) or agent (CRUSH_AGENT identity), with no edit or
 // delete in v1. It mirrors store.Comment — the conversion boundary keeps the
 // TUI layer from depending on store's row shape.
