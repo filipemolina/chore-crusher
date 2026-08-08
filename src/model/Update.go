@@ -499,7 +499,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// definition held by an agent that is not the person at the keyboard.
 		// force makes the holder tag irrelevant, which is why "" is passed for
 		// it rather than the TUI inventing an agent identity of its own
-		// (docs/plan/mcp-assignment-and-priorities.md decision 2).
+		// (decision 2).
 		if msg.TaskID != "" {
 			if err := m.store.UnassignTask(msg.TaskID, "", true); err != nil {
 				m.lastError = err.Error()

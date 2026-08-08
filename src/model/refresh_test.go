@@ -390,8 +390,7 @@ func TestPollTickReissuesItself(t *testing.T) {
 	_ = out
 }
 
-// End-to-end proof of the inline-creation circuit
-// (docs/plan/task-row-redesign-and-inline-creation.md): from a cold model,
+// End-to-end proof of the inline-creation circuit: from a cold model,
 // focus the tree (via the real Init(), so this exercises the same startup
 // broadcast the running app relies on), press n to enter creating, type a
 // title, press enter, and assert the task landed in the store and the tree's

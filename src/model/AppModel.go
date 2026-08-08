@@ -18,9 +18,9 @@ import (
 // AppModel is the top-level Bubble Tea model: it owns the store handle, the
 // config, the terminal dimensions, and the three zones of the layout
 // (docs/DESIGN.md §5). Components never read tea.WindowSizeMsg — this is
-// the only place that does, and it broadcasts the derived layout (step 5 of
-// docs/plans/phase-3-tui-shell.md, and stack-stitcher's docs/DESIGN.md §5
-// "Body" for the "no page is active at startup" trap).
+// the only place that does, and it broadcasts the derived layout
+// (stack-stitcher's docs/DESIGN.md §5 "Body" for the "no page is active at
+// startup" trap).
 type AppModel struct {
 	store          *store.Store
 	cfg            config.Config
@@ -49,7 +49,7 @@ type AppModel struct {
 
 	// animFrame is the current spinner frame (0..7), advanced by AnimTickMsg.
 	// animActive tracks whether any agent claim is live — the spinner only
-	// ticks when this is true (docs/plan/mcp-server-enhancement.md §3.6).
+	// ticks when this is true (§3.6).
 	animFrame  int
 	animActive bool
 

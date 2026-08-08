@@ -25,8 +25,7 @@ builds:
       - -s -w -X github.com/filipemolina/chore-crusher/src/constants.version=v{{ .Version }}
 
 # No Windows build for now — re-evaluate once phase 7's details screen lands
-# its $EDITOR handover; see docs/plans/phase-0-scaffolding.md step 7 for why
-# this isn't a silent default.
+# its $EDITOR handover.
 
 archives:
   - formats: [tar.gz]

@@ -73,9 +73,8 @@ type TaskTreeKeys struct {
 	// ReleaseList (U) releases every assignment in the active list. They are
 	// the human's only escape hatch for an abandoned grab: assignment has no
 	// TTL and no sweeper, so nothing else ever frees a task whose agent died
-	// (docs/DESIGN.md §3, docs/plan/mcp-assignment-and-priorities.md decision
-	// 2). The shifted form takes the whole-list action, the same way L takes
-	// the panel-wide one over the tree's own l.
+	// (docs/DESIGN.md §3, decision 2). The shifted form takes the whole-list
+	// action, the same way L takes the panel-wide one over the tree's own l.
 	Unassign    key.Binding
 	ReleaseList key.Binding
 	// GoToStart/GoToEnd jump the cursor to the first or last visible row.
@@ -286,7 +285,7 @@ var Details = DetailsKeys{
 	// tree's inline create), and enter posts it — distinct from ctrl+s (which
 	// saves notes/progress), so the two write paths never collide. A terminal
 	// cannot reliably distinguish ctrl+enter from enter, so enter is the submit
-	// key (docs/plan/task-comments.md §6, Commit 5).
+	// key (§6, Commit 5).
 	CommentNew:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "add comment")),
 	CommentSubmit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "post comment")),
 	CopyCommentID: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy comment id")),
@@ -391,8 +390,7 @@ func Active(ctx Context) []key.Binding {
 		}
 		if ctx.HasActiveList {
 			// Empty tree: n (new) is the only task action there is — the
-			// inline input is the empty state's way in
-			// (docs/plan/task-row-cards-and-status.md).
+			// inline input is the empty state's way in.
 			return []key.Binding{Tree.New, Global.NextPanel, Global.Quit}
 		}
 	}

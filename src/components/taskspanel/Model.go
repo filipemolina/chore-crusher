@@ -1,7 +1,7 @@
 // Package taskspanel composes the task tree into the Tasks surface. Inline
 // creation (the "new task" row) lives inside the tree itself, so this package
 // owns only the tree and its shared panel frame — there is no bottom-pinned
-// add input. See docs/plan/task-row-redesign-and-inline-creation.md.
+// add input.
 package taskspanel
 
 import (

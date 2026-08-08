@@ -9,11 +9,10 @@ import (
 // RefreshListsMsg carries the store's lists, converted to apptypes at the
 // boundary. Lists is nil when the query failed; Err holds the failure.
 // Activities carries the live agent-claim set so the TUI can render
-// spinners on claimed rows (docs/plan/mcp-server-enhancement.md §3.5).
-// ClaimedLists is the set of list ids with any live task claim, so the
-// lists panel can show a spinner on a list an agent is working inside
-// (docs/plan/agent-presence-heartbeat.md §3.4). The poll loop's
-// RefreshLists routes this to the lists panel.
+// spinners on claimed rows (§3.5). ClaimedLists is the set of list ids with
+// any live task claim, so the lists panel can show a spinner on a list an
+// agent is working inside (§3.4). The poll loop's RefreshLists routes this
+// to the lists panel.
 type RefreshListsMsg struct {
 	Lists        []apptypes.ListSummary
 	Activities   []apptypes.AgentActivity

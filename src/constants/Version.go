@@ -9,8 +9,7 @@ import "runtime/debug"
 // which is what the Makefile and the release build do. It is unexported so
 // the stamp has exactly one reader, Version(), and every caller gets the same
 // answer whether or not the stamp happened. Ported verbatim from
-// stack-stitcher's src/constants/Version.go — see docs/plans/phase-0-scaffolding.md
-// step 4.
+// stack-stitcher's src/constants/Version.go.
 var version string
 
 // Version reports the running build's version.

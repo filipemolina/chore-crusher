@@ -13,7 +13,7 @@ import (
 // deliberately forced: a stale assignment is by definition held by an agent
 // that is not the person at the keyboard, and it has no TTL and no sweeper, so
 // a release that refused a foreign holder would leave abandoned work stuck
-// forever (docs/plan/mcp-assignment-and-priorities.md decision 2).
+// forever (decision 2).
 func TestUnassignKeyReleasesAnotherAgentsTask(t *testing.T) {
 	m := seedOneList(t)
 	taskID := seededTaskID(t, m)

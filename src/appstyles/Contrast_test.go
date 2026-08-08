@@ -197,7 +197,7 @@ func TestWCAGContrastAgainstSurfaces(t *testing.T) {
 			// create row's). Only the in-progress and complete tokens draw
 			// there: pending's label is TextMuted, not StatusPending, and
 			// StatusOverdue is reserved for a feature that does not exist
-			// yet (docs/plan/task-row-cards-and-status.md).
+			// yet.
 			modalStatuses := []statusCase{
 				{"StatusInProgress", theme.StatusInProgress},
 				{"StatusComplete", theme.StatusComplete},
@@ -239,7 +239,7 @@ func TestWCAGContrastAgainstSurfaces(t *testing.T) {
 			// focused/selected (ModalBg) and TextDim otherwise (BackgroundPanel).
 			// Floors match the existing Accent/modal (3.0) and TextDim/panel (2.2)
 			// tiers — the spinner is a small decorative glyph, not body text.
-			// (docs/plan/mcp-server-enhancement.md §3.7, §12 glyph vocabulary.)
+			// (§3.7, §12 glyph vocabulary.)
 			spinnerCases := []struct {
 				label   string
 				ink     color.Color

@@ -4,7 +4,7 @@ package apptypes
 // (0 = a root task), whether it has children — so a tree renderer knows
 // whether to draw an expand glyph without a second pass — and whether the
 // task has any comments, so the tasktree row can draw the comments glyph
-// without another lookup per row (docs/plan/task-comments.md §6, Commit 4).
+// without another lookup per row (§6, Commit 4).
 type Row struct {
 	Task        Task
 	Depth       int
@@ -55,8 +55,7 @@ func flattenInto(t Task, depth int, children map[string][]Task, out *[]Row) {
 // children at depth 1. Flatten cannot produce this shape — it only emits
 // ParentID==nil rows, and a pure-descendant set has no roots — so this is
 // the one helper both `crush show` (CLI) and show_task (MCP) use for their
-// children rows, and the two surfaces cannot drift again
-// (docs/plan/mcp-agent-todo-hardening.md §4.4).
+// children rows, and the two surfaces cannot drift again (§4.4).
 func DescendantsOf(tasks []Task, rootID string) []Row {
 	children := make(map[string][]Task)
 	for _, t := range tasks {

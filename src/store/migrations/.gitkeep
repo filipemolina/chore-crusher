@@ -1,4 +1,3 @@
 This directory holds numbered .sql migration files (0001_init.sql, ...),
-embedded via embed.FS and applied in order by store.Open. See
-docs/plans/phase-1-storage.md. This placeholder keeps the empty directory
-tracked in git until the first migration lands.
+embedded via embed.FS and applied in order by store.Open. This placeholder
+keeps the empty directory tracked in git until the first migration lands.

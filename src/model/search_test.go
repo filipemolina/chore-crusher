@@ -21,8 +21,7 @@ func selectedID(t *testing.T, m AppModel) string {
 // switch to the result's list and the tree's selection must land on that exact
 // task. The jump handler switches the list synchronously and issues a refresh
 // plus a select; those two commands may arrive in either order, and the
-// selection must end on the target either way (docs/plans/phase-8-search.md
-// verification).
+// selection must end on the target either way.
 func TestJumpToTaskSwitchesListAndSelects(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
 	// GetInitialModel creates a default list when the store is empty; remove it

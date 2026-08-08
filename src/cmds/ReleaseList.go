@@ -8,8 +8,7 @@ import tea "charm.land/bubbletea/v2"
 //
 // This is the escape hatch the assignment model is built around: assignment
 // has no TTL and no sweeper, so releasing a whole board is the human's way
-// out of a pile of abandoned grabs (docs/DESIGN.md §3,
-// docs/plan/mcp-assignment-and-priorities.md decision 2).
+// out of a pile of abandoned grabs (docs/DESIGN.md §3, decision 2).
 type ReleaseListMsg struct {
 	ListID string
 }

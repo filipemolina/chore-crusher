@@ -10,7 +10,7 @@ import tea "charm.land/bubbletea/v2"
 //
 // The release is unconditional — it is how a human frees a task whose agent
 // died, so it must work on an assignment the TUI does not own
-// (docs/plan/mcp-assignment-and-priorities.md decision 2).
+// (decision 2).
 type UnassignTaskMsg struct {
 	TaskID string
 }

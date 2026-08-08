@@ -1,8 +1,7 @@
 // Package searchpicker is the cross-list search modal opened by the global
 // binding F. A text input at the top live-searches every list; the results
 // below show each match's list context ("list › title"). Enter jumps to the
-// selected task (switching the active list if needed), esc cancels. See
-// docs/plans/phase-8-search.md step 2.
+// selected task (switching the active list if needed), esc cancels.
 package searchpicker
 
 import (
