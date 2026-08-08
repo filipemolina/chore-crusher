@@ -265,7 +265,7 @@ a `💬` in the same fixed trailing icon column as the notes glyph, and renders
 each comment as its own card in the Details panel with a compose control on its
 own key, distinct from the panel's save.
 
-**UI improvements** — *shipped, all six commits.* catppuccin-mocha is the
+**UI improvements** — *shipped, all six commits.* gruvbox-dark is the
 fresh-install default (a saved theme still wins); the Lists panel opens itself
 at 120 columns or wider, and thereafter `L` is authoritative for the session so
 a resize never reverses a user's toggle; the first frame renders before the

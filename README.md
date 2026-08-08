@@ -6,6 +6,8 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-v0.2.0-blue)
 
+![Chore Crusher](demo/chore-crusher-banner.svg)
+
 [**Demo**](#demo) • [**Get Started**](#get-started) • [**Usage**](#usage) • [**For Agents**](#for-coding-agents)
 
 ---
@@ -119,7 +121,7 @@ On first launch, Chore Crusher creates:
 - Data: `~/.local/share/chore-crusher/chore-crusher.db` (SQLite store)
 - Config: `~/.config/chore-crusher/config.yaml` (theme, layout)
 
-The default list `Inbox` is created automatically under `catppuccin-mocha`
+The default list `Inbox` is created automatically under `gruvbox-dark`
 theme.
 
 ---

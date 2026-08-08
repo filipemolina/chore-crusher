@@ -201,10 +201,10 @@ func srgbLinearize(v float64) float64 {
 	return math.Pow((v+0.055)/1.055, 2.4)
 }
 
-// DefaultTheme is the theme a fresh AppModel starts with. Catppuccin Mocha
-// (github.com/catppuccin/catppuccin) is the app's default palette; crush-dark
+// DefaultTheme is the theme a fresh AppModel starts with. Gruvbox Dark
+// (github.com/morhetz/gruvbox) is the app's default palette; catppuccin-mocha
 // and the rest remain selectable through the theme picker (docs/DESIGN.md §11).
-const DefaultTheme = "catppuccin-mocha"
+const DefaultTheme = "gruvbox-dark"
 
 // Themes is the registry the theme picker chooses from. Every entry is built
 // through newTheme rather than a bare struct literal, so a registered theme

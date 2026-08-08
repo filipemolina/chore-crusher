@@ -22,11 +22,11 @@ if [ ! -x "$BIN" ]; then
 fi
 
 # Pin the theme so frames don't depend on whatever the recorder's own config
-# holds. catppuccin-mocha is also the compiled default, so this is belt-and-
-# suspenders against a later re-theme.
+# holds. gruvbox-dark is the compiled default, so this is belt-and-suspenders
+# against a later re-theme.
 rm -rf "$DATA" "$CONFIG"
 mkdir -p "$DATA" "$CONFIG/chore-crusher"
-printf 'theme: catppuccin-mocha\n' > "$CONFIG/chore-crusher/config.yaml"
+printf 'theme: gruvbox-dark\n' > "$CONFIG/chore-crusher/config.yaml"
 
 export XDG_DATA_HOME="$DATA"
 export XDG_CONFIG_HOME="$CONFIG"

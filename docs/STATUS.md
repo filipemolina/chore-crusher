@@ -10,7 +10,7 @@ The repo/tool/command rename is finished and all roadmap phases are in
 - Go module: `github.com/filipemolina/chore-crusher`
 - Config dir: `~/.config/chore-crusher`
 - Data dir / DB: `~/.local/share/chore-crusher/chore-crusher.db`
-- Default theme: `catppuccin-mocha`
+- Default theme: `gruvbox-dark`
 - Current tag: `v0.1.0`
 
 Phases 0–9 (scaffolding through polish/release) are complete. See
