@@ -12,6 +12,10 @@
 
 ---
 
+## Demo
+
+![Chore Crusher Demo](demo/demo.gif)
+
 ## Features
 
 - **You want to watch an agent work.** Leave the TUI open in a pane while
@@ -49,10 +53,6 @@ There had to be a better way to do this (I'm absolutely certain there is. Well, 
 | **Themes** | 14 themes ported from [stack-stitcher](https://github.com/filipemolina/stack-stitcher) |
 
 ---
-
-## Demo
-
-![Chore Crusher Demo](demo/demo.gif)
 
 ### Screenshots
 
