@@ -29,7 +29,7 @@
   other sees within a second.
 
 - **Tree-structured with derived progress.** Nest tasks to any depth and watch
-  percentages compute automatically (`completed / total`).
+  percentages compute automatically.
 
 ---
 
@@ -37,7 +37,7 @@
 
 This project started from a real workflow problem. When I work with AI coding agents, I found myself jumping between windows constantly. Open a todo app. Add a task when an idea pops into my head. Wait for the agent to finish what it was doing. Check the todo app. Talk to the agent about the next thing. Then manually check that task off my list. As more tasks piled up, that loop got messy fast.
 
-There had to be a better way to do this (I'm absolutely certain there is. Well, anyways...). But building this was fun, and I learned a lot about Go along the way. These are the things I think Chore Crusher actually brings to the table, beyond being a fast terminal todo list:
+There has to be a better way to do this (I'm absolutely certain there is). Well, anyways... building this has been fun, and I learned a lot about Go along the way. I plan to keep adding features / squashing bugs because this is something genuinely helpful to me. These are the things I think Chore Crusher actually brings to the table, beyond being a fast terminal todo list:
 
 ## What it does
 
