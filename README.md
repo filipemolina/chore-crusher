@@ -18,10 +18,10 @@
 
 ## Features
 
-- **You want to watch an agent work.** Leave the TUI open in a pane while
+- **Watch an agent work.** Leave the TUI open in a pane while
   Claude Code, Pi, or a shell script adds, completes, and updates tasks.
-  Watch it happen live. When an agent claims a task, the TUI draws a spinner
-  on that row. You see **which** row, not just that something changed.
+  Watch it happen live. When an agent claims a task, you see **which** row, 
+  not just that something changed.
 
 - **A UI that serves both humans and agents.** No agent-specific plumbing
   bolted onto a human app, or a human UI bolted onto an agent tool. The TUI
