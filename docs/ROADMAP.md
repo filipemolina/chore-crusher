@@ -326,6 +326,14 @@ saves it via the existing `RenameTask`, and dirty detection covers it — which
 closes the "no way to edit a task from the TUI" bug. What did not land is the
 dedicated `e` shortcut that would open Details with the title already focused.
 
+**Default theme and theme persistence** — *shipped.* `DefaultTheme` moved
+from gruvbox-dark to crush-ember (the app's own warm amber palette;
+gruvbox-dark stays selectable). It also completed the persistence round
+trip: the picker's Enter always wrote `theme:` to config.yaml, but the
+boot path never read it back, so a chosen theme died with the process.
+The TUI path now applies the saved theme before the first frame, with an
+unknown name falling back to the default.
+
 ### Sister / context
 
 **The Stack Stitcher chrome alignment** — *historical.* The chrome alignment with

@@ -10,7 +10,7 @@ The repo/tool/command rename is finished and all roadmap phases are in
 - Go module: `github.com/filipemolina/chore-crusher`
 - Config dir: `~/.config/chore-crusher`
 - Data dir / DB: `~/.local/share/chore-crusher/chore-crusher.db`
-- Default theme: `gruvbox-dark`
+- Default theme: `crush-ember`
 - Current tag: `v0.1.0`
 
 Phases 0–9 (scaffolding through polish/release) are complete. See
@@ -18,6 +18,19 @@ Phases 0–9 (scaffolding through polish/release) are complete. See
 post-alpha backlog.
 
 ## Latest change
+
+- **Default theme is now crush-ember, and a saved theme survives restart.**
+  `DefaultTheme` moved from `gruvbox-dark` to the app's own warm
+  `crush-ember` palette (gruvbox-dark stays selectable through `T`). It
+  also completes the theme persistence round trip: the picker's Enter
+  always wrote `theme:` to `~/.config/chore-crusher/config.yaml`
+  (`cmds.ApplyTheme`), but the TUI boot path never read it back, so a
+  chosen theme died with the process. The root command's TUI path now
+  applies `cfg.Theme` via `appstyles.SetTheme` before the first frame
+  (an empty or unknown name falls back to the default). Tests:
+  `TestDefaultThemeIsCrushEmber` (appstyles),
+  `TestSavedThemeAppliedAtStartup` (cli). Demo media regenerated under
+  the new default.
 
 - **H13: Session-end claim release scoped to agent identity.** The MCP server enhancement plan (`§3.1`)
   promised that agent-claim spinners would be removed when the MCP session

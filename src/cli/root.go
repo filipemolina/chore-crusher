@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 	"github.com/filipemolina/chore-crusher/src/config"
 	"github.com/filipemolina/chore-crusher/src/constants"
 	"github.com/filipemolina/chore-crusher/src/model"
@@ -95,6 +96,13 @@ marks the task with that id complete (cascading to descendants).`,
 			if err != nil {
 				return domainError(err)
 			}
+			// A saved theme preference wins over the compiled default: the
+			// picker's Enter writes theme: to config.yaml (cmds.ApplyTheme),
+			// and this is the read half of that round trip — without it a
+			// chosen theme dies with the process. An empty or unknown name
+			// leaves DefaultTheme in effect (SetTheme only assigns registered
+			// names).
+			appstyles.SetTheme(cfg.Theme)
 			m := model.GetInitialModel(s, cfg)
 			p := tea.NewProgram(m)
 			if _, err := p.Run(); err != nil {

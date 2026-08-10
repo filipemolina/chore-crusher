@@ -64,12 +64,12 @@ func TestDefaultThemeIsRegistered(t *testing.T) {
 	}
 }
 
-// The fresh-install default is gruvbox-dark (Chore Crusher UI task).
+// The fresh-install default is crush-ember.
 // Pin the intended name, not merely that the constant happens to be a
 // registered theme, so a stray edit to DefaultTheme is caught.
-func TestDefaultThemeIsGruvboxDark(t *testing.T) {
-	if DefaultTheme != "gruvbox-dark" {
-		t.Errorf("DefaultTheme = %q, want gruvbox-dark", DefaultTheme)
+func TestDefaultThemeIsCrushEmber(t *testing.T) {
+	if DefaultTheme != "crush-ember" {
+		t.Errorf("DefaultTheme = %q, want crush-ember", DefaultTheme)
 	}
 }
 

@@ -98,7 +98,7 @@ On first launch, Chore Crusher creates:
 - Data: `~/.local/share/chore-crusher/chore-crusher.db` (SQLite store)
 - Config: `~/.config/chore-crusher/config.yaml` (theme, layout)
 
-The default list `Inbox` is created automatically under `gruvbox-dark` theme.
+The default list `Inbox` is created automatically under `crush-ember` theme.
 
 ---
 

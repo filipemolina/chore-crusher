@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/filipemolina/chore-crusher/src/appstyles"
 )
 
 // runCLI executes the root command with args against a store rooted at
@@ -111,6 +114,38 @@ func TestExecuteExitCodes(t *testing.T) {
 	}
 	if code, _, _ := runCLI(t, data, "tasks", "01ARZ"); code != 1 {
 		t.Errorf("tasks of missing list: exit %d, want 1", code)
+	}
+}
+
+// TestSavedThemeAppliedAtStartup pins the read half of the theme round
+// trip: the picker's Enter writes theme: to config.yaml (cmds.ApplyTheme),
+// and the TUI boot path must apply it — without the read half a chosen
+// theme dies with the process. The TUI launch itself fails for lack of a
+// TTY (exit 1, as TestExecuteExitCodes pins), but only after the saved
+// theme has been activated, so the assertion on the global Active theme
+// holds on the failure path too.
+func TestSavedThemeAppliedAtStartup(t *testing.T) {
+	data := t.TempDir()
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	dir := filepath.Join(cfgHome, "chore-crusher")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"),
+		[]byte("theme: catppuccin-mocha\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	appstyles.SetTheme(appstyles.DefaultTheme)
+	defer appstyles.SetTheme(appstyles.DefaultTheme)
+
+	if code, _, _ := runCLI(t, data); code != 1 {
+		t.Fatalf("TUI launch: exit %d, want 1 (no TTY)", code)
+	}
+	if appstyles.Active.Name != "catppuccin-mocha" {
+		t.Errorf("Active theme = %q, want the saved %q", appstyles.Active.Name, "catppuccin-mocha")
 	}
 }
 

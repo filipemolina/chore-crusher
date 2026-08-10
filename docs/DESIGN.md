@@ -1317,9 +1317,9 @@ either, because it's the same theme, not a reinterpretation of one.
 Every `Name` string and registry key is adjusted from `stitcher-*` to
 `crush-*`, since the name is user-visible in the theme picker (`crush-dark`
 is the renamed `stitcher-dark`). **The fresh-install default is
-`"gruvbox-dark"`** — `DefaultTheme` names it, and a config with no
+`"crush-ember"`** — `DefaultTheme` names it, and a config with no
 `theme:` preference activates it; every other registered theme (including
-`crush-dark`) stays selectable through the `T` picker and as a saved
+`gruvbox-dark`) stays selectable through the `T` picker and as a saved
 `theme:` value.
 
 ## 12. Visual coherence: the UI contract
