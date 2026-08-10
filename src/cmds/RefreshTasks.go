@@ -22,7 +22,8 @@ type RefreshTasksMsg struct {
 // RefreshTasks queries one list's tasks and flattens them into renderable
 // rows (parents before children, depth-annotated — apptypes.Flatten is the
 // one ordering both the CLI and the TUI render from, docs/DESIGN.md §10).
-func RefreshTasks(s *store.Store, listID string) tea.Cmd {
+// sortMode controls how tasks are ordered before flattening.
+func RefreshTasks(s *store.Store, listID string, sortMode apptypes.SortMode) tea.Cmd {
 	return func() tea.Msg {
 		tasks, err := s.ListTasks(listID)
 		if err != nil {
@@ -39,7 +40,12 @@ func RefreshTasks(s *store.Store, listID string) tea.Cmd {
 		if l, err := s.GetList(listID); err == nil {
 			listName = l.Name
 		}
-		rows := apptypes.Flatten(apptypes.FromStoreTasks(tasks))
+		// Convert to apptypes first, then sort if needed
+		appTasks := apptypes.FromStoreTasks(tasks)
+		if sortMode != apptypes.SortManual {
+			appTasks = apptypes.SortTasks(appTasks, sortMode)
+		}
+		rows := apptypes.Flatten(appTasks)
 		// One batch query for which tasks in this list have comments, so the
 		// tasktree can draw the comments glyph on every row without an N+1
 		// per-row lookup.

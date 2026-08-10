@@ -59,7 +59,10 @@ type Model struct {
 
 	// Inline creation state. While creating is true the tree takes every
 	// keystroke for itself and renders a special "new task" row at the
-	// computed insertion point (task-row redesign + inline creation).
+	// computed insertion point (task-row redesign + inline creation). The
+	// create row is also the only row that draws the selected treatment: no
+	// task row keeps its accent highlight while it is on screen (renderRow's
+	// isSelected is suppressed, docs/DESIGN.md §5).
 	creating bool
 	// createBeforeID is the data-insertion anchor: the task the new task is
 	// created as a sibling of (at createLevelOffset's relationship). The
@@ -96,9 +99,14 @@ func (m Model) Init() tea.Cmd { return nil }
 
 // New builds the task tree.
 func New() tea.Model {
+	fi := textinput.New()
+	// The bubbles default prompt is a hardcoded ANSI-white "> ", which would
+	// render between the bar's "/" and the query (docs/DESIGN.md §12's filter
+	// bar is slash + query + suffix, nothing else — and no default color).
+	fi.Prompt = ""
 	return Model{
 		collapsed:   make(map[string]bool),
-		filterInput: textinput.New(),
+		filterInput: fi,
 	}
 }
 
@@ -811,11 +819,10 @@ func (m *Model) indentSelected() tea.Cmd {
 }
 
 // moveSelected moves the selected task up (delta -1) or down (+1) within its
-// own status run: a pending task swaps with the previous/next pending
-// sibling and a complete one with the previous/next complete sibling, so the
-// two sections never mix — a task at its run's boundary stays put
-// (docs/DESIGN.md §6). The gesture resolves to a concrete after-id that
-// AppModel executes through store.MoveTask.
+// sibling run. A task at the boundary of its sibling run outdents: pressing
+// move-up on the first child acts like [ (outdent), pressing move-down on
+// the last child acts like ] (outdent). A root task at the boundary has
+// nothing to outdent to — no-op (docs/DESIGN.md §5).
 func (m *Model) moveSelected(delta int) tea.Cmd {
 	if m.selectedID == "" {
 		return nil
@@ -830,24 +837,46 @@ func (m *Model) moveSelected(delta int) tea.Cmd {
 		return nil
 	}
 
-	// Walk in the direction to the nearest same-status sibling, skipping
-	// opposite-status rows that sit between (pending and complete siblings
-	// can interleave by store position even though they render separately).
 	next := idx + delta
-	for next >= 0 && next < len(run) && run[next].Task.Status != row.Task.Status {
-		next += delta
-	}
 	if next < 0 || next >= len(run) {
-		return nil // run boundary
+		// At the boundary of the sibling run: outdent if there is a parent
+		// to outdent to, otherwise no-op.
+		if row.Task.ParentID == nil {
+			return nil
+		}
+		if delta < 0 {
+			// Move-up on first child: position above the parent. Find what
+			// comes before the parent in its own sibling run.
+			parentRow := m.findRow(*row.Task.ParentID)
+			if parentRow == nil {
+				return nil
+			}
+			parentRun := siblingRun(m.rows, parentRow.Task.ParentID)
+			parentIdx := slices.IndexFunc(parentRun, func(r apptypes.Row) bool { return r.Task.ID == *row.Task.ParentID })
+			if parentIdx < 0 {
+				return nil
+			}
+			if parentIdx > 0 {
+				return cmds.MoveTask(m.selectedID, parentRun[parentIdx-1].Task.ID)
+			}
+			// parentIdx == 0, so parent is the first in its sibling run
+			// The task that comes before parent is parent's parent
+			if parentRow.Task.ParentID != nil {
+				return cmds.MoveTask(m.selectedID, *parentRow.Task.ParentID)
+			}
+			return cmds.MoveTask(m.selectedID, "")
+		}
+		// Move-down on last child: position after the parent (same as ]).
+		return cmds.MoveTask(m.selectedID, *row.Task.ParentID)
 	}
 
 	target := run[next]
 	if delta > 0 {
-		// Swap with the next same-status sibling: land right after it.
+		// Swap with the next sibling: land right after it.
 		return cmds.MoveTask(m.selectedID, target.Task.ID)
 	}
-	// Swap with the previous same-status sibling: land after whatever
-	// precedes it, or at the front of the run when it has no predecessor.
+	// Swap with the previous sibling: land after whatever precedes it, or
+	// at the front of the run when it has no predecessor.
 	if next > 0 {
 		return cmds.MoveTask(m.selectedID, run[next-1].Task.ID)
 	}
@@ -1158,10 +1187,12 @@ func (m *Model) handleCreatingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Hard allowlist: only typing (printable characters) and backspace reach
-	// the text input. Everything else — arrows, F-keys, ctrl combos — is
-	// swallowed so it cannot navigate the tree while the create row owns the
-	// keyboard. tab/shift+tab never arrive here as characters: AppModel
-	// routes them to the focus cycle before this handler runs.
+	// the text input. Everything else — arrows, F-keys, ctrl combos,
+	// tab/shift+tab — is swallowed so it cannot navigate the tree or move
+	// focus while the create row owns the keyboard: creating a task focuses
+	// only the text input, and AppModel suppresses the tab focus cycle for
+	// as long as this input is live (docs/DESIGN.md §5), so a suppressed tab
+	// lands here and dies rather than cycling the panels.
 	if msg.Text != "" || msg.Code == tea.KeyBackspace {
 		var cmd tea.Cmd
 		m.createInput, cmd = m.createInput.Update(msg)

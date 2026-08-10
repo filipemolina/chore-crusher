@@ -3,6 +3,7 @@ package model
 import (
 	"testing"
 
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 )
 
@@ -50,7 +51,7 @@ func TestJumpToTaskSwitchesListAndSelects(t *testing.T) {
 	// Seed the app into list A as active with its tasks loaded: the first
 	// lists refresh adopts the first list and requests its tasks.
 	m = refresh(t, m, cmds.RefreshLists(m.store)())
-	m = refresh(t, m, cmds.RefreshTasks(m.store, listA)())
+	m = refresh(t, m, cmds.RefreshTasks(m.store, listA, apptypes.SortManual)())
 	if m.activeListID != listA {
 		t.Fatalf("seed: activeListID = %q, want %q", m.activeListID, listA)
 	}
@@ -69,14 +70,14 @@ func TestJumpToTaskSwitchesListAndSelects(t *testing.T) {
 		// Select against the old (list A) rows: the target is not present, so
 		// the tree must remember the request and honour it once list B loads.
 		m2 := refresh(t, m, cmds.SelectTask(target)())
-		m2 = refresh(t, m2, cmds.RefreshTasks(m2.store, listB)())
+		m2 = refresh(t, m2, cmds.RefreshTasks(m2.store, listB, apptypes.SortManual)())
 		if got := selectedID(t, m2); got != target {
 			t.Errorf("selection = %q, want %q", got, target)
 		}
 	})
 
 	t.Run("refresh-then-select", func(t *testing.T) {
-		m2 := refresh(t, m, cmds.RefreshTasks(m.store, listB)())
+		m2 := refresh(t, m, cmds.RefreshTasks(m.store, listB, apptypes.SortManual)())
 		m2 = refresh(t, m2, cmds.SelectTask(target)())
 		if got := selectedID(t, m2); got != target {
 			t.Errorf("selection = %q, want %q", got, target)

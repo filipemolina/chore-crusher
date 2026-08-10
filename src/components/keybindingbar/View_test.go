@@ -128,6 +128,47 @@ func TestFooterWithContextShowsFilterHints(t *testing.T) {
 	}
 }
 
+// TestFooterOmitsPanelKeysWithoutSidePanel verifies the footer stops
+// advertising tab/shift+tab once no side panel (Lists or Details) is open:
+// with the lists panel hidden the focus cycle is a single zone, so the keys
+// have nothing to cycle and the hints would be dead. ? stays pinned on the
+// right, and shift+tab prev (the right-side panel hint that survives width
+// shedding) comes back when the lists panel opens.
+func TestFooterOmitsPanelKeysWithoutSidePanel(t *testing.T) {
+	m := New()
+	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})
+	m, _ = m.(Model).Update(cmds.SetFooterContextMsg{
+		Focused:           constants.COMPONENT_TASK_TREE,
+		HasActiveList:     true,
+		TaskTreeEmpty:     false,
+		ListsPanelVisible: false,
+	})
+
+	out := m.(Model).View().Content
+	for _, absent := range []string{"next", "prev"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("footer must not advertise %q with no side panel open:\n%s", absent, out)
+		}
+	}
+	if !strings.Contains(out, "help") {
+		t.Errorf("footer must keep the ? help hint:\n%s", out)
+	}
+
+	m, _ = m.(Model).Update(cmds.SetFooterContextMsg{
+		Focused:           constants.COMPONENT_TASK_TREE,
+		HasActiveList:     true,
+		TaskTreeEmpty:     false,
+		ListsPanelVisible: true,
+	})
+	out = m.(Model).View().Content
+	if !strings.Contains(out, "prev") {
+		t.Errorf("footer must advertise shift+tab once the lists panel is open:\n%s", out)
+	}
+	if !strings.Contains(out, "help") {
+		t.Errorf("footer must keep the ? help hint with the panel open:\n%s", out)
+	}
+}
+
 func TestFooterShedsHintsOnNarrowTerminal(t *testing.T) {
 	m := New()
 	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 20})

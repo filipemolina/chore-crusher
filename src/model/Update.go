@@ -17,6 +17,7 @@ import (
 	"github.com/filipemolina/chore-crusher/src/config"
 	"github.com/filipemolina/chore-crusher/src/constants"
 	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/chore-crusher/src/store"
 )
 
 // Update handles every message. The shape mirrors stack-stitcher's: ctrl+c
@@ -71,8 +72,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// keyboard for itself (add input with text, tree typing a /-filter, list
 	// typing a filter). While true, global keys that would open overlays or
 	// toggle panels are suppressed so typing is not interrupted. tab/shift+tab
-	// focus navigation is never suppressed — those are focus keys, not
-	// characters, so they cannot interrupt typing.
+	// focus navigation is suppressed only while the inline create input is
+	// live (creating a task focuses only the text input); while a /-filter is
+	// being typed, tab still cycles the panels.
 	keyboardOwned := func() bool {
 		switch m.focusedZone {
 		case constants.COMPONENT_TASK_TREE:
@@ -137,7 +139,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, keys.Global.Help):
-			finalCmds = append(finalCmds, cmds.OpenHelpModal())
+			// ? is a printable character: while an input owns the keyboard it
+			// must land in the input, not open the overlay.
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, cmds.OpenHelpModal())
+			}
 
 		case key.Matches(msg, keys.Global.Theme):
 			if !keyboardOwned() {
@@ -163,15 +169,22 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				finalCmds = append(finalCmds, cmds.OpenSearchPicker())
 			}
 
-		// tab/shift+tab are focus keys: they cycle the panels even while the
-		// tree's create or filter input owns the keyboard, so focus is never
-		// stuck inside an input. AppModel routes them before the tree's
-		// allowlist runs, so the input never sees them as characters.
+		// tab/shift+tab are focus keys and cycle the panels — except while the
+		// inline create input is live: creating a task focuses only the text
+		// input, so tab must not carry the cursor (and the half-typed title)
+		// off to another panel mid-entry. The /-filter keeps the old behavior:
+		// tab still cycles while filtering. AppModel routes tab before the
+		// tree's allowlist runs, so the input never sees it as a character; a
+		// suppressed tab falls through to the tree, whose allowlist swallows it.
 		case key.Matches(msg, keys.Global.NextPanel):
-			finalCmds = append(finalCmds, m.ChangeFocus(1))
+			if !m.createInputLive() {
+				finalCmds = append(finalCmds, m.ChangeFocus(1))
+			}
 
 		case key.Matches(msg, keys.Global.PrevPanel):
-			finalCmds = append(finalCmds, m.ChangeFocus(-1))
+			if !m.createInputLive() {
+				finalCmds = append(finalCmds, m.ChangeFocus(-1))
+			}
 
 		case key.Matches(msg, keys.Global.ToggleListsPanel):
 			if !keyboardOwned() {
@@ -187,7 +200,25 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		// Select commits the highlighted list: the cursor already live-switched
+		case key.Matches(msg, keys.Global.CopyID):
+			if !keyboardOwned() {
+				var idToCopy string
+				if m.focusedZone == constants.COMPONENT_LISTS_PANEL {
+					idToCopy = m.highlightedListID()
+				} else {
+					if tasks, ok := m.components.TaskPanel.(interface{ SelectedID() string }); ok {
+						idToCopy = tasks.SelectedID()
+					}
+				}
+				if idToCopy != "" {
+					finalCmds = append(finalCmds, tea.SetClipboard(idToCopy))
+				}
+			}
+
+		case key.Matches(msg, keys.Global.Sort):
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, cmds.CycleSortMode())
+			}
 		// the Tasks panel to it (docs/DESIGN.md §5), so there is nothing to
 		// write — just close the transient picker and hand focus to Tasks.
 		// Guarded on !keyboardOwned() so a filter being typed keeps enter for
@@ -278,7 +309,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		finalCmds = append(finalCmds, cmds.PollTick(config.PollInterval(m.cfg)))
 		finalCmds = append(finalCmds, cmds.RefreshLists(m.store))
 		if m.activeListID != "" {
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
 		}
 		// Keep the open Details panel current with external CLI writes; a
 		// response only replaces a clean editor (docs/DESIGN.md §5).
@@ -306,11 +337,25 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.activeListID == "" {
 			if len(msg.Lists) > 0 {
+				// Startup: reopen the list the user last had active, when it
+				// still exists, else fall back to the first list
+				// (docs/DESIGN.md §7). GetSetting returns "" for a fresh
+				// store, so a first run is the fallback too.
 				m.activeListID = msg.Lists[0].List.ID
-				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+				if saved, err := m.store.GetSetting(store.KeyLastListID); err == nil && saved != "" {
+					for _, l := range msg.Lists {
+						if l.List.ID == saved {
+							m.activeListID = saved
+							break
+						}
+					}
+				}
+				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
+				m.persistActiveList()
 			} else if m.store != nil {
 				if id, err := m.store.CreateList(constants.DEFAULT_LIST_NAME, ""); err == nil {
 					m.activeListID = id
+					m.persistActiveList()
 					finalCmds = append(finalCmds, cmds.RefreshLists(m.store))
 				}
 			}
@@ -327,10 +372,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !found {
 				if len(msg.Lists) > 0 {
 					m.activeListID = msg.Lists[0].List.ID
-					finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+					finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
+					m.persistActiveList()
 				} else if m.store != nil {
 					if id, err := m.store.CreateList(constants.DEFAULT_LIST_NAME, ""); err == nil {
 						m.activeListID = id
+						m.persistActiveList()
 						finalCmds = append(finalCmds, cmds.RefreshLists(m.store))
 					}
 				}
@@ -370,7 +417,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cmds.JumpToTaskMsg:
 		if m.activeListID != msg.ListID {
 			m.activeListID = msg.ListID
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
+			m.persistActiveList()
 		}
 		finalCmds = append(finalCmds, cmds.SelectTask(msg.TaskID))
 
@@ -423,6 +471,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastError = msg.Err.Error()
 		}
 
+	case cmds.CycleSortModeMsg:
+		// Cycle to the next sort mode and refresh the task tree.
+		m.sortMode = m.sortMode.Next()
+		if m.activeListID != "" {
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
+		}
+
 	case cmds.CreateTaskFromInputMsg:
 		// The task tree's inline input submitted a draft. Don't create yet:
 		// resolve the insertion against the freshest rows on the next
@@ -430,7 +485,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// new task to a stale selection.
 		m.createDraft = &msg
 		if m.activeListID != "" {
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
 		}
 
 	case cmds.DeleteTaskMsg:
@@ -463,7 +518,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := m.store.DeleteTask(taskID); err != nil {
 					return nil
 				}
-				return cmds.RefreshTasks(m.store, m.activeListID)()
+				return cmds.RefreshTasks(m.store, m.activeListID, m.sortMode)()
 			})
 		}
 
@@ -490,7 +545,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if m.activeListID != "" {
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
 		}
 
 	case cmds.UnassignTaskMsg:
@@ -506,7 +561,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			if m.activeListID != "" {
-				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
 			}
 		}
 
@@ -534,7 +589,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if _, err := m.store.UnassignList(listID); err != nil {
 					return nil
 				}
-				return cmds.RefreshTasks(m.store, listID)()
+				return cmds.RefreshTasks(m.store, listID, m.sortMode)()
 			})
 		}
 
@@ -544,7 +599,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if m.activeListID != "" {
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
 		}
 
 	case cmds.ReparentTaskMsg:
@@ -553,7 +608,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if m.activeListID != "" {
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
 		}
 
 	case cmds.SelectListMsg:
@@ -561,7 +616,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// rather than waiting for the next poll tick.
 		if m.activeListID != msg.ListID {
 			m.activeListID = msg.ListID
-			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID))
+			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
+			m.persistActiveList()
 		}
 
 	case cmds.ListCreatedMsg:
@@ -575,9 +631,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// with this one.
 		if msg.ID != "" {
 			m.activeListID = msg.ID
+			m.persistActiveList()
 			finalCmds = append(finalCmds,
 				cmds.RefreshLists(m.store),
-				cmds.RefreshTasks(m.store, msg.ID),
+				cmds.RefreshTasks(m.store, msg.ID, m.sortMode),
 				m.closeListsPanel(),
 			)
 		}
@@ -594,6 +651,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, tasksCmd, detailsCmd)
 
 	return m, tea.Batch(finalCmds...)
+}
+
+// persistActiveList records the active list id in the Setting table so the
+// next launch reopens the same list (docs/DESIGN.md §7). It is called only
+// where activeListID actually changes, never from the poll path: every poll
+// must stay a read (docs/DESIGN.md §7/§8), and a 1s-tick UPSERT would turn
+// the TUI into a writer on every tick.
+func (m *AppModel) persistActiveList() {
+	if m.store == nil || m.activeListID == "" {
+		return
+	}
+	if err := m.store.SetSetting(store.KeyLastListID, m.activeListID); err != nil {
+		m.lastError = err.Error()
+	}
 }
 
 // calculateBodyLayout returns the exact box each body zone must render
@@ -759,7 +830,7 @@ func (m *AppModel) applyCreateDraft(rows []apptypes.Row) tea.Cmd {
 	}
 	return tea.Batch(
 		cmds.CreateTaskConfirmed(newID, depth),
-		cmds.RefreshTasks(m.store, m.activeListID),
+		cmds.RefreshTasks(m.store, m.activeListID, m.sortMode),
 	)
 }
 

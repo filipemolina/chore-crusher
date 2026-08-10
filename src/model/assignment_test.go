@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 )
 
@@ -21,7 +22,7 @@ func TestUnassignKeyReleasesAnotherAgentsTask(t *testing.T) {
 		t.Fatalf("AssignTask: %v", err)
 	}
 	m = refresh(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	m = refresh(t, m, cmds.RefreshTasks(m.store, m.activeListID)())
+	m = refresh(t, m, cmds.RefreshTasks(m.store, m.activeListID, apptypes.SortManual)())
 
 	m = refresh(t, m, tea.KeyPressMsg{Text: "u", Code: 'u'})
 
@@ -59,7 +60,7 @@ func TestReleaseListConfirmsBeforeClearing(t *testing.T) {
 		t.Fatalf("AssignTask: %v", err)
 	}
 	m = refresh(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	m = refresh(t, m, cmds.RefreshTasks(m.store, listID)())
+	m = refresh(t, m, cmds.RefreshTasks(m.store, listID, apptypes.SortManual)())
 
 	m = refresh(t, m, tea.KeyPressMsg{Text: "U", Code: 'U'})
 
@@ -99,7 +100,7 @@ func TestReleaseListCancelKeepsEveryAssignment(t *testing.T) {
 		t.Fatalf("AssignTask: %v", err)
 	}
 	m = refresh(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	m = refresh(t, m, cmds.RefreshTasks(m.store, m.activeListID)())
+	m = refresh(t, m, cmds.RefreshTasks(m.store, m.activeListID, apptypes.SortManual)())
 
 	m = refresh(t, m, tea.KeyPressMsg{Text: "U", Code: 'U'})
 	if m.activeModal == nil {

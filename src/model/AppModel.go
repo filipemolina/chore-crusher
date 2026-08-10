@@ -18,9 +18,8 @@ import (
 // AppModel is the top-level Bubble Tea model: it owns the store handle, the
 // config, the terminal dimensions, and the three zones of the layout
 // (docs/DESIGN.md §5). Components never read tea.WindowSizeMsg — this is
-// the only place that does, and it broadcasts the derived layout
-// (stack-stitcher's docs/DESIGN.md §5 "Body" for the "no page is active at
-// startup" trap).
+// the only place that does, and it broadcasts the derived layout (the "no
+// page is active at startup" trap, docs/DESIGN.md §5).
 type AppModel struct {
 	store          *store.Store
 	cfg            config.Config
@@ -46,6 +45,7 @@ type AppModel struct {
 	lists               []apptypes.ListSummary
 	activeModal         tea.Model
 	lastError           string
+	sortMode            apptypes.SortMode
 
 	// animFrame is the current spinner frame (0..7), advanced by AnimTickMsg.
 	// animActive tracks whether any agent claim is live — the spinner only
@@ -126,11 +126,22 @@ func (m AppModel) taskTreeEmpty() bool {
 	return !ok || tasks.IsEmpty()
 }
 
+// createInputLive reports whether the task tree's inline create input is not
+// merely on screen but actively taking keystrokes (IsCreating delegates to the
+// tree's createLive). While it is true, creating a task focuses only the text
+// input: focus keys (tab/shift+tab) must not carry the cursor, and the
+// half-typed title, off to another panel mid-entry. A parked input (esc on an
+// empty list) is not live, so focus may move there.
+func (m AppModel) createInputLive() bool {
+	tasks, ok := m.components.TaskPanel.(interface{ IsCreating() bool })
+	return ok && tasks.IsCreating()
+}
+
 // footerContextCmd returns the command that updates the footer with the
 // current context.
 func (m AppModel) footerContextCmd() tea.Cmd {
 	ctx := m.helpContext()
-	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.DetailsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal)
+	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.DetailsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal, m.sortMode)
 }
 
 // listsPanelRendered reports whether the Lists panel actually occupies width

@@ -9,8 +9,8 @@ import tea "charm.land/bubbletea/v2"
 // Components must render at exactly this size rather than deriving their own
 // from tea.WindowSizeMsg. WindowSizeMsg only reaches the components of the
 // page that is active when it arrives, so any page that wasn't active at
-// resize time would otherwise render at width 0 — the trap stack-stitcher's
-// docs/DESIGN.md §5 "Body" paragraph names ("no page is active at startup").
+// resize time would otherwise render at width 0 — the "no page is active at
+// startup" trap (docs/DESIGN.md §5).
 // All the numbers travel in one message so they can never be out of sync
 // mid-frame.
 //

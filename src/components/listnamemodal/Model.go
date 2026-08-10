@@ -22,19 +22,21 @@ const (
 	ModeRename
 )
 
-// Model is the list name input modal (create or rename). ModeRename also
-// carries the collaborative toggle (docs/DESIGN.md §9, "Tag a list as
-// collaborative") — the human-only way to set it; there is no MCP tool.
+// Model is the list name input modal (create or rename). Both modes support
+// the collaborative toggle (docs/DESIGN.md §9, "Tag a list as collaborative")
+// — the human-only way to set it; there is no MCP tool. ModeRename seeds the
+// toggle from the store at construction so opening rename never silently
+// resets an existing list's flag.
 type Model struct {
 	mode   Mode
 	listID string
 	input  textinput.Model
 	store  *store.Store
 
-	// collaborative and origCollaborative exist only for ModeRename, seeded
-	// from the store at construction so opening rename never silently resets
-	// an existing list's flag. toggleFocused reports whether tab has moved
-	// focus off the name field onto the toggle; space flips it there.
+	// collaborative and origCollaborative track the toggle state. origCollaborative
+	// is only meaningful for ModeRename (to detect changes); for ModeNew it's
+	// always false. toggleFocused reports whether tab has moved focus off the
+	// name field onto the toggle; space flips it there.
 	collaborative     bool
 	origCollaborative bool
 	toggleFocused     bool
@@ -47,6 +49,10 @@ type Model struct {
 func New(mode Mode, listID string, s *store.Store) tea.Model {
 	input := textinput.New()
 	input.Focus()
+	// The bubbles default prompt is a hardcoded ANSI-white "> ", which would
+	// leak a default-colored glyph into the modal body. This modal shows the
+	// field with its ModalTitle line alone, like detailspanel's inputs.
+	input.Prompt = ""
 
 	m := Model{mode: mode, listID: listID, input: input, store: s}
 	if mode == ModeRename {
@@ -81,17 +87,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Overlay.Cancel):
 			return m, cmds.CloseModal(nil)
 		case key.Matches(msg, keys.ListNameModal.NextField):
-			if m.mode == ModeRename {
-				m.toggleFocused = !m.toggleFocused
-				if m.toggleFocused {
-					m.input.Blur()
-				} else {
-					m.input.Focus()
-				}
+			m.toggleFocused = !m.toggleFocused
+			if m.toggleFocused {
+				m.input.Blur()
+			} else {
+				m.input.Focus()
 			}
 			return m, nil
 		case key.Matches(msg, keys.ListNameModal.ToggleCollaborative):
-			if m.mode == ModeRename && m.toggleFocused {
+			if m.toggleFocused {
 				m.collaborative = !m.collaborative
 				return m, nil
 			}
@@ -109,7 +113,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // createFollowCmd creates a command that creates or renames the list, and
-// (ModeRename only) writes the collaborative flag when it changed.
+// writes the collaborative flag when it changed (or when creating a new list
+// with collaborative enabled).
 func (m Model) createFollowCmd(name string) tea.Cmd {
 	return func() tea.Msg {
 		if m.store == nil {
@@ -121,6 +126,13 @@ func (m Model) createFollowCmd(name string) tea.Cmd {
 			if err != nil {
 				// TODO: surface error to user
 				return nil
+			}
+			// Set collaborative flag if enabled
+			if m.collaborative {
+				if err := m.store.SetCollaborative(id, true); err != nil {
+					// TODO: surface error to user
+					return nil
+				}
 			}
 			// A new list is the one worth landing on: AppModel selects it,
 			// refreshes, and closes the transient Lists picker (docs/DESIGN.md
@@ -153,26 +165,28 @@ func (m Model) View() tea.View {
 		title = "Rename list"
 	}
 
+	// Seal the input onto the modal surface every render: the bubbles
+	// textinput default carries no foreground on focused text, which
+	// vanishes on a light theme's modal (crush-day). Same per-render
+	// discipline as detailspanel's inputs (docs/DESIGN.md §12).
+	chrome.SealInput(&m.input, appstyles.Active.ModalBg, appstyles.Active.ModalBg)
+
 	lines := []string{chrome.ModalTitle(title), m.input.View()}
 
-	if m.mode == ModeRename {
-		// Reuses the task row's own checkbox glyphs (◻ unchecked, ◼ checked —
-		// docs/DESIGN.md §12) rather than inventing a new one for this toggle.
-		box := "◻"
-		if m.collaborative {
-			box = "◼"
-		}
-		toggleStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
-		if m.toggleFocused {
-			toggleStyle = toggleStyle.Foreground(appstyles.Active.Accent)
-		}
-		lines = append(lines, "", toggleStyle.Render(box+" collaborative — any agent may restructure this list"))
+	// Reuses the task row's own checkbox glyphs (◻ unchecked, ◼ checked —
+	// docs/DESIGN.md §12) rather than inventing a new one for this toggle.
+	box := "◻"
+	if m.collaborative {
+		box = "◼"
 	}
+	toggleStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
+	if m.toggleFocused {
+		toggleStyle = toggleStyle.Foreground(appstyles.Active.Accent)
+	}
+	lines = append(lines, "", toggleStyle.Render(box+" collaborative — any agent may restructure this list"))
 
 	hints := []chrome.KeyHint{chrome.HintFor(keys.Overlay.Submit), chrome.HintFor(keys.Overlay.Cancel)}
-	if m.mode == ModeRename {
-		hints = append(hints, chrome.HintFor(keys.ListNameModal.NextField), chrome.HintFor(keys.ListNameModal.ToggleCollaborative))
-	}
+	hints = append(hints, chrome.HintFor(keys.ListNameModal.NextField), chrome.HintFor(keys.ListNameModal.ToggleCollaborative))
 	lines = append(lines, "", chrome.RenderKeyHints(hints, appstyles.Active.TextMuted))
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)

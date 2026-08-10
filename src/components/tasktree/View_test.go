@@ -21,6 +21,18 @@ var testFg = color.RGBA{R: 200, G: 200, B: 200, A: 1}
 
 func intPtr(v int) *int { return &v }
 
+// fgSeq returns the bare foreground SGR token lipgloss emits for c (e.g.
+// "38;2;232;164;74"), so a test can assert a rendered frame paints a glyph
+// in that color whether the frame keeps the escape standalone or merges it
+// with a background into one "\x1b[<fg>;<bg>m" run. Mirrors the helper in
+// the taskspanel package tests.
+func fgSeq(c color.Color) string {
+	probe := lipgloss.NewStyle().Foreground(c).Render("X")
+	inner := strings.SplitN(probe, "X", 2)[0]
+	inner = strings.TrimPrefix(inner, "\x1b[")
+	return strings.TrimSuffix(inner, "m")
+}
+
 // TestComputeTaskRowColsDropOrder pins the column budget's drop order. The
 // progress column and the status+icon right block are each atomic (full width
 // or zero, never a fragment), and the right block sheds *before* progress as
@@ -424,7 +436,7 @@ func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
 	statusFull := statusColWidth + 1
 	detailsFull := detailsColWidth + 1
 	progressFull := len(progress) + 1
-	agentFull := len(agent) + 1
+	agentFull := lipgloss.Width(agent) + 1
 
 	for width := 1; width <= 120; width++ {
 		cols := computeTaskRowCols(width, checkbox, status, progress, agent, "", "")
@@ -560,6 +572,39 @@ func TestCreateRowRendersAfterAnchorSubtree(t *testing.T) {
 	}
 }
 
+// While the inline create row is on screen, the previously selected task
+// must not keep its selected treatment (accent bar, ModalBg): the create row
+// is the only "selected" row then, so the input reads as the active element
+// instead of competing with a highlighted task underneath it. This is the
+// visual axis of §5's focus-only-the-text-input rule: the create input is
+// the only thing that looks selected while it is live. The highlight coming
+// back after CancelCreating proves the selection itself was never cleared,
+// only suppressed while the create row owned the screen.
+func TestSelectedRowNotHighlightedWhileCreating(t *testing.T) {
+	m := &Model{}
+	m.rows = []apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "Buy milk", Status: apptypes.StatusPending}}}
+	m.selectedID = "1"
+	m.focused = true
+	accent := fgSeq(appstyles.Active.Accent)
+
+	selected := m.renderRow(m.rows[0], 60, testBg, nil)
+	if !strings.Contains(selected, accent) {
+		t.Fatalf("precondition: selected row must draw the accent bar, got: %q", ansi.Strip(selected))
+	}
+
+	m.StartCreating("1")
+	creating := m.renderRow(m.rows[0], 60, testBg, nil)
+	if strings.Contains(creating, accent) {
+		t.Errorf("selected row must not draw the accent bar while creating, got: %q", ansi.Strip(creating))
+	}
+
+	m.CancelCreating()
+	after := m.renderRow(m.rows[0], 60, testBg, nil)
+	if !strings.Contains(after, accent) {
+		t.Errorf("selection highlight must return after esc (selection is only suppressed, never cleared, while creating), got: %q", ansi.Strip(after))
+	}
+}
+
 // TestPendingHeaderCountsStatusesNotSectionRows pins the section-header count
 // fix (bug: the same list shows two different counts on one screen). A
 // completed subtask of a pending parent renders inside the Pending section
@@ -592,5 +637,68 @@ func TestPendingHeaderCountsStatusesNotSectionRows(t *testing.T) {
 		if !strings.Contains(rendered, title) {
 			t.Errorf("all four rows must still render inside the Pending section, missing %q:\n%s", title, rendered)
 		}
+	}
+}
+
+// TestCreateRowOpensPendingWhenAllComplete pins the create-input position on a
+// list whose tasks are all complete: the input creates a pending task, so it
+// must open under the Pending header (even though that section is empty), not
+// after the Complete section. Previously it rendered at the very bottom of the
+// list and the new task appeared at the top on submit: the reported
+// inconsistent position.
+func TestCreateRowOpensPendingWhenAllComplete(t *testing.T) {
+	m := &Model{collapsed: make(map[string]bool)}
+	m.activeList = true
+	m.applyRows([]apptypes.Row{
+		{Task: apptypes.Task{ID: "1", Title: "one", Status: apptypes.StatusComplete}},
+		{Task: apptypes.Task{ID: "2", Title: "two", Status: apptypes.StatusComplete}},
+	})
+	m.selectedID = "1"
+	m.StartCreating("1") // complete selected -> createBeforeID redirected to ""
+
+	rendered := ansi.Strip(m.ViewInPanel(80, 24, appstyles.Active.BackgroundPanel))
+	iPending := strings.Index(rendered, "Pending (0)")
+	iCreate := strings.Index(rendered, "Add a task")
+	iComplete := strings.Index(rendered, "Complete")
+	if iPending < 0 || iCreate < 0 || iComplete < 0 {
+		t.Fatalf("missing a rendered line (Pending=%d create=%d Complete=%d)\n%s", iPending, iCreate, iComplete, rendered)
+	}
+	// The input must sit under the Pending header, above the Complete section.
+	if !(iPending < iCreate && iCreate < iComplete) {
+		t.Errorf("create row must open under the Pending header and before the Complete section, got Pending@%d create@%d Complete@%d:\n%s",
+			iPending, iCreate, iComplete, rendered)
+	}
+}
+
+// TestCreateRowEndsPendingForRootAppend pins the root-append case: a draft
+// with no anchor (createBeforeID "", i.e. append at the end of the pending
+// section) must render its input at the end of the Pending section, above the
+// rule and the Complete section. Previously it fell to the very end of the
+// plan, after Complete, so the input sat at the bottom of the screen and the
+// committed task landed at the top: inconsistent.
+func TestCreateRowEndsPendingForRootAppend(t *testing.T) {
+	m := &Model{collapsed: make(map[string]bool)}
+	m.activeList = true
+	m.applyRows([]apptypes.Row{
+		{Task: apptypes.Task{ID: "1", Title: "one", Status: apptypes.StatusPending}},
+		{Task: apptypes.Task{ID: "2", Title: "two", Status: apptypes.StatusPending}},
+		{Task: apptypes.Task{ID: "3", Title: "three", Status: apptypes.StatusComplete}},
+	})
+	m.selectedID = "1"
+	m.StartCreating("1")
+	m.createBeforeID = "" // root append draft
+
+	rendered := ansi.Strip(m.ViewInPanel(80, 24, appstyles.Active.BackgroundPanel))
+	iTwo := strings.Index(rendered, "◻ two")
+	iCreate := strings.Index(rendered, "Add a task")
+	iComplete := strings.Index(rendered, "Complete")
+	if iTwo < 0 || iCreate < 0 || iComplete < 0 {
+		t.Fatalf("missing a rendered line (two=%d create=%d Complete=%d)\n%s", iTwo, iCreate, iComplete, rendered)
+	}
+	// The input must end the Pending section: after the last pending row,
+	// above the Complete section.
+	if !(iTwo < iCreate && iCreate < iComplete) {
+		t.Errorf("create row must end the Pending section (after last pending, before Complete), got two@%d create@%d Complete@%d:\n%s",
+			iTwo, iCreate, iComplete, rendered)
 	}
 }

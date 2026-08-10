@@ -38,17 +38,22 @@ func (s *Store) CreateList(name, createdBy string) (string, error) {
 // An empty CreatedBy means the list is owned by nobody (human-managed); the MCP
 // policy layer uses this to gate structural writes.
 func (s *Store) GetList(id string) (List, error) {
+	return getList(s.db, id)
+}
+
+// listColumns is shared by every query that reads a full List row.
+const listColumns = `id, name, created_at, position, created_by, comments_disabled, collaborative`
+
+// getList reads one List row through a querier, so callers can use it inside
+// a transaction or directly (mirrors getTask).
+func getList(q querier, id string) (List, error) {
 	var l List
-	if err := s.db.QueryRow(
-		`SELECT id, name, created_at, position, created_by, comments_disabled, collaborative FROM List WHERE id = ?`,
-		id,
-	).Scan(&l.ID, &l.Name, &l.CreatedAt, &l.Position, &l.CreatedBy, &l.CommentsDisabled, &l.Collaborative); err != nil {
-		if isNoRows(err) {
-			return List{}, fmt.Errorf("list %q not found", id)
-		}
-		return List{}, err
+	err := q.QueryRow(`SELECT `+listColumns+` FROM List WHERE id = ?`, id).
+		Scan(&l.ID, &l.Name, &l.CreatedAt, &l.Position, &l.CreatedBy, &l.CommentsDisabled, &l.Collaborative)
+	if err != nil && isNoRows(err) {
+		return List{}, fmt.Errorf("list %q not found", id)
 	}
-	return l, nil
+	return l, err
 }
 
 // ListLists returns every list, in creation order, each with its pending and
@@ -112,6 +117,69 @@ func (s *Store) DeleteList(id string) error {
 		return err
 	}
 	return requireAffected(res, "list", id)
+}
+
+// MoveList repositions listID to be the immediate successor of afterID, or,
+// when afterID is empty, the first list (position 0). One primitive covers
+// the lists panel's move-up/move-down gestures and the CLI's `lists mv`
+// (docs/DESIGN.md §5). The list space is flat: every list is a root, so
+// there is no parent run to switch; the gap-close and make-room updates
+// mirror MoveTask's, minus the parent and descendant rules.
+func (s *Store) MoveList(listID, afterID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	list, err := getList(tx, listID)
+	if err != nil {
+		return err
+	}
+	if afterID != "" {
+		if _, err := getList(tx, afterID); err != nil {
+			return err
+		}
+		if afterID == listID {
+			return fmt.Errorf("list %q cannot be moved after itself", listID)
+		}
+	}
+
+	// Close the gap the list leaves in the ordering.
+	if _, err := tx.Exec(
+		`UPDATE List SET position = position - 1 WHERE position > ?`,
+		list.Position,
+	); err != nil {
+		return err
+	}
+
+	// The insertion point: one after afterID (whose position may have just
+	// shifted down if it sat after the list), or the front of the ordering.
+	var targetPos int
+	if afterID != "" {
+		after, err := getList(tx, afterID)
+		if err != nil {
+			return err
+		}
+		targetPos = after.Position + 1
+	}
+
+	// Make room in the target slot, excluding the list itself when it moves
+	// within the same ordering (its row still holds its stale old position).
+	if _, err := tx.Exec(
+		`UPDATE List SET position = position + 1 WHERE position >= ? AND id != ?`,
+		targetPos, listID,
+	); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE List SET position = ? WHERE id = ?`,
+		targetPos, listID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetCollaborative toggles the list-level collaborative flag: an explicit

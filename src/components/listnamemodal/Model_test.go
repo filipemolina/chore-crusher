@@ -136,23 +136,22 @@ func TestTabFocusesToggleAndSpaceFlipsIt(t *testing.T) {
 	}
 }
 
-// TestModeNewIgnoresToggleKeys pins that tab/space are ModeRename-only: in
-// ModeNew there is no toggle, so space must always type into the name field
-// and tab must not panic or do anything observable.
-func TestModeNewIgnoresToggleKeys(t *testing.T) {
+// TestModeNewSupportsToggle verifies that ModeNew also supports the
+// collaborative toggle: tab moves focus, space flips it.
+func TestModeNewSupportsToggle(t *testing.T) {
 	s := openTestStore(t)
 	m := New(ModeNew, "", s).(Model)
 
+	// Tab should move focus to toggle
 	m, _ = step(t, m, tea.KeyPressMsg{Text: "tab", Code: tea.KeyTab})
-	if m.toggleFocused {
-		t.Error("ModeNew has no toggle to focus")
+	if !m.toggleFocused {
+		t.Error("tab should have moved focus onto the toggle")
 	}
 
-	m, _ = step(t, m, tea.KeyPressMsg{Text: "A", Code: 'A'})
+	// Space should toggle collaborative
 	m, _ = step(t, m, tea.KeyPressMsg{Text: " ", Code: ' '})
-	m, _ = step(t, m, tea.KeyPressMsg{Text: "B", Code: 'B'})
-	if m.input.Value() != "A B" {
-		t.Errorf("input value = %q, want %q", m.input.Value(), "A B")
+	if !m.collaborative {
+		t.Error("space should have toggled collaborative to true")
 	}
 }
 
@@ -178,6 +177,45 @@ func TestSubmitPersistsCollaborativeWithoutRenaming(t *testing.T) {
 	}
 	if l.Name != "Untouched name" {
 		t.Errorf("Name = %q, want unchanged %q", l.Name, "Untouched name")
+	}
+	if !l.Collaborative {
+		t.Error("Collaborative = false, want true (toggled before submit)")
+	}
+}
+
+// TestModeNewCreatesWithCollaborative verifies that creating a new list with
+// the collaborative toggle enabled actually sets the flag in the store.
+func TestModeNewCreatesWithCollaborative(t *testing.T) {
+	s := openTestStore(t)
+	m := New(ModeNew, "", s).(Model)
+
+	// Type a name
+	m, _ = step(t, m, tea.KeyPressMsg{Text: "T", Code: 'T'})
+	m, _ = step(t, m, tea.KeyPressMsg{Text: "e", Code: 'e'})
+	m, _ = step(t, m, tea.KeyPressMsg{Text: "s", Code: 's'})
+	m, _ = step(t, m, tea.KeyPressMsg{Text: "t", Code: 't'})
+
+	// Tab to toggle and enable collaborative
+	m, _ = step(t, m, tea.KeyPressMsg{Text: "tab", Code: tea.KeyTab})
+	m, _ = step(t, m, tea.KeyPressMsg{Text: " ", Code: ' '})
+
+	// Submit
+	_, cmd := step(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
+	msg := runSubmit(t, cmd)
+
+	// Extract the list ID from the ListCreatedMsg
+	createdMsg, ok := msg.(cmds.ListCreatedMsg)
+	if !ok {
+		t.Fatalf("expected ListCreatedMsg, got %T", msg)
+	}
+
+	// Verify the list was created with collaborative enabled
+	l, err := s.GetList(createdMsg.ID)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if l.Name != "Test" {
+		t.Errorf("Name = %q, want %q", l.Name, "Test")
 	}
 	if !l.Collaborative {
 		t.Error("Collaborative = false, want true (toggled before submit)")

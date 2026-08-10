@@ -115,13 +115,16 @@ func treeSelectedID(m AppModel) string {
 	return tree.SelectedID()
 }
 
-// The first lists refresh adopts the first list as the active list and
-// kicks off its tasks refresh, so the tree is never empty against a store
-// that has lists (docs/DESIGN.md §7: the poll reads real data via store).
+// With nothing saved in the Setting table (a fresh store), the first lists
+// refresh adopts the first list as the active list and kicks off its tasks
+// refresh, so the tree is never empty against a store that has lists
+// (docs/DESIGN.md §7: the poll reads real data via store; §7's last-list
+// restore only overrides the first-list fallback when a saved id exists).
 func TestFirstRefreshSelectsFirstList(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
-	// GetInitialModel creates a default list when the store is empty; remove it
-	// so this test's "first list" is the one it creates below.
+	// The first refresh creates a default list only when the store is empty;
+	// remove any list that may exist so this test's "first list" is the one
+	// it creates below.
 	lists, _ := m.store.ListLists()
 	if len(lists) > 0 {
 		m.store.DeleteList(lists[0].ID)
@@ -171,7 +174,7 @@ func TestRefreshPreservesSelectionThroughPoll(t *testing.T) {
 	listRefreshMsg := cmds.RefreshLists(m.store)()
 	m = refresh(t, m, listRefreshMsg)
 
-	taskRefreshMsg := cmds.RefreshTasks(m.store, listID)()
+	taskRefreshMsg := cmds.RefreshTasks(m.store, listID, apptypes.SortManual)()
 	m = refresh(t, m, taskRefreshMsg)
 
 	// Verify tasks are loaded and we can access B's ID for later verification.
@@ -186,7 +189,7 @@ func TestRefreshPreservesSelectionThroughPoll(t *testing.T) {
 	}
 
 	// Refresh the tasks from the store (A should be gone).
-	taskRefreshMsg = cmds.RefreshTasks(m.store, listID)()
+	taskRefreshMsg = cmds.RefreshTasks(m.store, listID, apptypes.SortManual)()
 	m = refresh(t, m, taskRefreshMsg)
 
 	rows = treeRows(t, m)
@@ -309,11 +312,13 @@ func TestTypingInCreateInputDoesNotNavigateLists(t *testing.T) {
 	}
 }
 
-// tab/shift+tab keep cycling focus between the panels even while the tree's
-// create input owns the keyboard, and the create draft survives the trip
-// (regression: the create row's hard allowlist swallowed tab, so focus was
-// stuck on the tree once inline creation started).
-func TestTabCyclesFocusWhileCreating(t *testing.T) {
+// While the inline create input is live, creating a task focuses only the
+// text input: tab/shift+tab do NOT cycle panel focus, so the half-typed
+// title can never be stranded on another panel mid-entry. The draft stays in
+// the input, and esc is the way out of creating (task 000037Z5AXFHY67KNPYT11AQ9M;
+// this reverses the earlier "tab keeps cycling while creating" design,
+// recorded in docs/DESIGN.md §5).
+func TestTabDoesNotCycleFocusWhileCreating(t *testing.T) {
 	m := newTestModel(t, t.TempDir())
 	// This test exercises the two-panel cycle; Lists is hidden by default.
 	m.listsPanelVisible = true
@@ -359,19 +364,43 @@ func TestTabCyclesFocusWhileCreating(t *testing.T) {
 		t.Fatal("tree not in creating mode after n")
 	}
 
-	// tab moves focus to the lists panel...
-	m = refresh(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
-		t.Errorf("focusedZone after tab = %d, want lists panel (%d)", m.focusedZone, constants.COMPONENT_LISTS_PANEL)
-	}
-
-	// ...and shift+tab brings it back, with the create input still active.
-	m = refresh(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	// tab must NOT move focus off the live input...
+	m = applyOnce(m, tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.focusedZone != constants.COMPONENT_TASK_TREE {
-		t.Errorf("focusedZone after shift+tab = %d, want task tree (%d)", m.focusedZone, constants.COMPONENT_TASK_TREE)
+		t.Errorf("focusedZone after tab while creating = %d, want task tree (%d)", m.focusedZone, constants.COMPONENT_TASK_TREE)
+	}
+	// ...neither must shift+tab.
+	m = applyOnce(m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.focusedZone != constants.COMPONENT_TASK_TREE {
+		t.Errorf("focusedZone after shift+tab while creating = %d, want task tree (%d)", m.focusedZone, constants.COMPONENT_TASK_TREE)
 	}
 	if !creating(m) {
-		t.Error("create input should survive the focus round-trip")
+		t.Error("create input must stay live while tab is suppressed")
+	}
+
+	// ? types a literal into the draft instead of opening the help overlay.
+	m = applyOnce(m, tea.KeyPressMsg{Text: "?", Code: '?'})
+	if m.activeModal != nil {
+		t.Fatal("? while creating must not open the help overlay")
+	}
+}
+
+// tab/shift+tab still cycle focus when the tree is NOT creating — the
+// suppression is scoped to the live create input, not the tree in general
+// (regression guard for TestTabDoesNotCycleFocusWhileCreating).
+func TestTabStillCyclesFocusWhenNotCreating(t *testing.T) {
+	m := newTestModel(t, t.TempDir())
+	m.listsPanelVisible = true
+	m.bodyLayout = m.calculateBodyLayout()
+	m = refresh(t, m, m.bodyLayout)
+
+	m = refresh(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
+		t.Errorf("tab from tree (not creating) = zone %d, want lists panel", m.focusedZone)
+	}
+	m = refresh(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.focusedZone != constants.COMPONENT_TASK_TREE {
+		t.Errorf("shift+tab back = zone %d, want task tree", m.focusedZone)
 	}
 }
 

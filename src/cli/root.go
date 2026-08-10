@@ -125,6 +125,7 @@ marks the task with that id complete (cascading to descendants).`,
 		newMcpCmd(),
 	)
 	root.AddCommand(taskCommands()...)
+	root.AddCommand(attachmentCommands()...)
 	return root
 }
 

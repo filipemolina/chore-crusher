@@ -15,7 +15,7 @@ import (
 )
 
 // TestPriorityLabelRendersRankAndNothingForNone pins the badge text: the three
-// real ranks render as all-caps labels like the status column, and none
+// real ranks render as colored dot plus all-caps labels, and none
 // renders NOTHING rather than a badge reading "NONE" — most tasks are none,
 // and a badge on every row is noise (docs/DESIGN.md §12).
 func TestPriorityLabelRendersRankAndNothingForNone(t *testing.T) {
@@ -23,9 +23,9 @@ func TestPriorityLabelRendersRankAndNothingForNone(t *testing.T) {
 		p    apptypes.Priority
 		want string
 	}{
-		{apptypes.PriorityHigh, "HIGH"},
-		{apptypes.PriorityMedium, "MED"},
-		{apptypes.PriorityLow, "LOW"},
+		{apptypes.PriorityHigh, "● HIGH"},
+		{apptypes.PriorityMedium, "● MED"},
+		{apptypes.PriorityLow, "● LOW"},
 		{apptypes.PriorityNone, ""},
 		{apptypes.Priority(""), ""},
 	} {
@@ -37,7 +37,7 @@ func TestPriorityLabelRendersRankAndNothingForNone(t *testing.T) {
 	m := &Model{}
 	row := apptypes.Row{Task: apptypes.Task{ID: "1", Title: "Paint the fence", Priority: apptypes.PriorityHigh}}
 	m.rows = []apptypes.Row{row}
-	if got := ansi.Strip(m.renderRow(row, 80, testBg, nil)); !strings.Contains(got, "HIGH") {
+	if got := ansi.Strip(m.renderRow(row, 80, testBg, nil)); !strings.Contains(got, "● HIGH") {
 		t.Errorf("a high-priority row must show its badge, got: %q", got)
 	}
 
@@ -49,18 +49,19 @@ func TestPriorityLabelRendersRankAndNothingForNone(t *testing.T) {
 	}
 }
 
-// TestPriorityFgIsATextTierLadder pins the rank ladder: high reads loudest,
-// none/low quietest, and every value is an active-theme token rather than a
-// colour of the component's own (docs/DESIGN.md §12).
-func TestPriorityFgIsATextTierLadder(t *testing.T) {
-	if got := priorityFg(apptypes.PriorityHigh); got != appstyles.Active.TextPrimary {
-		t.Errorf("high priority fg = %v, want TextPrimary", got)
+// TestPriorityFgIsAStatusColorLadder pins the rank ladder: high uses
+// StatusOverdue (red), medium uses StatusInProgress (amber), low uses
+// StatusPending (grey). Every value is an active-theme status token rather
+// than a text tier, creating a more distinctive visual hierarchy.
+func TestPriorityFgIsAStatusColorLadder(t *testing.T) {
+	if got := priorityFg(apptypes.PriorityHigh); got != appstyles.Active.StatusOverdue {
+		t.Errorf("high priority fg = %v, want StatusOverdue", got)
 	}
-	if got := priorityFg(apptypes.PriorityMedium); got != appstyles.Active.TextMuted {
-		t.Errorf("medium priority fg = %v, want TextMuted", got)
+	if got := priorityFg(apptypes.PriorityMedium); got != appstyles.Active.StatusInProgress {
+		t.Errorf("medium priority fg = %v, want StatusInProgress", got)
 	}
-	if got := priorityFg(apptypes.PriorityLow); got != appstyles.Active.TextDim {
-		t.Errorf("low priority fg = %v, want TextDim", got)
+	if got := priorityFg(apptypes.PriorityLow); got != appstyles.Active.StatusPending {
+		t.Errorf("low priority fg = %v, want StatusPending", got)
 	}
 }
 
@@ -183,9 +184,9 @@ func TestBadgeDropOrder(t *testing.T) {
 	statusFull := statusColWidth + 1
 	detailsFull := detailsColWidth + 1
 	progressFull := len(progress) + 1
-	agentFull := len(agent) + 1
+	agentFull := lipgloss.Width(agent) + 1
 	assigneeFull := lipgloss.Width(assignee) + 1
-	priorityFull := len(priority) + 1
+	priorityFull := lipgloss.Width(priority) + 1
 
 	for width := 1; width <= 140; width++ {
 		cols := computeTaskRowCols(width, checkbox, status, progress, agent, assignee, priority)
@@ -210,17 +211,20 @@ func TestBadgeDropOrder(t *testing.T) {
 		}
 
 		// Drop order, each link of the chain.
-		if cols.status != 0 && cols.agentSpinner == 0 {
-			t.Fatalf("width %d: status kept but agent-spinner shed", width)
+		// New order: status+priority shed together -> assignee -> agentSpinner
+		// -> progress. Priority is the status label's adjacent state group, so
+		// it sheds with the status, not after the assignee.
+		if (cols.status == 0) != (cols.priority == 0) {
+			t.Fatalf("width %d: status=%d and priority=%d must shed together", width, cols.status, cols.priority)
 		}
-		if cols.agentSpinner != 0 && cols.assignee == 0 {
-			t.Fatalf("width %d: agent-spinner kept but assignee shed", width)
+		if cols.status != 0 && cols.assignee == 0 {
+			t.Fatalf("width %d: status kept but assignee shed", width)
 		}
-		if cols.assignee != 0 && cols.priority == 0 {
-			t.Fatalf("width %d: assignee kept but priority shed (priority must outlive it)", width)
+		if cols.assignee != 0 && cols.agentSpinner == 0 {
+			t.Fatalf("width %d: assignee kept but agent-spinner shed", width)
 		}
-		if cols.priority != 0 && cols.progress == 0 {
-			t.Fatalf("width %d: priority kept but progress shed", width)
+		if cols.agentSpinner != 0 && cols.progress == 0 {
+			t.Fatalf("width %d: agent-spinner kept but progress shed", width)
 		}
 
 		sum := cols.title + cols.status + cols.details + cols.progress +
@@ -264,6 +268,52 @@ func TestRowWithBothBadgesNeverOverflows(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestPrioritySitsNextToStatus pins the render order of the right-aligned
+// block on a row that carries every badge: progress, agent spinner, assignee,
+// priority, status. Priority sits immediately left of the status label (the
+// ask "put task priority closer to the task status"), so the row reads as
+// "how much work, who is working, who owns it, what state" rather than
+// scattering the priority badge in the middle (docs/DESIGN.md §12).
+func TestPrioritySitsNextToStatus(t *testing.T) {
+	m := &Model{}
+	row := apptypes.Row{Task: apptypes.Task{
+		ID: "1", Title: "Paint the fence",
+		Status: apptypes.StatusInProgress, ProgressKind: apptypes.ProgressPercentage,
+		ProgressPct: intPtr(63), Assignee: "hermes", Priority: apptypes.PriorityHigh,
+	}}
+	m.rows = []apptypes.Row{row}
+	m.work = map[string]apptypes.AgentActivity{
+		"1": {EntityType: "task", EntityID: "1", AgentID: "hermes", Kind: "working"},
+	}
+	m.liveAgents = map[string]bool{"hermes": true}
+	m.animFrame = 0
+
+	stripped := ansi.Strip(m.renderRow(row, 100, testBg, nil))
+	idx := func(s string) int { return strings.Index(stripped, s) }
+	pos := map[string]int{
+		"progress": idx("63%"),
+		"spinner":  idx(chrome.Spinner(0)),
+		"assignee": idx("@hermes"),
+		"priority": idx("● HIGH"),
+		"status":   idx("IN PROGRESS"),
+	}
+	for name, i := range pos {
+		if i < 0 {
+			t.Fatalf("badge %s missing from row: %q", name, stripped)
+		}
+	}
+	if !(pos["progress"] < pos["spinner"] && pos["spinner"] < pos["assignee"] &&
+		pos["assignee"] < pos["priority"] && pos["priority"] < pos["status"]) {
+		t.Fatalf("right block out of order (want progress < spinner < assignee < priority < status): %q", stripped)
+	}
+	// Adjacency: nothing but cell padding between the priority badge and the
+	// status label; priority is the cell immediately left of status.
+	between := stripped[pos["priority"]+len("● HIGH") : pos["status"]]
+	if strings.Trim(between, " ") != "" {
+		t.Fatalf("priority badge not immediately left of the status label, %q sits between them in: %q", between, stripped)
 	}
 }
 

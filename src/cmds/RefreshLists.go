@@ -21,8 +21,7 @@ type RefreshListsMsg struct {
 }
 
 // RefreshLists queries the store and converts the rows at the boundary.
-// The cmd imports store while components never do — same split as
-// stack-stitcher's commands importing the data layer (docs/DESIGN.md §10:
+// The cmd imports store while components never do (docs/DESIGN.md §10:
 // apptypes is the shape components pass around; the store is SQL).
 func RefreshLists(s *store.Store) tea.Cmd {
 	return func() tea.Msg {

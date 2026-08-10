@@ -279,7 +279,7 @@ var Themes = map[string]Theme{
 		Danger: lipgloss.Color("#B33A3A"),
 
 		Complete:   lipgloss.Color("#1E7F4E"),
-		Pending:    lipgloss.Color("#6B6878"),
+		Pending:    lipgloss.Color("#4A4758"),
 		InProgress: lipgloss.Color("#A87409"),
 		Overdue:    lipgloss.Color("#C0243F"),
 	}),

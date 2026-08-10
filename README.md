@@ -50,7 +50,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | **Live agent presence** | Animated spinner lights on task writes. You see exactly what's working. |
 | **4-value priority** | `high` > `medium` > `low` > `none` (drives `next_task` ordering) |
 | **MCP server** | 12 tools + 2 resources + 3 prompts for discoverable agent integration |
-| **Themes** | 14 themes ported from [stack-stitcher](https://github.com/filipemolina/stack-stitcher) |
+| **Themes** | 14 themes: four of the app's own (`crush-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
 
 ---
 
@@ -110,7 +110,7 @@ The default list `Inbox` is created automatically under `crush-ember` theme.
 |-----------|--------|
 | `↑` / `↓` | Navigate tasks |
 | `←` / `→` | Collapse or expand the task tree |
-| `tab` / `shift+tab` | Cycle panels (tasks and lists) |
+| `tab` / `shift+tab` | Cycle panels (tasks and lists). Locked while typing a new task: focus stays on the text input |
 | `space` | Toggle task complete (cascades to descendants) |
 | `enter` | Show task details |
 | `esc` | Close details, picker, or cancel |
@@ -218,6 +218,10 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architectural rationale.
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before writing code. It is
 stricter than typical because this project expects unsupervised agents to
 work from the docs alone. No back-and-forth review needed.
+
+If you are an AI coding agent, read [`AGENTS.md`](AGENTS.md) instead: it has
+the operational rules, the known hallucination traps in this stack, and the
+verification habits the project expects.
 
 ---
 

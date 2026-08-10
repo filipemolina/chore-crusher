@@ -230,3 +230,51 @@ func TestCreateBindingsDoNotUseTab(t *testing.T) {
 		}
 	}
 }
+
+// With no side panel open the focus cycle is a single zone, so tab/shift+tab
+// are dead keys: neither Active nor GlobalsFor may advertise them. The lists
+// panel is the one side panel that shares the cycle, so its visibility is
+// what restores the hints.
+func TestPanelKeysHiddenWithoutSidePanel(t *testing.T) {
+	base := Context{Focused: constants.COMPONENT_TASK_TREE, HasActiveList: true}
+
+	if containsBinding(Active(base), Global.NextPanel) {
+		t.Errorf("Active advertises tab with no side panel open")
+	}
+	for _, b := range GlobalsFor(base) {
+		if sameBinding(b, Global.NextPanel) || sameBinding(b, Global.PrevPanel) {
+			t.Errorf("GlobalsFor advertises %q with no side panel open", b.Help().Key)
+		}
+	}
+	if !containsBinding(GlobalsFor(base), Global.Help) {
+		t.Errorf("GlobalsFor must keep ? when it drops tab/shift+tab")
+	}
+
+	withPanel := base
+	withPanel.ListsPanelVisible = true
+	if !containsBinding(Active(withPanel), Global.NextPanel) {
+		t.Errorf("Active must advertise tab when the lists panel is visible")
+	}
+	if !containsBinding(GlobalsFor(withPanel), Global.NextPanel) ||
+		!containsBinding(GlobalsFor(withPanel), Global.PrevPanel) {
+		t.Errorf("GlobalsFor must keep tab/shift+tab when the lists panel is visible")
+	}
+}
+
+// The task-tree Active list carries tab only while the lists panel is open;
+// with it closed the tree is the only zone and the hint would be dead.
+func TestActiveTaskTreeOmitsTabWithoutListsPanel(t *testing.T) {
+	ctx := Context{
+		Focused:       constants.COMPONENT_TASK_TREE,
+		HasActiveList: true,
+		TaskTreeEmpty: false,
+	}
+	if containsBinding(Active(ctx), Global.NextPanel) {
+		t.Errorf("Active advertises tab with no side panel open")
+	}
+
+	ctx.ListsPanelVisible = true
+	if !containsBinding(Active(ctx), Global.NextPanel) {
+		t.Errorf("Active must advertise tab while the lists panel is visible")
+	}
+}

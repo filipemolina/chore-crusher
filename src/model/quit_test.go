@@ -131,11 +131,12 @@ func TestQTypesALiteralWhileFiltering(t *testing.T) {
 		t.Fatal("q while typing a filter quit the app")
 	}
 
-	// The filter bar renders as "/ > <query>", the textinput's own prompt
-	// included, so a q that reached the input shows up as "> q" rather than
-	// anywhere else on the frame.
+	// The filter bar renders as "/ <query>" — DESIGN §12's bar is the bold
+	// slash, the query, and the suffix, with no prompt glyph (the bubbles
+	// default "> " prompt would leak a hardcoded white glyph, so the tree
+	// clears it). A q that reached the input therefore shows up as "/ q".
 	out := ansi.Strip(m.View().Content)
-	if !strings.Contains(out, "> q") || !treeFilterActive(t, m) {
+	if !strings.Contains(out, "/ q") || !treeFilterActive(t, m) {
 		t.Errorf("q while typing a filter did not reach the filter input:\n%s", out)
 	}
 

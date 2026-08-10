@@ -101,22 +101,23 @@ type listTasksResult struct {
 
 // taskDetailsJSON is the payload for the show_task tool.
 type taskDetailsJSON struct {
-	ID           string        `json:"id"`
-	ListID       string        `json:"list_id"`
-	ListOwner    string        `json:"list_owner"`
-	Title        string        `json:"title"`
-	Notes        string        `json:"notes"`
-	Status       string        `json:"status"`
-	Progress     progressJSON  `json:"progress"`
-	CreatedAt    int64         `json:"created_at"`
-	UpdatedAt    int64         `json:"updated_at"`
-	CompletedAt  *int64        `json:"completed_at"`
-	Assignee     string        `json:"assignee"`      // "" when unassigned
-	AssignedAt   *int64        `json:"assigned_at"`   // null when unassigned
-	AssigneeLive bool          `json:"assignee_live"` // live presence claim by the assignee
-	Priority     string        `json:"priority"`      // none|low|medium|high
-	Children     []taskRowJSON `json:"children"`
-	Comments     []commentJSON `json:"comments"`
+	ID           string           `json:"id"`
+	ListID       string           `json:"list_id"`
+	ListOwner    string           `json:"list_owner"`
+	Title        string           `json:"title"`
+	Notes        string           `json:"notes"`
+	Status       string           `json:"status"`
+	Progress     progressJSON     `json:"progress"`
+	CreatedAt    int64            `json:"created_at"`
+	UpdatedAt    int64            `json:"updated_at"`
+	CompletedAt  *int64           `json:"completed_at"`
+	Assignee     string           `json:"assignee"`      // "" when unassigned
+	AssignedAt   *int64           `json:"assigned_at"`   // null when unassigned
+	AssigneeLive bool             `json:"assignee_live"` // live presence claim by the assignee
+	Priority     string           `json:"priority"`      // none|low|medium|high
+	Children     []taskRowJSON    `json:"children"`
+	Comments     []commentJSON    `json:"comments"`
+	Attachments  []attachmentJSON `json:"attachments"`
 }
 
 // commentJSON mirrors store.Comment for the MCP surface. It appears in
@@ -126,6 +127,14 @@ type commentJSON struct {
 	ID        string `json:"id"`
 	Author    string `json:"author"`
 	Note      string `json:"note"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// attachmentJSON mirrors store.Attachment for the MCP surface. It appears in
+// taskDetailsJSON (show_task).
+type attachmentJSON struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -170,7 +179,7 @@ func newServer(identity string) (*mcp.Server, *store.Store, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "chore-crusher",
 		Version: constants.Version(),
-	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. It IS your todo list: read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked. Do NOT use the host's built-in todo tool.
+	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. Read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked.
 
 IDENTITY & OWNERSHIP. You act under the tag "` + identity + `" — CRUSH_AGENT when it is set, otherwise a tag unique to this session. Either way it is yours alone: no other running agent shares it, and anything you still hold is released when this session ends. Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything, grab tasks (assign_task, next_task), change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: only the comment tool's delete mode (comment(id=..., delete=true, force=true)) removes a comment, and only one whose author is your own tag, regardless of who owns the list it's on.
 
@@ -193,6 +202,9 @@ TOOLS (chore_crusher_<name>):
 - next_task(list_id) — atomically grab and read the top eligible task for you: highest priority (high > medium > low > none), then tree order; nothing eligible returns {ok:false, reason:'no eligible task in this list'} (not an error)
 - comment(task_id, note) — add a comment on any task, never blocked by assignment (coordination between agents); attributed to your tag. comment(id=..., delete=true, force=true) — delete only your own comments (author == your tag), regardless of list ownership
 - add_list(name, created_by?) — owned by you
+- add_attachment(task_id, path) — attach a file to a task; path is any string (typically a file path)
+- list_attachments(task_id) — list all attachments for a task
+- delete_attachment(attachment_id) — remove an attachment
 
 RESOURCES — two, and that is the whole resource surface:
 - crush:///inbox — your list, every foreign list, and each one's top 20 pending tasks with notes inlined: a whole session opener in one read
@@ -557,6 +569,53 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 		// agent, same as a status/progress write.
 		autoClaim(s, "task", id, identity)
 		return jsonResult(map[string]string{"id": cid})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "add_attachment",
+		Description: "Attach a file to a task. Example: add_attachment(task_id='01ABC...', path='/path/to/file.png'). Returns the attachment id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		TaskID string `json:"task_id" jsonschema:"task id or unambiguous prefix"`
+		Path   string `json:"path" jsonschema:"file path to attach"`
+	}) (*mcp.CallToolResult, any, error) {
+		id, err := s.ResolveID("task", in.TaskID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		attID, err := s.AddAttachment(id, in.Path)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]string{"id": attID})
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_attachments",
+		Description: "List all attachments for a task. Example: list_attachments(task_id='01ABC...'). Returns an array of attachments.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		TaskID string `json:"task_id" jsonschema:"task id or unambiguous prefix"`
+	}) (*mcp.CallToolResult, any, error) {
+		id, err := s.ResolveID("task", in.TaskID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		attachments, err := s.ListAttachments(id)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(attachments)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_attachment",
+		Description: "Delete an attachment. Example: delete_attachment(attachment_id='01XYZ...').",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+		AttachmentID string `json:"attachment_id" jsonschema:"attachment id or unambiguous prefix"`
+	}) (*mcp.CallToolResult, any, error) {
+		if err := s.DeleteAttachment(in.AttachmentID); err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]bool{"ok": true})
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -1400,13 +1459,17 @@ func taskDetailsJSONFor(s *store.Store, id string, live map[string]bool) (taskDe
 	if err != nil {
 		return taskDetailsJSON{}, err
 	}
+	attachments, err := s.ListAttachments(id)
+	if err != nil {
+		return taskDetailsJSON{}, err
+	}
 	return taskDetailsJSON{
 		ID: t.ID, ListID: t.ListID, ListOwner: l.CreatedBy, Title: t.Title, Notes: t.Notes,
 		Status: string(t.Status), Progress: prog, CreatedAt: t.CreatedAt,
 		UpdatedAt: t.UpdatedAt, CompletedAt: t.CompletedAt,
 		Assignee: t.Assignee, AssignedAt: t.AssignedAt,
 		AssigneeLive: assigneeLive(live, t.Assignee), Priority: string(t.Priority),
-		Children: children, Comments: commentsJSON(comments),
+		Children: children, Comments: commentsJSON(comments), Attachments: attachmentsJSON(attachments),
 	}, nil
 }
 
@@ -1470,6 +1533,18 @@ func commentsJSON(comments []store.Comment) []commentJSON {
 			Author:    c.Author,
 			Note:      c.Note,
 			CreatedAt: c.CreatedAt,
+		})
+	}
+	return out
+}
+
+func attachmentsJSON(attachments []store.Attachment) []attachmentJSON {
+	out := make([]attachmentJSON, 0, len(attachments))
+	for _, a := range attachments {
+		out = append(out, attachmentJSON{
+			ID:        a.ID,
+			Path:      a.Path,
+			CreatedAt: a.CreatedAt,
 		})
 	}
 	return out
@@ -1772,7 +1847,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 		Name:        "crush_inbox",
 		Description: "One-shot start-of-session triage: read the crush:///inbox resource and pick the next task. Carries the full working loop so the agent does not need the heavy blob every session.",
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		msg := "Read the resource crush:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. This store IS your todo list — keep its status current as you work, on your own, without being asked. Do NOT use the host's built-in todo tool.\n\n" +
+		msg := "Read the resource crush:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. Keep their status current as you work, on your own, without being asked.\n\n" +
 			"WORKING LOOP (run it automatically, without being told):\n" +
 			"1. Open the session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.\n" +
 			"2. Get your tasks from Chore Crusher at the start of every session and refresh them as you go; read from it rather than working from memory.\n" +

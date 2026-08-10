@@ -292,8 +292,9 @@ separates the Pending and Complete sections, and navigation follows visual
 order instead of store order — which had been a real bug, since the two differ
 once a task completes. It also fixed create placement when a completed task is
 selected. Its standing product constraints: inline create stays (no
-bottom-docked add field), `tab`/`shift+tab` switch panels, and `[`/`]` — not
-tab — change level while creating.
+bottom-docked add field), `tab`/`shift+tab` switch panels (except while the
+inline create input is live — focus is locked to the text input then), and
+`[`/`]` — not tab — change level while creating.
 
 **Task-row redesign and inline creation** — *shipped.* The cutover from a
 bottom-pinned add input to inline creation in the tree, which also moved the
@@ -333,6 +334,18 @@ trip: the picker's Enter always wrote `theme:` to config.yaml, but the
 boot path never read it back, so a chosen theme died with the process.
 The TUI path now applies the saved theme before the first frame, with an
 unknown name falling back to the default.
+
+**Foreground tiers and input sealing** — *shipped.* The bug class that
+`crush-day` exposed: text rendered with no foreground SGR inherits the
+terminal's default color, which is light on nearly every terminal — pending
+task titles vanished white-on-white, and every unsealed Bubbles input leaked
+the same way. The fix is stated as an invariant in `docs/DESIGN.md` §12
+(every glyph draws from an `appstyles.Active` tier; Bubbles inputs are
+sealed every render via `chrome.SealInput` / `chrome.SealListFilter`), with
+`appstyles.HasDefaultForeground` as the mechanical assertion, applied to
+full frames under both the light and the default theme. It pairs with the
+background-sealing rule: a sealed background does not save a glyph that has
+no color of its own.
 
 ### Sister / context
 

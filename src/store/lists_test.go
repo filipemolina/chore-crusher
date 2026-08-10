@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -470,5 +471,90 @@ func TestSetCollaborativeRequiresExisting(t *testing.T) {
 		t.Fatal("SetCollaborative on a missing id did not error")
 	} else if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("SetCollaborative error = %q, want a not-found error", err)
+	}
+}
+
+// listOrderIDs returns the ids of every list, in ordering position.
+func listOrderIDs(t *testing.T, s *Store) []string {
+	t.Helper()
+	ls, err := s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	ids := make([]string, len(ls))
+	for i, l := range ls {
+		ids[i] = l.ID
+	}
+	return ids
+}
+
+// TestMoveListReordersWithinOrdering: moving a list after a later list shifts
+// it down within the same ordering.
+func TestMoveListReordersWithinOrdering(t *testing.T) {
+	s := newTestStore(t)
+	a := mustList(t, s, "a")
+	b := mustList(t, s, "b")
+	c := mustList(t, s, "c")
+	d := mustList(t, s, "d")
+
+	if err := s.MoveList(b, d); err != nil {
+		t.Fatalf("MoveList: %v", err)
+	}
+	want := []string{a, c, d, b}
+	if got := listOrderIDs(t, s); !slices.Equal(got, want) {
+		t.Errorf("order after move = %v, want %v", got, want)
+	}
+}
+
+// TestMoveListToFront: an empty afterID moves the list to the front of the
+// ordering.
+func TestMoveListToFront(t *testing.T) {
+	s := newTestStore(t)
+	a := mustList(t, s, "a")
+	b := mustList(t, s, "b")
+	c := mustList(t, s, "c")
+
+	if err := s.MoveList(c, ""); err != nil {
+		t.Fatalf("MoveList: %v", err)
+	}
+	want := []string{c, a, b}
+	if got := listOrderIDs(t, s); !slices.Equal(got, want) {
+		t.Errorf("order after move-to-front = %v, want %v", got, want)
+	}
+}
+
+// TestMoveListMovesToFrontOfOrdering: after moving to the front, a second
+// move down lands the list after the first list, not at the front again.
+func TestMoveListMovesToFrontOfOrdering(t *testing.T) {
+	s := newTestStore(t)
+	a := mustList(t, s, "a")
+	b := mustList(t, s, "b")
+	c := mustList(t, s, "c")
+
+	if err := s.MoveList(c, ""); err != nil {
+		t.Fatalf("MoveList to front: %v", err)
+	}
+	if err := s.MoveList(c, a); err != nil {
+		t.Fatalf("MoveList after a: %v", err)
+	}
+	want := []string{a, c, b}
+	if got := listOrderIDs(t, s); !slices.Equal(got, want) {
+		t.Errorf("order after moves = %v, want %v", got, want)
+	}
+}
+
+// TestMoveListValidation: the target must exist and not be the list itself.
+func TestMoveListValidation(t *testing.T) {
+	s := newTestStore(t)
+	a := mustList(t, s, "a")
+
+	if err := s.MoveList(a, a); err == nil {
+		t.Error("MoveList after itself did not error")
+	}
+	if err := s.MoveList(a, "no-such-id"); err == nil {
+		t.Error("MoveList after a missing list did not error")
+	}
+	if err := s.MoveList("no-such-id", ""); err == nil {
+		t.Error("MoveList of a missing list did not error")
 	}
 }

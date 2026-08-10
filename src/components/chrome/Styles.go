@@ -4,6 +4,8 @@ import (
 	"image/color"
 	"strings"
 
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
@@ -156,4 +158,70 @@ func BarColumn(fg color.Color, bg color.Color, content string) string {
 	lines := max(1, strings.Count(content, "\n")+1)
 	bar := style.Render("▌")
 	return strings.Repeat(bar+"\n", lines-1) + bar
+}
+
+// SealInput themes a bubbles textinput onto the surfaces it renders on, so
+// its typed text never inherits the terminal's default foreground. The
+// default style a textinput.New() ships carries NO foreground on its
+// focused Text (and a hardcoded ANSI-256 white on the blurred one), which
+// reads on the dark panels but disappears on a light theme's panel
+// (crush-day: white text on warm off-white). Every tier here comes from the
+// active theme: the typed text is TextPrimary in both focus states, the
+// placeholder is TextDim (§12's inert-text tier), and the two states sit on
+// the caller's own surfaces. Rebuilt every render, the same way detailspanel's
+// applyTextareaStyles does it, so a theme switch while the input was last
+// drawn cannot leave a stale palette behind.
+//
+// focusedBg is the surface the input lifts to while it owns the keyboard;
+// blurredBg is the one it sits on otherwise — a parked input on the same
+// surface as its card passes the card's color twice (docs/DESIGN.md §12,
+// "Focus is shown by lifting a tier").
+func SealInput(in *textinput.Model, focusedBg, blurredBg color.Color) {
+	st := in.Styles()
+	st.Focused.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(focusedBg)
+	st.Blurred.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(blurredBg)
+	st.Focused.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(focusedBg)
+	st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(blurredBg)
+	// The bubbles default prompt is a hardcoded ANSI white "> ", so even an
+	// input whose caller cleared nothing still leaks default color through
+	// its prompt glyph. Style it as an inline hint instead: TextMuted, no
+	// background, so a sealed input never carries a terminal-default glyph.
+	promptStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted)
+	st.Focused.Prompt = promptStyle
+	st.Blurred.Prompt = promptStyle
+	st.Cursor.Color = appstyles.Active.TextPrimary
+	in.SetStyles(st)
+}
+
+// SealListFilter themes a bubbles list's built-in filter input onto the
+// panel it lives in. list.New() ships DefaultStyles(true) — hardcoded dark
+// assumptions — so the filter bar carries the same default-color text as an
+// unsealed textinput, and its "Filter: " prompt the hardcoded white of
+// textinput's defaults. Every tier comes from the active theme, matching
+// SealInput's; the prompt glyph keeps its "Filter: " wording (the lists
+// panel's filter announces itself that way, unlike the task tree's bare
+// slash bar) but draws in TextMuted on the panel's own surface. Rebuilt
+// every render by the caller so a theme switch cannot leave a stale palette
+// on the bar (docs/DESIGN.md §12).
+func SealListFilter(l *list.Model, bg color.Color) {
+	// The filter input only ever draws while the panel is in Filtering
+	// state, so one surface serves both focus states.
+	st := l.FilterInput.Styles()
+	st.Focused.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
+	st.Blurred.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(bg)
+	st.Focused.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
+	st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
+	promptStyle := lipgloss.NewStyle().Foreground(appstyles.Active.TextMuted).Background(bg)
+	st.Focused.Prompt = promptStyle
+	st.Blurred.Prompt = promptStyle
+	st.Cursor.Color = appstyles.Active.TextPrimary
+	l.FilterInput.SetStyles(st)
+
+	// The list's own text tiers ride the same defaults: the "No items."
+	// empty-state line and the pagination glyphs draw in subdued greys that
+	// are fine on dark but read as terminal noise on a light panel. Point
+	// them at the dim tier instead.
+	styles := l.Styles
+	styles.NoItems = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg)
+	l.Styles = styles
 }

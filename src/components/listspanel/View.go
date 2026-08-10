@@ -119,6 +119,13 @@ func (m Model) View() tea.View {
 	height := chrome.PanelBodyHeight(m.body.Height)
 	bg := chrome.PanelBg(m.focused)
 
+	// Seal the bubbles filter bar onto this panel's surface every render:
+	// list.New() ships hardcoded dark defaults, so its filter input's text
+	// and "Filter: " prompt inherit default color and vanish on a light
+	// theme's panel (crush-day). Per render, so a theme switch cannot leave
+	// a stale palette on the bar (docs/DESIGN.md §12).
+	chrome.SealListFilter(&m.list, bg)
+
 	var body string
 	if len(m.list.Items()) == 0 {
 		body = chrome.EmptyStateCard("No lists yet.\nPress n to create one.", width, height, bg)

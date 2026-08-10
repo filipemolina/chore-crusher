@@ -6,13 +6,12 @@ extrapolate from. Where a rule below looks oddly specific, it is specific on
 purpose: it was written to close off a plausible wrong implementation, not to
 describe the obvious one.
 
-This document is this project's counterpart to
-[stack-stitcher's `docs/DESIGN.md`](https://github.com/filipemolina/stack-stitcher/blob/main/docs/DESIGN.md).
-Read that file too, once, before writing code here — not because the two apps
-share a domain (they don't), but because they share an architecture, and its
-reasoning is written there in more depth than is repeated here. This file
-states the rule; that one, in several places, shows the failure mode that
-made the rule necessary.
+This document is self-contained: every rule below carries its own reasoning,
+and nothing here sends you to another repository's documentation to find out
+*why*. Chore Crusher shares its architecture with one sister project (they
+were built by the same author, one after the other), and several patterns
+were ported from it; where that provenance matters, the relevant reasoning is
+written out in full in this file instead of being left as a pointer.
 
 ## 1. What this app is, and isn't
 
@@ -186,11 +185,10 @@ That leaves exactly one way for an assignment to outlive its owner: a session ki
 in both `store` and `cli` (or `store` and `components`). `store.Complete`,
 `store.Reopen`, `store.SetProgress` are the only three functions that write
 `status`/`progress_kind`/`progress_pct`, and every caller — CLI subcommand or
-TUI keypress handler — goes through them. This mirrors stack-stitcher's rule
-that the compose file has exactly one write path per kind of change; here the
-equivalent invariant is enforced by Go visibility (these three are the only
-exported mutators) rather than by file-write discipline, since there's a
-database instead of a document to protect.
+TUI keypress handler — goes through them. There is exactly one write path per
+kind of change; the invariant is enforced by Go visibility (these three are
+the only exported mutators), which is what makes it hold without anyone
+having to remember it.
 
 ## 4. Adding a task: the level rules
 
@@ -298,11 +296,15 @@ chrome, §12); `↑`/`↓` move the highlight and `y` copies the highlighted
 comment's id to the system clipboard.
 
 `tab`/`shift+tab` cycle **only through the targets currently visible** —
-the lists panel is skipped entirely from the cycle while hidden, the same way
-stack-stitcher's nav bar is permanently absent from its own cycle
-(`constants.FocusableComponents`) rather than being a focusable-but-inert
-stop. Do not implement "hidden but still tab-able to an invisible panel";
-that produces a focus ring with a silent dead stop in it.
+the lists panel is skipped entirely from the cycle while hidden
+(`focusableZones()` in `src/model/Update.go` computes the cycle at runtime)
+rather than being a focusable-but-inert stop. Do not implement "hidden but
+still tab-able to an invisible panel"; that produces a focus ring with a
+silent dead stop in it. The footer follows the same rule: with no side panel
+open the cycle is a single zone, so the keybinding bar does not advertise
+tab/shift+tab (a dead hint: nothing to cycle), and the hints return the
+moment the lists panel opens (`GlobalsFor`/`Active` in `src/keys/Keys.go`
+drop the pair on `ListsPanelVisible == false`).
 
 `[`/`]` restructure the *selected* task — not just the create-mode level
 selector (§4). Outdent `[` (move the selected task out from under its
@@ -311,14 +313,23 @@ its previous sibling, as that sibling's last child); both are no-ops at
 their boundaries (a root task cannot be outdented; a first sibling has
 nothing to hang under). Indent additionally obeys §3: a pending task never
 moves under a complete sibling. While the inline create input is active the
-same two keys are the create-mode level selector (§4) instead. `tab`/
-`shift+tab` keep cycling focus between the two
-panels even while the create row or the `/` filter has the keyboard — they
-are focus keys, not characters, so they never compete with the level
-selector — and the draft is preserved while focus is elsewhere; typing
-resumes when focus returns to the tree. The tree is the startup focus
-and is broadcast as such at startup (phase-3 Init), so its keys work
-from the first frame rather than only after a focus change.
+same two keys are the create-mode level selector (§4) instead. **While the
+inline create input is live, creating a task focuses only the text input:**
+`tab`/`shift+tab` do NOT cycle focus to another panel and `?` types a literal
+instead of opening help, so a half-typed title can never be stranded on
+another panel mid-entry. `esc` is the way out (it cancels, or parks on an
+empty list). Once the input is parked or closed, tab cycles the panels again
+as usual. The same single-active-element rule holds visually: while the
+create row is on screen, no task row draws the selected treatment (accent
+bar, ModalBg, accent spinner) — the previously selected task keeps its
+selection state but renders unselected, so the input is the only "selected"
+thing on the panel. The highlight returns the moment the input closes. This
+reversed an earlier design ("tab keeps cycling even while the
+create row has the keyboard") — the cycle itself was harmless, but focus
+leaving the input mid-entry was a constant footgun during rapid task entry,
+and the draft-preservation it relied on was invisible state. The tree is the
+startup focus and is broadcast as such at startup (phase-3 Init), so its keys
+work from the first frame rather than only after a focus change.
 
 **Vim and arrow bindings both work, always, on the task tree:** `↑`/`k` up,
 `↓`/`j` down (moving the cursor across every *visible* row — a collapsed
@@ -392,10 +403,9 @@ tree has focus — it does not open anything and does not move the cursor.
 also mean "toggle complete"; the two are deliberately different keys because
 "open a thing" and "flip a checkbox" are different enough actions that
 collapsing them into one key is what makes an app feel like a demo rather
-than a tool. Note the asymmetry with stack-stitcher, which binds `Select` to
-*both* `space` and `enter` — that works there because both mean "start"; here
-they must mean two different things, so they are two different bindings from
-the start rather than one alias split apart later.
+than a tool. When one key serves two surfaces it is tempting to alias it to
+both verbs, but here the verbs genuinely differ, so they are two different
+bindings from the start rather than one alias split apart later.
 
 Inside the Details modal: **`ctrl+s`** saves title, notes, progress and
 priority changes,
@@ -564,8 +574,9 @@ editable input (first in the tab cycle), saved with `ctrl+s` through
 **`esc` is the most overloaded key in the app** — six jobs (cancel an inline
 create, clear the task-tree filter, clear the lists-panel filter, close a
 modal, discard a dirty Details edit, close the Lists panel) resolved through
-a strict "ladder of claims" (the term stack-stitcher's docs use for the same
-pattern). It is one switch case (`keys.Global.Back`), checked in this order —
+a strict "ladder of claims": each surface that might own esc is checked in a
+fixed order, and the first one that claims it gets it. It is one switch case
+(`keys.Global.Back`), checked in this order —
 the order is the contract; checking it out of sequence silently breaks
 whichever claim got skipped:
 
@@ -625,7 +636,14 @@ which defeats the reason the tree exists at all.
 A list with no tasks yet auto-shows the inline "new task" input as its only
 row, under the `Pending` header — the input creates a pending task, so it
 belongs to the section the task will land in — with one line of `TextDim`
-guidance beneath it: **"type a title and press enter"**.
+guidance beneath it: **"type a title and press enter"**. The same rule holds
+for a list whose tasks are all complete: the input opens under `Pending`
+(even though that section is empty) rather than after the `Complete` section,
+so it never sits at the bottom of the list while the task it creates lands at
+the top. And a root-append draft (one with no anchor, i.e. appending at the
+end of the pending section) renders its input at the end of `Pending`,
+above the rule and `Complete`, for the same reason: the input always appears
+in the section the new task will join.
 
 **That is the empty list's only appearance.** `esc` *parks* the input rather
 than closing it: the draft is discarded and the input is **blurred**, but the
@@ -677,14 +695,11 @@ Bubbles-list scrolling unchanged — one scrolling system per panel.
 
 ## 7. Live refresh: how the TUI sees the CLI's writes
 
-There is no daemon, no socket, no file watcher — the same abstinence
-stack-stitcher's design document argues for network services applies here to
-IPC. The TUI polls.
+There is no daemon, no socket, no file watcher — the TUI polls.
 
-`tea.Tick` fires every `poll_interval_ms` (config default: **1000**, a tenth
-of stack-stitcher's 5000 because a local SQLite read costs microseconds where
-a `docker compose ps` shells out; there is no reason to make a human wait five
-seconds to see their own agent's last completion) and dispatches a
+`tea.Tick` fires every `poll_interval_ms` (config default: **1000** — a local
+SQLite read costs microseconds, so there is no reason to make a human wait
+several seconds to see their own agent's last completion) and dispatches a
 `cmds.PollMsg`. `AppModel` responds by re-running exactly two queries — list
 summaries (for the lists panel and its counts) and the active list's task
 tree — and diffs the result against what's currently rendered. On no change,
@@ -695,16 +710,21 @@ selected task still present keeps the cursor on it (matched by id, not by
 row index — a CLI insert or delete during the interval can move every row
 index without moving the task the user was looking at). A poll that finds
 the selected task gone (deleted from elsewhere) moves the cursor to the
-nearest surviving row, the same "what do you do when the ground moves"
-question stack-stitcher answers by re-selecting by name after a config
-reload.
+nearest surviving row — when the ground moves, keep the user on the closest
+thing to where they were, never dump the cursor to a fixed position.
 
 **Agent activity claims are read by the same poll.** Each `RefreshLists` and `RefreshTasks` call also runs `store.ListWork()` to fetch the current set of live agent claims (entities claimed within the `WorkTTL` window). The returned `[]AgentActivity` travels with the refresh messages so the task tree and lists panel can render a spinner on claimed rows. `RefreshLists` additionally computes the set of lists with any live task claim (`ClaimedTaskListIDs`) and carries it on the message, so the lists panel shows a spinner on a list row when an agent is working inside it — not only when the list itself is claimed. The same 1s poll tick governs both data and claims — no separate IPC or interval is needed.
 
 **The very first load is animated, later polls are not.** `GetInitialModel`
 does no database work: it constructs the components and returns immediately with
 no active list, so Bubble Tea can paint the first frame before the opening
-`RefreshLists` query completes. Until that first `RefreshListsMsg` arrives —
+`RefreshLists` query completes. That first `RefreshListsMsg` also decides
+*which* list is active: it reopens the list the user last had active, persisted
+in the `Setting` table (§8) on every switch. The stored id wins when it still
+exists; the first list is the fallback for a first run, an empty store, or a
+stored id whose list was deleted in the meantime. The fallback choice is itself
+persisted, so a relaunch never silently forgets where the user landed. Until
+that first `RefreshListsMsg` arrives —
 success *or* error — the Tasks panel renders a sealed `Loading` label with an
 animated ellipsis (Bubbles' `spinner.Ellipsis` frames `""`, `.`, `..`, `...`,
 so the animation adds no ambiguous emoji width). The animation lives only in the
@@ -728,8 +748,8 @@ makes concurrent readers and a writer not block each other; do not disable it.
 
 ## 8. Storage and concurrency
 
-**modernc.org/sqlite** — pure Go, no CGO. This preserves stack-stitcher's
-build story unchanged: `CGO_ENABLED=0`, cross-compiled linux/darwin ×
+**modernc.org/sqlite** — pure Go, no CGO. This keeps the build story simple:
+`CGO_ENABLED=0`, cross-compiled linux/darwin ×
 amd64/arm64 by the same GoReleaser shape (`.goreleaser.yaml` carries the
 exact config forward). A CGO-based SQLite driver would be the
 more common choice by download count, but it would make this the one thing
@@ -761,14 +781,13 @@ is not multi-tenant within one OS account.
 `store.Open`, tracked by a `schema_migrations(version integer primary key)`
 table. Every invocation of the binary — TUI or any CLI subcommand — runs this
 before touching data, idempotently (a migration that's already applied is a
-no-op, not an error). This is the same "one resolution, passed down" instinct
-stack-stitcher applies to compose-file discovery: one function decides the
-schema is current, called from one place, rather than each caller assuming
-someone else already did it.
+no-op, not an error). One function decides the schema is current, called from
+one place (`store.Open`), rather than each caller assuming someone else
+already did it — "one resolution, passed down".
 
 **Config** (`~/.config/chore-crusher/config.yaml`, or `$XDG_CONFIG_HOME`) holds
-exactly two fields at launch, in the same struct-designed-to-grow shape as
-stack-stitcher's `config.Config`:
+exactly two fields at launch, in a struct designed to grow — add a field,
+tag it, and `LoadConfig`/`SaveConfig` round-trip it automatically:
 
 ```yaml
 theme: crush-dark
@@ -776,10 +795,18 @@ poll_interval_ms: 1000
 ```
 
 Both optional; a missing file or a missing field falls back to the compiled
-default, and a malformed file is reported rather than silently ignored for
-everything *except* first-run (mirrors stack-stitcher's `LoadConfig`
-contract exactly — see that package's doc comment for the reasoning already
-written up once).
+default, and a malformed file is reported rather than silently ignored.
+The `src/config` package doc comment carries the full contract.
+
+**App state** (as opposed to user preferences) lives in a `Setting`
+key/value table in the same SQLite file (migration `0007_settings.sql`):
+one row per key, values TEXT, read and written only through `store`
+`GetSetting`/`SetSetting` (an upsert, like every other store mutator). The
+one key today is `last_list_id`, the list the TUI reopens at startup (§7).
+It is written only when the active list actually changes, never by the
+poll: the poll stays a pure read, per the concurrency rule above, and a
+1s-tick UPSERT would turn the TUI into a writer on every tick for no user
+benefit.
 
 ## 9. The CLI contract
 
@@ -821,8 +848,8 @@ project exists to not have.
 
 **Destructive commands need `--force`.** `crush lists rm`, `crush rm`
 (task), and `crush comment rm` refuse to run without `--force`. The TUI's
-equivalent actions go through a confirm modal (the same pattern as
-stack-stitcher's `ConfirmModal`); the CLI has no modal to route through and
+equivalent actions go through a confirm modal; the CLI has no modal to route
+through and
 no human to ask, so the flag *is* the confirmation. This is the one place
 the CLI is deliberately less convenient than the TUI, on purpose: an agent's
 typo in a task id should not have the blast radius of an unrecoverable
@@ -1219,8 +1246,10 @@ complete the task first, then move.
 
 ## 10. Package layout
 
-Mirrors stack-stitcher's split between the Bubble Tea half and the
-non-Bubble-Tea half, with one addition (`cli`) for the second front end:
+Two halves: the Bubble Tea half (`model`, `components`, `cmds`, `keys`,
+`appstyles`, `constants`) and the non-Bubble-Tea half (`store`, `apptypes`,
+`config`), with one addition (`cli`, `mcpserver`) for the two agent-facing
+front ends:
 
 ```
 main.go              # cobra root: no subcommand -> launch TUI; else dispatch
@@ -1231,18 +1260,19 @@ src/
 │                     # listnamemodal, confirmmodal, helpoverlay, keybindingbar,
 │                     # mainmenu)
 │   └── chrome/       # shared rendering: PanelFrame, tree-row rendering, the
-│                     # progress pill, KeyHints, Spinner — ported from stack-stitcher
-│                     # where the helper is domain-agnostic, written fresh where it isn't
+│                     # progress pill, KeyHints, Spinner — a helper earns its
+│                     # way in here by having a second caller (§12, chrome contract)
 ├── cmds/            # message types and the tea.Cmds that produce them
 ├── apptypes/        # List, Task, Status, ProgressKind — the shapes components pass around
-├── keys/            # the one keymap package; see stack-stitcher's for why there's exactly one
+├── keys/            # the one keymap package: every key declared exactly once,
+│                     # footer and help overlay render from these bindings
 ├── store/           # SQLite schema, migrations, and every read/write function —
 │                     # the only package that imports database/sql
 ├── cli/             # one file per subcommand group; each is a thin adapter from
 │                     # cobra flags to a store call and a --json-aware printer
 ├── mcpserver/       # Model Context Protocol server; tools mirror the CLI but
 │                     # talk directly to src/store, not to src/cli
-├── appstyles/       # Theme type + the 14-theme registry, ported from stack-stitcher
+├── appstyles/       # Theme type + the 14-theme registry (§11)
 ├── config/          # ~/.config/chore-crusher/config.yaml
 └── constants/       # layout widths, focusable-zone ids, branding
 ```
@@ -1259,14 +1289,53 @@ to decide which to run, and `src/mcpserver` is reached through the
 
 ## 11. Theming
 
-Ported from stack-stitcher's `src/appstyles` near verbatim — the `Theme`
-struct, `newTheme`'s tier-derivation math, the `InkOn` contrast helper, and
-the picker's live-preview-on-cursor-move mechanic. Read
-[stack-stitcher's `Theme.go`](https://github.com/filipemolina/stack-stitcher/blob/main/src/appstyles/Theme.go)
-and copy its structure; do not redesign the derivation math, it's already
-been tuned across 14 imported palettes (see stack-stitcher's `docs/DESIGN.md`
-§"Color lives on a Theme" for the reasoning behind `Lighten`/`Darken` and why
-`Modal` needs to clear `BackgroundElevated` by a minimum margin).
+The `Theme` struct, `newTheme`'s tier-derivation math, the `InkOn` contrast
+helper, and the picker's live-preview-on-cursor-move mechanic live in
+`src/appstyles` and are documented there and below. Do not redesign the
+derivation math — it is already tuned across all 14 registered palettes.
+The reasoning behind `Lighten`/`Darken` and why `Modal` needs to clear
+`BackgroundElevated` by a minimum margin:
+
+**Color lives on a Theme.** Every color the app draws with is a field on
+`appstyles.Theme`, not a hex value scattered through a component.
+`appstyles.Active` is the one `Theme` in effect; every call site reads it
+fresh — `appstyles.Active.TextPrimary`, say — rather than caching a color at
+package init, which is what lets a later switch actually repaint: assign a
+different registered `Theme` to `Active` and the next frame draws it. Styles
+composed of more than one field are functions (e.g. `appstyles.NormalTitle`)
+for the same reason, not package-level `var`s: a `var` built at init freezes
+whichever theme was active when the package loaded.
+
+`appstyles.Themes` is the registry, built by `appstyles.newTheme` from a
+handful of base colors — `Accent`, the text/panel/modal bases, the four
+status colors — with everything else derived by `Lighten`/`Darken`. A dark
+theme raises a tier's attention by lightening it, a light theme by darkening
+it. Adding a theme is choosing those base colors, not hand-tuning thirty
+derived ones.
+
+**The asymmetry that drives every imported palette:** tier derivation is
+`lipgloss.Lighten` for dark themes and `lipgloss.Darken` for light ones.
+`Lighten` is additive — it adds `255 × percent` to each channel — while
+`Darken` is multiplicative — it scales each channel by `1 − percent`. For a
+dark theme the raise is a fixed climb independent of the base; for a light
+theme the step shrinks as the base approaches white. The consequence for
+imported colour schemes: **set `Panel` to that scheme's deepest background
+tier**, so the raised tiers (`BackgroundContent` +4%, `BackgroundPanel` +8%,
+`BackgroundElevated` +12%) land back inside the scheme's own background
+range. `ModalBg` is not a raise of the panel ladder at all — it must clear
+`BackgroundElevated` by ≥14 per channel (guarded by
+`TestElevationSeparation` in `src/appstyles/Contrast_test.go`) or the modal
+disappears into the focused panel.
+
+`InkOnLight`/`InkOnDark` are the one deliberate exception to "derived from
+base colors": they do not vary with a theme's `Dark` flag, because a status
+pill's own fill does not vary with the app's theme either — the text that
+reads legibly on a given fill has to stay legible whichever theme is active,
+not follow `TextPrimary`, which flips. The `appstyles.InkOn(fill)` helper
+picks whichever of the two fixed inks has better contrast on the fill at
+hand, and `Contrast_test.go` verifies the result clears its threshold on
+every status pill, the accent chip, and the error banner for every
+registered theme.
 
 **Elevation ladder (the `raise` coefficients in `newTheme`).** The focused/
 unfocused panel step is the focus signal (see §12 "Focus is shown by lifting a
@@ -1298,25 +1367,24 @@ respectively (chosen as the dimmest grey that clears 4.5 on elevated *and* on
 panel). This changes those three themes' body-text luminance slightly; every
 other theme's `Text` is untouched.
 
-**What changes:** the four status-color fields are domain colors, so they're
-renamed to match this app's domain instead of Docker's:
+**What changes:** the four status-color fields are domain colors, renamed to
+match this app's domain:
 
-| stack-stitcher | Chore Crusher | Same hex per theme |
-| --- | --- | --- |
-| `StatusRunning` | `StatusComplete` | yes |
-| `StatusStopped` | `StatusPending` | yes |
-| `StatusStarting` | `StatusInProgress` | yes |
-| `StatusError` | `StatusOverdue` *(reserved; unused until a due-date feature exists — see `docs/ROADMAP.md`)* | yes |
+| Field | Meaning |
+| --- | --- |
+| `StatusComplete` | done |
+| `StatusPending` | not started |
+| `StatusInProgress` | active |
+| `StatusOverdue` | *(reserved; unused until a due-date feature exists — see `docs/ROADMAP.md`)* |
 
-Every hex value in the 14-theme registry (`stitcher-dark`, `stitcher-ember`,
-`stitcher-slate`, `stitcher-day`, plus the ten imported community palettes)
-carries over unchanged — same accent, same text/panel/modal bases, same
-status colors under their new field names. This is deliberate: a person who
-runs both apps should see the same "Tokyo Night" render the same way in
-either, because it's the same theme, not a reinterpretation of one.
-Every `Name` string and registry key is adjusted from `stitcher-*` to
-`crush-*`, since the name is user-visible in the theme picker (`crush-dark`
-is the renamed `stitcher-dark`). **The fresh-install default is
+The registry holds 14 themes: four of this app's own — `crush-dark`,
+`crush-ember`, `crush-slate`, `crush-day` — plus ten imported community
+palettes (catppuccin-mocha, gruvbox-dark, tokyo-night, nord, dracula,
+solarized-dark, one-dark, everforest-dark, rose-pine, kanagawa-wave). The
+imported palettes carry their original accent, text/panel/modal bases and
+status hexes unchanged: a person who knows "Tokyo Night" should see it
+render the same way here, because it is the same theme, not a
+reinterpretation of one. **The fresh-install default is
 `"crush-ember"`** — `DefaultTheme` names it, and a config with no
 `theme:` preference activates it; every other registered theme (including
 `gruvbox-dark`) stays selectable through the `T` picker and as a saved
@@ -1330,10 +1398,7 @@ disconnected contributors across nine phases. Every visual detail below is
 **decided, not suggested** — a fixed number, a fixed glyph, a fixed rule —
 specifically so phase 4's task tree and phase 6's lists panel, built weeks
 apart with no memory of each other, render as one app rather than two
-apps sharing a color scheme. Where stack-stitcher already solved the same
-problem, the answer is ported outright, including its exact numbers, for the
-same "these are sister apps" reason §11 gives for porting hex values
-unchanged.
+apps sharing a color scheme.
 
 **If a UI element needs a visual detail this section doesn't specify — a
 glyph, a spacing value, a color-tier choice — add it here, in this section,
@@ -1347,10 +1412,8 @@ complete, run the verification script: `scripts/verify-ui-component.sh <componen
 
 ### Background tiers, and sealing them
 
-Ported unchanged from stack-stitcher's `docs/DESIGN.md` §"Background tiers,
-and sealing them" — read that section once for the full reasoning (the SGR-
-reset mechanics that make an unsealed tier bleed the terminal's own
-background through). The tiers, mapped to this app's own surfaces:
+Sections are separated by background color rather than by borders. The tiers
+are `Theme` fields, read through `appstyles.Active`:
 
 | Tier | Field | Where, in this app |
 | --- | --- | --- |
@@ -1358,20 +1421,76 @@ background through). The tiers, mapped to this app's own surfaces:
 | 2 | `BackgroundContent` | the outermost frame, if one exists (gutter between the lists panel and the main panel) |
 | 3 | `BackgroundPanel` | the Lists and Tasks surfaces, when unfocused (`raise(Panel, 0.08)`) |
 | 4 | `BackgroundElevated` | Lists when it has focus, or Tasks while its task-tree or add-input control has focus (§5), and the highlighted comment card in the Details modal (`raise(Panel, 0.12)`) |
-| — | `ModalBg` | every modal (theme picker, confirm, list-name, **and the Details modal**) **and the row the cursor sits on in the task tree** — an active row is its own register, not a tint of the panel it's in, the same reasoning stack-stitcher applies to an active list row |
+| — | `ModalBg` | every modal (theme picker, confirm, list-name, **and the Details modal**) **and the row the cursor sits on in the task tree** — an active row is its own register, not a tint of the panel it's in |
 | — | `BackgroundRecessed` | empty-state cards (§Empty states, below) — equal to `PanelBg`, the un-raised base |
 
-**Every tier must be sealed.** Anything that draws text — a tree row, the
-add input, a list row, a modal's body — needs an explicit background, and
+**Every tier must be sealed.** A terminal's SGR reset clears the background
+until the next SGR, and lipgloss closes each styled run with a reset — so
+any unstyled text later on the same line renders on the terminal's own
+own color shows through. Anything that draws text — a tree row, the inline
+create input, a list row, a modal's body — needs an explicit background, and
 `lipgloss.JoinVertical`/`JoinHorizontal` pad shorter siblings with bare,
 unstyled spaces that must themselves carry a background or the terminal's
-own color shows through. Seal innermost first: a tree row seals itself,
+own color shows through. Wrapping the result in a `Background()` style does
+not help, because a style only paints the padding it adds itself. Two rules
+follow:
+
+1. **Anything that draws text needs an explicit background**, including
+   buttons, cards and list rows. A run with no background set is the notch.
+   Components that sit inside a panel take that panel's tier as a parameter
+   instead of picking a tint of their own, so they stay flush when focus
+   lifts the panel.
+2. **Seal innermost-first.** A tree row seals itself,
 then the panel it sits in seals what's left, then (if a tier-2 frame exists)
-the outermost pass seals last. Port stack-stitcher's
-`appstyles.HasBackgroundBleed` assertion and its background test suite —
-this is not
+the outermost pass seals last. Sealing only at the outer tier would flatten
+the inner ones — the active row's distinct surface would be repainted
+to the panel color. `appstyles.FillBackground` is the sealing function.
+
+`appstyles.HasBackgroundBleed` is the matching assertion — tests apply it to
+fully rendered frames and component bodies (see
+`src/model/layout_test.go`, `src/components/tasktree/scroll_test.go`,
+`src/components/detailspanel/Model_test.go` and the per-theme checks in
+`src/appstyles/Background_test.go`). This is not
 optional polish, it's the mechanical check that catches a missing
 `Background()` call before it ships.
+
+### Foreground tiers: never draw in the terminal's default color
+
+Background sealing alone is not enough: a glyph with no foreground SGR in
+effect draws in whatever the user's terminal calls "normal text", and nearly
+every terminal default is light. On the dark themes that reads fine; on a
+light theme it vanishes — `crush-day` made the bug visible, with pending
+task titles rendering white on warm off-white. The rule is the foreground
+analogue of the sealing rule:
+
+1. **Every glyph draws from an `appstyles.Active` tier.** A row title, an
+   expand/collapse marker, an empty-state message, a footer hint — all of it
+   carries an explicit `Foreground()`. A styled run ends in a reset, so an
+   unstyled glyph appended after a styled one falls back to the default just
+   as badly (the row's `▾`/`▸` marker is styled with the row's own title
+   tier for exactly this reason).
+2. **Widgets from Bubbles are not theme-aware and must be sealed.** A raw
+   `textinput.New()` carries no foreground on its focused text and a
+   hardcoded ANSI white on its blurred text and default `> ` prompt, and
+   `list.New()` ships dark-assumed styles for its filter bar. Every input is
+   therefore sealed every render, not once at construction, so a theme
+   switch cannot leave a stale palette on it: `chrome.SealInput` for the
+   standalone text inputs (the task tree's `/` filter and inline create,
+   the search picker, the list-name modal, the Details modal's title and
+   compose fields), `chrome.SealListFilter` for a bubbles list's built-in
+   filter bar (the lists panel). Each takes the surface the input sits on,
+   the way a panel passes its tier down; inputs that clear the default
+   prompt (the task tree's filter bar is `/` + query + suffix, nothing
+   else) do so at construction.
+
+`appstyles.HasDefaultForeground` is the matching assertion — tests apply it
+to fully rendered frames under both the light and the default theme and to
+individual rows (`src/model/foreground_test.go`,
+`src/components/tasktree/foreground_test.go`, with the SGR state machine
+itself pinned in `src/appstyles/Foreground_test.go`). It cannot repaint a
+frame the way `FillBackground` can — a missing foreground has to be fixed at
+the source — so it exists purely as the mechanical check that catches a
+dropped `Foreground()` call before it ships.
 
 ### Modal scrim
 
@@ -1427,7 +1546,7 @@ two-column left gutter, then one blank chrome row before the body. (The Details
 surface is no longer one of these — it is a modal, wrapped in
 `chrome.ModalSurface`, sized to most of the screen and layered over the body;
 see §5.) The frame has **1 row vertical and 2 columns horizontal** padding
-(`lipgloss.NewStyle().Padding(1, 2)`), matching stack-stitcher's `PanelFrame`.
+(`lipgloss.NewStyle().Padding(1, 2)`).
 No component sets its own panel padding value or panel border.
 
 The **Tasks** frame additionally shows the active list's name on its title
@@ -1453,11 +1572,9 @@ renders user-supplied text (a task title, a list name, a note preview) calls
 it from the moment that component exists, so there is never a window where
 different components truncate differently because "polish comes later."
 Rule: cut to `width - 1` display cells and append a single `…`, never mid-
-escape-sequence, using the same `ansi`-aware width measurement
-stack-stitcher's `chrome.Truncate` does (a plain byte-slice truncate can
-split a multi-byte rune or an ANSI sequence, corrupting the rest of the
-line — ported reasoning, see that project's `docs/DESIGN.md` under "Narrow
-terminals: shed whole things"). **Never truncate a unit to a fragment** — if
+escape-sequence, using an `ansi`-aware width measurement (a plain byte-slice
+truncate can split a multi-byte rune or an ANSI sequence, corrupting the rest
+of the line). **Never truncate a unit to a fragment** — if
 a row genuinely has no room for any of a title, show nothing of it (clip the
 row) rather than one or two letters followed by `…`.
 
@@ -1488,13 +1605,17 @@ Two rules follow from that ordering:
   identical.
 - **A title floor of 12 columns** (`titleFloor`). When the reserved cells
   would squeeze the title below it, the passengers shed whole — never as
-  fragments — in this order: the **status+icon block first**, then the
-  agent-spinner unit, then the **assignee badge**, then the **priority
-  badge**, and the **percentage last**, which sheds only to stop
-  the row overflowing. Priority outlives the assignee deliberately: at 40
-  columns the question "what should I pick up next" outlives "who has it",
-  and the assignee is still readable in the Details modal and over every CLI
-  and MCP read (§9). That order is deliberate and is the reverse of what the
+  fragments — in this order: the **status+icon block and the priority badge
+  together first**, then the **assignee badge**, then the agent-spinner
+  unit, and the **percentage last**, which sheds only to stop
+  the row overflowing. Priority sheds with the status, not after the
+  assignee: since the priority badge renders immediately left of the status
+  label they read as one state group, and a narrow row keeping the badge
+  while dropping the label would read as a floating `● HIGH` with no state
+  next to it. At 40 columns the question "who is actively working" and "who
+  owns it" still outlive "what should I pick up next", and the assignee is
+  still readable in the Details modal and over every CLI and MCP read (§9).
+  That order is deliberate and is the reverse of what the
   row layout originally specified: the first version budgeted for overflow
   alone, with no notion of a floor, so a narrow
   row spent eleven columns on `IN PROGRESS` while the title shrank to a stub.
@@ -1548,16 +1669,16 @@ one is needed, it's added here first.
 | Add-input level: sibling (default) | `-` | §4. |
 | Add-input level: child | `+` | §4. |
 | Add-input level: parent-of-selection | `^` | §4. |
-| Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered in the row's right-aligned block immediately before the status; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3) — never rendered as `(0%)` in that case. |
-| Task priority | ` HIGH` / ` MED` / ` LOW` | All caps, like the status label, in a content-width cell in the right-aligned block immediately left of the assignee badge. **`none` renders nothing at all** — most tasks are `none` and a badge on every row is noise, not information — so the cell is not reserved and rows do not align on it, unlike the fixed status column. The rank is drawn as a *text tier* rather than a colour of its own: `high` in `TextPrimary`, `medium` in `TextMuted`, `low` in `TextDim`. The ladder is the signal; it spends no new theme token and deliberately borrows no status colour, since the row already spends `StatusInProgress`/`StatusComplete` on its status and `StatusOverdue` on a stale assignee. `tasktree.priorityLabel`/`priorityFg`. |
-| Task assignee | ` @tag` | The durable holder of a task (§3), in the right-aligned block immediately left of the agent spinner — the two are adjacent on purpose, because "assigned, but nobody is here" is only legible as a gap between them. The tag is clipped through `chrome.Truncate` to seven cells so one long agent identity cannot push the right block across the row, and an unassigned task renders nothing. `tasktree.assigneeBadge`. |
+| Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered at the start of the row's right-aligned block, immediately left of the agent spinner; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3), never rendered as `(0%)` in that case. |
+| Task priority | ` ● HIGH` / ` ● MED` / ` ● LOW` | All caps, like the status label, with a coloured rank dot, in a content-width cell in the right-aligned block immediately left of the status label. **`none` renders nothing at all**, since most tasks are `none` and a badge on every row is noise rather than information, so the cell is not reserved and rows do not align on it, unlike the fixed status column. The badge is drawn in the theme's status tokens rather than its text tiers: `high` on `StatusOverdue` (red), `medium` on `StatusInProgress` (amber), `low` on `StatusPending` (grey). The colour ladder is the signal; the all-caps label keeps the status label's register so the badge reads as a sibling of the status it sits next to. `tasktree.priorityLabel`/`priorityFg`. |
+| Task assignee | ` @tag` | The durable holder of a task (§3), in the right-aligned block immediately right of the agent spinner; the two are adjacent on purpose, because "assigned, but nobody is here" is only legible as a gap between them. The tag is clipped through `chrome.Truncate` to seven cells so one long agent identity cannot push the right block across the row, and an unassigned task renders nothing. `tasktree.assigneeBadge`. |
 | Task assignee: stale | ` @tag` in `StatusOverdue` | The **stale-assignment tier**: `assignee != ""` **and** no live presence claim by that agent (§3). Assignment has no TTL and no background sweeper, and a session releases its own work as it exits, so this badge marks the one case left: a session killed before it could clean up. It is the only thing on screen that distinguishes abandoned work from work merely owned, and the human's `u`/`U` release keys (§5) are the only thing that clears it. Rare by design, not routine. `StatusOverdue` is reused rather than a new token added — it is the same "a human needs to look at this" tier the Details modal and the search picker already draw their error lines in. The live-agent set is read **once per refresh** from the activity set the poll already carries, never per row. `tasktree.assigneeFg`. |
-| Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg`; draws `Accent` when the row is focused/selected, `TextDim` otherwise. Appended to the right-aligned block after the status label when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
+| Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg`; draws `Accent` when the row is focused/selected, `TextDim` otherwise. Rendered in the right-aligned block immediately left of the assignee badge when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
 | List is collaborative | ` · shared` | Appended to a lists-panel row's count line (`N pending · M done`) when `List.Collaborative` is true — plain text in the same `TextDim` tier the count line already renders in, not a new glyph, so it needs no dedicated symbol here. `src/components/listspanel/View.go`'s `listDelegate.Render`. The rename modal's collaborative toggle (below) reuses the task row's own `◻`/`◼` checkbox glyphs for the same flag, rather than inventing a `[ ]`/`[x]` of its own. |
 
 **Task rows are full-width cards**:
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the
-left and the right-aligned `{progress}{priority}{assignee}{agent spinner}{status}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
+left and the right-aligned `{progress}{agent spinner}{assignee}{priority}{status}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
 the line's end — the bar and checkbox sit flush, and every level of depth
 indents the *whole card* by two columns, so a subtask's bar steps right and no
 continuous vertical bar line forms. A parent's title carries the
@@ -1575,7 +1696,7 @@ selected row's `ModalBg` covers the full card, not just the text run.
 Status labels are all caps — `PENDING` in `TextMuted`, `IN PROGRESS` in
 `StatusInProgress`, `COMPLETE` in `StatusComplete` — and the bar is accent
 when the row is selected, the row's own status color otherwise. Under
-narrowness the progress sheds before the status, both whole; the title and
+narrowness the status sheds before the progress, both whole; the title and
 checkbox are never shed. Depth-0 pending example (parent row):
 `▌◻ Buy paint for the fence ▾             PENDING`.
 
@@ -1742,21 +1863,28 @@ before marking it complete.
 
 ## 13. Testing
 
-The store package is the one clear advantage this project has over
-stack-stitcher's testing story: stack-stitcher's `utils` package shells out to
-`docker`, which can't be unit-tested without either a running daemon or a
-mock; this project's `store` package talks to a real SQLite file created
-fresh in a temp directory per test, so **every** state-machine rule in §3 —
+`src/store` talks to a real SQLite file created fresh in a temp directory
+per test, so **every** state-machine rule in §3 —
 including the auto-completion cascade and the zero-children fallback — is a
 plain Go test with no TUI, no terminal, and no mocking required. Write those
 tests directly against `store`, not against the CLI or the TUI, wherever the
 assertion is about data rather than rendering.
 
-Above that, follow stack-stitcher's tiers as documented in its
-`CONTRIBUTING.md`: components take a message and hand back a model, assert on
-the result; a component's rendering is a string (`ansi.Strip(m.View().Content)`)
-worth asserting on for layout and styling; an end-to-end rig
-(`src/model/rig_test.go`'s pattern, adapted) is the only way to test a full
-keystroke-to-render flow and should stay the exception, not the default, for
-the same reason it's rare there — it's timing-based and has to wait for
-output rather than sleep and hope.
+Above that, test in three tiers:
+
+1. **Model tests** — a component takes a message and hands back a model;
+   assert on the result directly. `src/model`'s tests build the full
+   `AppModel` against a real store in a temp directory (`newTestModel` in
+   `src/model/refresh_test.go`) and drive keypresses through `Update`, which
+   covers keystroke-to-state flows without a terminal.
+2. **Render tests** — a component's rendering is a string
+   (`ansi.Strip(m.View().Content)`), worth asserting on for layout and
+   styling; `chrome`-level checks like `appstyles.HasBackgroundBleed` belong
+   here too.
+3. **End-to-end rigs** — a real Bubble Tea program driven over a fake
+   terminal are the only way to test a full keystroke-to-render flow. Keep
+   them the exception, not the default: they are timing-based and must wait
+   for specific output rather than sleep and hope.
+
+The same three tiers are listed in `CONTRIBUTING.md`'s Testing section; keep
+the two in step if you change either.

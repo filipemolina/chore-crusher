@@ -795,11 +795,11 @@ func TestIndentSelectedEmitsReparent(t *testing.T) {
 	}
 }
 
-// TestMoveSelectedStaysInSection pins the move gesture: it swaps the selected
-// task with the previous/next same-status sibling and never crosses the
-// Pending/Complete boundary — a task at its run's edge stays put
-// (docs/DESIGN.md §6).
-func TestMoveSelectedStaysInSection(t *testing.T) {
+// TestMoveSelectedCrossesStatusBoundary verifies the move gesture can cross
+// the Pending/Complete boundary: tasks move past opposite-status siblings
+// within the same sibling run. A task at the boundary of its sibling run
+// outdents if it has a parent, otherwise no-op (docs/DESIGN.md §5).
+func TestMoveSelectedCrossesStatusBoundary(t *testing.T) {
 	m := &Model{}
 	m.applyRows([]apptypes.Row{
 		{Task: apptypes.Task{ID: "p1", Title: "p1", Status: apptypes.StatusPending}},
@@ -807,34 +807,53 @@ func TestMoveSelectedStaysInSection(t *testing.T) {
 		{Task: apptypes.Task{ID: "p2", Title: "p2", Status: apptypes.StatusPending}},
 	})
 
-	// Move p2 up: it swaps with p1; p1 is first in the run, so p2 goes to
-	// the front (afterID "").
+	// Move p2 up: it swaps with c1, landing after p1.
 	m.selectedID = "p2"
 	cmd := m.moveSelected(-1)
 	if cmd == nil {
-		t.Fatal("move up with a same-status predecessor must emit a MoveTask command")
+		t.Fatal("move up must emit a MoveTask command")
 	}
 	msg, ok := cmd().(cmds.MoveTaskMsg)
 	if !ok {
 		t.Fatalf("move up produced %T, want cmds.MoveTaskMsg", cmd())
 	}
-	if msg.TaskID != "p2" || msg.AfterID != "" {
-		t.Errorf("move p2 up = %+v, want AfterID \"\" (front of run)", msg)
+	if msg.TaskID != "p2" || msg.AfterID != "p1" {
+		t.Errorf("move p2 up = %+v, want AfterID \"p1\"", msg)
 	}
 
-	// Move down from the last pending row: no same-status successor — no-op.
+	// Move down from the last root task: no sibling below, no parent to
+	// outdent to — no-op.
 	m.selectedID = "p2"
 	if cmd := m.moveSelected(1); cmd != nil {
-		t.Errorf("move down past the pending boundary must be a no-op, got %v", cmd)
+		t.Errorf("move down past the last root task must be a no-op, got %v", cmd)
 	}
 
-	// The complete run has one task: neither direction moves.
+	// Move up from c1: it swaps with p1, landing at the front of the run.
 	m.selectedID = "c1"
-	if cmd := m.moveSelected(-1); cmd != nil {
-		t.Errorf("move up past the complete boundary must be a no-op, got %v", cmd)
+	cmd = m.moveSelected(-1)
+	if cmd == nil {
+		t.Fatal("move up must emit a MoveTask command")
 	}
-	if cmd := m.moveSelected(1); cmd != nil {
-		t.Errorf("move down from the only complete task must be a no-op, got %v", cmd)
+	msg, ok = cmd().(cmds.MoveTaskMsg)
+	if !ok {
+		t.Fatalf("move up produced %T, want cmds.MoveTaskMsg", cmd())
+	}
+	if msg.TaskID != "c1" || msg.AfterID != "" {
+		t.Errorf("move c1 up = %+v, want AfterID \"\" (front of run)", msg)
+	}
+
+	// Move down from c1: it swaps with p2.
+	m.selectedID = "c1"
+	cmd = m.moveSelected(1)
+	if cmd == nil {
+		t.Fatal("move down must emit a MoveTask command")
+	}
+	msg, ok = cmd().(cmds.MoveTaskMsg)
+	if !ok {
+		t.Fatalf("move down produced %T, want cmds.MoveTaskMsg", cmd())
+	}
+	if msg.TaskID != "c1" || msg.AfterID != "p2" {
+		t.Errorf("move c1 down = %+v, want AfterID \"p2\"", msg)
 	}
 }
 
@@ -856,6 +875,81 @@ func TestMoveSelectedDownUsesNextSibling(t *testing.T) {
 	}
 	if msg.TaskID != "a" || msg.AfterID != "b" {
 		t.Errorf("move a down = %+v, want AfterID b", msg)
+	}
+}
+
+// TestMoveSelectedOutdentsAtBoundary verifies that a child task at the
+// boundary of its sibling run outdents when moved past that boundary:
+// move-up on the first child positions it above the parent, move-down on
+// the last child positions it after the parent (same as ]). A root task at
+// the boundary has nothing to outdent to — no-op (docs/DESIGN.md §5).
+func TestMoveSelectedOutdentsAtBoundary(t *testing.T) {
+	parentID := "parent"
+	child1ID := "child1"
+	child2ID := "child2"
+	m := &Model{}
+	m.applyRows([]apptypes.Row{
+		{Task: apptypes.Task{ID: parentID, Title: "parent"}},
+		{Task: apptypes.Task{ID: child1ID, Title: "child1", ParentID: &parentID}},
+		{Task: apptypes.Task{ID: child2ID, Title: "child2", ParentID: &parentID}},
+	})
+
+	// Move child1 up: it's the first child, so it outdents above the parent.
+	// Parent is at root, so child1 becomes a root task (AfterID = "").
+	m.selectedID = child1ID
+	cmd := m.moveSelected(-1)
+	if cmd == nil {
+		t.Fatal("move up on first child must emit a MoveTask command (outdent)")
+	}
+	msg, ok := cmd().(cmds.MoveTaskMsg)
+	if !ok {
+		t.Fatalf("move up produced %T, want cmds.MoveTaskMsg", cmd())
+	}
+	if msg.TaskID != child1ID || msg.AfterID != "" {
+		t.Errorf("move child1 up = %+v, want AfterID \"\" (outdent above parent)", msg)
+	}
+
+	// Move child2 down: it's the last child, so it outdents after the parent.
+	m.selectedID = child2ID
+	cmd = m.moveSelected(1)
+	if cmd == nil {
+		t.Fatal("move down on last child must emit a MoveTask command (outdent)")
+	}
+	msg, ok = cmd().(cmds.MoveTaskMsg)
+	if !ok {
+		t.Fatalf("move down produced %T, want cmds.MoveTaskMsg", cmd())
+	}
+	if msg.TaskID != child2ID || msg.AfterID != parentID {
+		t.Errorf("move child2 down = %+v, want AfterID \"parent\" (outdent after parent)", msg)
+	}
+}
+
+// TestMoveSelectedOutdentsNestedChild verifies that move-up on the first
+// child of a nested parent positions it above that parent (not at root).
+func TestMoveSelectedOutdentsNestedChild(t *testing.T) {
+	grandparentID := "grandparent"
+	parentID := "parent"
+	childID := "child"
+	m := &Model{}
+	m.applyRows([]apptypes.Row{
+		{Task: apptypes.Task{ID: grandparentID, Title: "grandparent"}},
+		{Task: apptypes.Task{ID: parentID, Title: "parent", ParentID: &grandparentID}},
+		{Task: apptypes.Task{ID: childID, Title: "child", ParentID: &parentID}},
+	})
+
+	// Move child up: it's the first (and only) child of parent, so it
+	// outdents above parent, becoming a sibling of parent (after grandparent).
+	m.selectedID = childID
+	cmd := m.moveSelected(-1)
+	if cmd == nil {
+		t.Fatal("move up on first nested child must emit a MoveTask command")
+	}
+	msg, ok := cmd().(cmds.MoveTaskMsg)
+	if !ok {
+		t.Fatalf("move up produced %T, want cmds.MoveTaskMsg", cmd())
+	}
+	if msg.TaskID != childID || msg.AfterID != grandparentID {
+		t.Errorf("move child up = %+v, want AfterID \"grandparent\" (outdent above parent)", msg)
 	}
 }
 

@@ -208,3 +208,33 @@ func FromStoreActivities(as []store.AgentActivity) []AgentActivity {
 	}
 	return out
 }
+
+// Attachment is a file path reference associated with a task. It mirrors
+// store.Attachment — the conversion boundary keeps the TUI layer from
+// depending on store's row shape.
+type Attachment struct {
+	ID        string
+	TaskID    string
+	Path      string
+	CreatedAt int64
+}
+
+// FromStoreAttachment converts one store.Attachment into the component-facing
+// shape.
+func FromStoreAttachment(a store.Attachment) Attachment {
+	return Attachment{
+		ID:        a.ID,
+		TaskID:    a.TaskID,
+		Path:      a.Path,
+		CreatedAt: a.CreatedAt,
+	}
+}
+
+// FromStoreAttachments converts a slice of store attachments in one pass.
+func FromStoreAttachments(as []store.Attachment) []Attachment {
+	out := make([]Attachment, len(as))
+	for i, a := range as {
+		out[i] = FromStoreAttachment(a)
+	}
+	return out
+}

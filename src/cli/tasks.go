@@ -410,25 +410,34 @@ type commentJSON struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+// attachmentJSON is one attachment on a task, included in `crush show --json`
+// and the MCP show_task payload.
+type attachmentJSON struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	CreatedAt int64  `json:"created_at"`
+}
+
 // showJSON is `crush show`'s payload: the task's own fields plus its
 // descendants as the same flat, depth-annotated rows `tasks` emits, so a
 // caller that can read one can read the other.
 type showJSON struct {
-	ID          string        `json:"id"`
-	ListID      string        `json:"list_id"`
-	ListOwner   string        `json:"list_owner"`
-	Title       string        `json:"title"`
-	Notes       string        `json:"notes"`
-	Status      string        `json:"status"`
-	Progress    progressJSON  `json:"progress"`
-	CreatedAt   int64         `json:"created_at"`
-	UpdatedAt   int64         `json:"updated_at"`
-	CompletedAt *int64        `json:"completed_at"`
-	Assignee    string        `json:"assignee"`
-	AssignedAt  *int64        `json:"assigned_at"`
-	Priority    string        `json:"priority"`
-	Children    []taskRowJSON `json:"children"`
-	Comments    []commentJSON `json:"comments"`
+	ID          string           `json:"id"`
+	ListID      string           `json:"list_id"`
+	ListOwner   string           `json:"list_owner"`
+	Title       string           `json:"title"`
+	Notes       string           `json:"notes"`
+	Status      string           `json:"status"`
+	Progress    progressJSON     `json:"progress"`
+	CreatedAt   int64            `json:"created_at"`
+	UpdatedAt   int64            `json:"updated_at"`
+	CompletedAt *int64           `json:"completed_at"`
+	Assignee    string           `json:"assignee"`
+	AssignedAt  *int64           `json:"assigned_at"`
+	Priority    string           `json:"priority"`
+	Children    []taskRowJSON    `json:"children"`
+	Comments    []commentJSON    `json:"comments"`
+	Attachments []attachmentJSON `json:"attachments"`
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
@@ -489,6 +498,19 @@ func runShow(cmd *cobra.Command, args []string) error {
 			})
 		}
 
+		attachments, err := s.ListAttachments(id)
+		if err != nil {
+			return err
+		}
+		attachmentJSONs := make([]attachmentJSON, 0, len(attachments))
+		for _, a := range attachments {
+			attachmentJSONs = append(attachmentJSONs, attachmentJSON{
+				ID:        a.ID,
+				Path:      a.Path,
+				CreatedAt: a.CreatedAt,
+			})
+		}
+
 		printResult(jsonMode, func() {
 			fmt.Fprintf(os.Stdout, "Title: %s\n", t.Title)
 			fmt.Fprintf(os.Stdout, "ID: %s\n", id)
@@ -511,6 +533,12 @@ func runShow(cmd *cobra.Command, args []string) error {
 					fmt.Fprintf(os.Stdout, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
 				}
 			}
+			if len(attachments) > 0 {
+				fmt.Fprintf(os.Stdout, "Attachments (%d):\n", len(attachments))
+				for _, a := range attachments {
+					fmt.Fprintf(os.Stdout, "  - %s: %s\n", a.ID, a.Path)
+				}
+			}
 		}, showJSON{
 			ID:          t.ID,
 			ListID:      t.ListID,
@@ -527,6 +555,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 			Priority:    string(t.Priority),
 			Children:    children,
 			Comments:    commentJSONs,
+			Attachments: attachmentJSONs,
 		})
 		return nil
 	})
@@ -558,6 +587,11 @@ func formatTime(unix int64) string {
 // (comments, task creation). Falls back to $USER/$LOGNAME when
 // os/user.Current fails — some minimal containers lack /etc/passwd.
 func osUser() string {
+	// CRUSH_AGENT env var takes precedence: when an agent drives the CLI,
+	// comments should be attributed to the agent, not the OS user.
+	if agent := os.Getenv("CRUSH_AGENT"); agent != "" {
+		return agent
+	}
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		return u.Username
 	}

@@ -29,29 +29,38 @@ func (m Model) View() tea.View {
 	}
 
 	left := keys.Active(m.ctx)
-	right := globalsNotInLeft(left)
+	right := globalsNotInLeft(left, m.ctx)
 
 	leftHints := chrome.RenderKeyHints(hintsFrom(left), appstyles.Active.TextDim)
 	rightHints := chrome.RenderKeyHints(hintsFrom(right), appstyles.Active.TextDim)
+
+	// Add sort mode indicator to the right side
+	sortIndicator := ""
+	if m.sortMode != 0 { // SortManual is 0
+		sortIndicator = lipgloss.NewStyle().
+			Foreground(appstyles.Active.TextMuted).
+			Background(appstyles.Active.BackgroundContent).
+			Render(" ⇅ " + m.sortMode.String())
+	}
 
 	const padding = 2 // one column each side
 	avail := max(0, m.terminalWidth-padding)
 	minSep := 1
 
-	for len(left) > 1 && lipgloss.Width(leftHints)+lipgloss.Width(rightHints)+minSep > avail {
+	for len(left) > 1 && lipgloss.Width(leftHints)+lipgloss.Width(rightHints)+lipgloss.Width(sortIndicator)+minSep > avail {
 		left = left[:len(left)-1]
 		leftHints = chrome.RenderKeyHints(hintsFrom(left), appstyles.Active.TextDim)
 	}
 
 	// If the right group still will not fit, truncate the separator so the
 	// bar can clip rather than wrap. Whole-hint shedding already ran above.
-	sepWidth := max(1, avail-lipgloss.Width(leftHints)-lipgloss.Width(rightHints))
+	sepWidth := max(1, avail-lipgloss.Width(leftHints)-lipgloss.Width(rightHints)-lipgloss.Width(sortIndicator))
 	sep := lipgloss.NewStyle().
 		Background(appstyles.Active.BackgroundContent).
 		Width(sepWidth).
 		Render("")
 
-	line := lipgloss.JoinHorizontal(lipgloss.Left, leftHints, sep, rightHints)
+	line := lipgloss.JoinHorizontal(lipgloss.Left, leftHints, sep, rightHints, sortIndicator)
 	return tea.NewView(appstyles.FillBackground(appstyles.Active.BackgroundContent, barStyle(m.terminalWidth).Render(line)))
 }
 
@@ -67,12 +76,15 @@ func barStyle(width int) lipgloss.Style {
 		Padding(0, 1)
 }
 
-// globalsNotInLeft returns the always-live keys, omitting anything already
-// represented in the left group so the footer does not advertise the same key
-// twice.
-func globalsNotInLeft(left []key.Binding) []key.Binding {
-	out := make([]key.Binding, 0, len(keys.Globals()))
-	for _, g := range keys.Globals() {
+// globalsNotInLeft returns the always-live keys for ctx, omitting anything
+// already represented in the left group so the footer does not advertise the
+// same key twice. Context matters: while the create input is live,
+// keys.GlobalsFor drops tab/shift+tab and ?, which do nothing there, and with
+// no side panel open it drops tab/shift+tab, which have nothing to cycle.
+func globalsNotInLeft(left []key.Binding, ctx keys.Context) []key.Binding {
+	globals := keys.GlobalsFor(ctx)
+	out := make([]key.Binding, 0, len(globals))
+	for _, g := range globals {
 		if !bindingIn(left, g) {
 			out = append(out, g)
 		}

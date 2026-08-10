@@ -1,6 +1,9 @@
 package cmds
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
+)
 
 // SetFooterContextMsg is the screen state the keybinding bar needs to decide
 // which keys are live. It mirrors keys.Context without importing keys, so
@@ -14,11 +17,12 @@ type SetFooterContextMsg struct {
 	Creating            bool
 	Filtering           bool
 	HasModal            bool
+	SortMode            apptypes.SortMode
 }
 
 // SetFooterContext builds the message from the same facts the help overlay
 // uses, keeping the footer and the overlay in lockstep.
-func SetFooterContext(focused int, listsPanelVisible, detailsPanelVisible, taskTreeEmpty, hasActiveList, creating, filtering, hasModal bool) tea.Cmd {
+func SetFooterContext(focused int, listsPanelVisible, detailsPanelVisible, taskTreeEmpty, hasActiveList, creating, filtering, hasModal bool, sortMode apptypes.SortMode) tea.Cmd {
 	return func() tea.Msg {
 		return SetFooterContextMsg{
 			Focused:             focused,
@@ -29,6 +33,7 @@ func SetFooterContext(focused int, listsPanelVisible, detailsPanelVisible, taskT
 			Creating:            creating,
 			Filtering:           filtering,
 			HasModal:            hasModal,
+			SortMode:            sortMode,
 		}
 	}
 }

@@ -10,7 +10,7 @@ Use this as a literal checklist for any UI component (`src/components/<name>/`).
 
 - [ ] **Rule 2: Frame**
   Each body surface uses `chrome.PanelFrame()`; modals and empty cards use their shared chrome helpers.
-  A task-tree/add-input leaf is an inner Tasks control: its parent frames and seals the aggregate, while it uses the supplied dimensions and background without a second frame.
+  A leaf inside the aggregate Tasks surface (the task tree, the inline create row) is an inner control: its parent frames and seals the aggregate, while it uses the supplied dimensions and background without a second frame.
   No hand-set `.Padding()`, panel `.Border()`, or `.BorderStyle()`.
   Run: `grep -rEn "\.Padding\(|\.Border\(|\.BorderStyle\(" src/components/<component>/ | grep -v chrome`
 

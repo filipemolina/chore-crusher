@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/constants"
 )
@@ -51,7 +52,7 @@ func seedOneList(t *testing.T) AppModel {
 		t.Fatalf("create task: %v", err)
 	}
 	m = refresh(t, m, cmds.RefreshLists(m.store)())
-	m = refresh(t, m, cmds.RefreshTasks(m.store, listID)())
+	m = refresh(t, m, cmds.RefreshTasks(m.store, listID, apptypes.SortManual)())
 	// GetInitialModel does not run Init, so broadcast the startup focus to the
 	// tree; without it KeepsEsc reads focused=false and the esc ladder
 	// swallows every esc.
@@ -237,7 +238,7 @@ func TestIndentDuringRefreshWindowTargetsPostChangeState(t *testing.T) {
 		t.Fatalf("create 3: %v", err)
 	}
 	m = refresh(t, m, cmds.RefreshLists(m.store)())
-	m = refresh(t, m, cmds.RefreshTasks(m.store, listID)())
+	m = refresh(t, m, cmds.RefreshTasks(m.store, listID, apptypes.SortManual)())
 	m = refresh(t, m, cmds.SetFocus(constants.COMPONENT_TASK_TREE)())
 
 	// Select 2 and start its indent, holding the command so the tree's rows

@@ -19,6 +19,25 @@ post-alpha backlog.
 
 ## Latest change
 
+- **Light-theme readability: no glyph ever draws in the terminal's default
+  color.** On `crush-day`, pending and in-progress task titles rendered
+  white-on-white: the row renderer styled complete titles but left the
+  pending/in-progress ones unstyled, so they inherited the terminal default,
+  and the same class of leak lived in every Bubbles text input (default
+  style carries no foreground on focused text, a hardcoded white on the
+  blurred one, and a white `> ` prompt) plus the lists panel's filter bar.
+  The fix is an invariant, not a spot-patch: every glyph now draws from an
+  `appstyles.Active` tier — `renderRow` styles every title state and the
+  `▾`/`▸` marker with the row's own tier — and every input is sealed every
+  render by the new shared `chrome.SealInput` / `chrome.SealListFilter`
+  (detailspanel's inline seal refactored onto the same helper). New
+  `appstyles.HasDefaultForeground` asserts the invariant: full-frame tests
+  under crush-day and the default theme (`src/model/foreground_test.go`),
+  per-row tests (`src/components/tasktree/foreground_test.go`), and an SGR
+  state-machine table (`src/appstyles/Foreground_test.go`).
+  `docs/DESIGN.md` §12 gains the foreground-tier rule beside the
+  background-sealing rule.
+
 - **Default theme is now crush-ember, and a saved theme survives restart.**
   `DefaultTheme` moved from `gruvbox-dark` to the app's own warm
   `crush-ember` palette (gruvbox-dark stays selectable through `T`). It
@@ -81,8 +100,9 @@ post-alpha backlog.
 
 - `demo/demo.gif` and `demo/*.png` are regenerated for the UX redesign
   (Phase A: keymap + focus contract; Phase B: card chrome + sections +
-  create UX). The `.tape` scripts use the current `tab`/`shift+tab` panel
-  focus and `[`/`]` create-level bindings.
+  create UX). The `.tape` scripts use the current `[`/`]` create-level
+  bindings; tab/shift+tab panel focus works everywhere except while the
+  inline create input is live (focus is locked to the input then).
 - Regenerate with:
   ```
   ./demo/seed.sh

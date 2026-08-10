@@ -243,6 +243,7 @@ var (
 		"my_list", "list_tasks", "show_task", "search_tasks",
 		"add_task", "edit_task", "delete_task", "set_status",
 		"comment", "add_list", "assign_task", "next_task",
+		"add_attachment", "list_attachments", "delete_attachment",
 	}
 	removedToolNames = []string{
 		"list_lists", "show_tasks", "toggle_task", "update_tasks", "rename_task",
@@ -419,13 +420,14 @@ func TestMCPInstructionsUsesIdentity(t *testing.T) {
 	}
 }
 
-// TestMCPInstructionsAlwaysOnTodoRule guards S1: the Instructions doc the agent
-// reads at session start must steer it away from the host's built-in todo tool
-// and toward a pi:-owned list. Without this line the agent's base AGENTS.md
-// wins and it tracks work in the wrong (non-Chore-Crusher) store.
-func TestMCPInstructionsAlwaysOnTodoRule(t *testing.T) {
-	// The doc names the configured identity, so pin it to the agent this test
-	// expects (the default would be "agent").
+// TestMCPInstructionsDoNotMandateEveryTodo guards the removal of the
+// always-on "use Chore Crusher for every todo" rule: the Instructions doc
+// must not claim the store is the agent's only todo list, and must not tell
+// it to avoid the host's built-in todo tool. Chore Crusher tracks the work
+// that lives in its lists; what an agent does with the rest of its todos is
+// its own call. The working-loop guidance ("keep status current as you
+// work") stays; the removal is scoped to the mandate, not the upkeep.
+func TestMCPInstructionsDoNotMandateEveryTodo(t *testing.T) {
 	session := setupMCPAs(t, "pi")
 
 	instructions := session.InitializeResult().Instructions
@@ -434,15 +436,24 @@ func TestMCPInstructionsAlwaysOnTodoRule(t *testing.T) {
 	}
 
 	lower := strings.ToLower(instructions)
-	for _, want := range []string{
-		// The explicit, verbatim rule from S1.
+	for _, banned := range []string{
 		"do not use the host's built-in todo tool",
-		// Actionable guidance: where the agent should actually track its work.
+		"it is your todo list",
+		"every todo",
+	} {
+		if strings.Contains(lower, banned) {
+			t.Fatalf("Instructions still carries the removed every-todo mandate %q;\nfull text:\n%s", banned, instructions)
+		}
+	}
+
+	// The upkeep guidance and the identity/ownership contract stay.
+	for _, want := range []string{
+		"keep their status current",
 		"pi: ",
 		"add_list",
 	} {
 		if !strings.Contains(lower, want) {
-			t.Fatalf("Instructions missing always-on todo rule element %q;\nfull text:\n%s", want, instructions)
+			t.Fatalf("Instructions missing working-loop element %q;\nfull text:\n%s", want, instructions)
 		}
 	}
 }
@@ -509,7 +520,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	loop := strings.ToLower(tc.Text)
 	for _, want := range []string{
 		"get your tasks from chore crusher",
-		"keep its status current",
+		"keep their status current",
 		"set_status",
 		"percentage",
 		"crush:///inbox",

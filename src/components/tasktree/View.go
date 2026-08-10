@@ -84,6 +84,12 @@ func chromeLine(content string) panelLine { return panelLine{content: content} }
 // Taskspanel owns the enclosing frame, title, elevation, and footer.
 func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	m.filterInput.SetWidth(max(0, width-6))
+	// Seal the filter input onto this panel's surface every render: the
+	// bubbles textinput default carries no foreground on its focused Text
+	// (and a hardcoded white on the blurred one), which vanishes on a light
+	// theme's panel (crush-day). Rebuilt here, not once in New, so a theme
+	// switch cannot leave a stale palette on the bar (docs/DESIGN.md §12).
+	chrome.SealInput(&m.filterInput, bg, bg)
 
 	switch {
 	case !m.activeList:
@@ -288,20 +294,25 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 	var plan []panelLine
 	placedCreate := false
 
-	// An empty list's create row opens under the Pending header: the input
-	// creates a pending task (store.CreateTask inserts status 'pending'), so
-	// the card belongs to the Pending section even while that section has
-	// nothing in it yet.
-	if m.creating && len(pending) == 0 && len(complete) == 0 {
+	// The input creates a pending task, so it opens under the Pending
+	// header even when that section is empty: on an empty list, and on a
+	// list whose tasks are all complete (phase B step 4). Placing it after
+	// the Complete section instead put the input at the bottom of the
+	// list, and the new task at the top, on submit: the inconsistent
+	// position report.
+	if m.creating && len(pending) == 0 {
 		plan = append(plan, sectionLine("Pending", 0))
 		plan = append(plan, chromeLine(""))
 		plan = append(plan, m.createLine(width, bg))
-		// The guidance goes BESIDE the input, not in a card that replaces it:
-		// a first-time user is told how to add a task at the moment the input
-		// is in front of them, rather than after dismissing it
-		// (docs/DESIGN.md §12).
-		plan = append(plan, chromeLine(m.renderCreateHint(width, bg)))
-		return plan
+		if len(complete) == 0 {
+			// The guidance goes BESIDE the input, not in a card that replaces it:
+			// a first-time user is told how to add a task at the moment the input
+			// is in front of them, rather than after dismissing it
+			// (docs/DESIGN.md §12).
+			plan = append(plan, chromeLine(m.renderCreateHint(width, bg)))
+			return plan
+		}
+		placedCreate = true
 	}
 
 	if len(pending) > 0 {
@@ -311,6 +322,16 @@ func (m *Model) planSections(pending, complete []apptypes.Row, width int, bg col
 		// (docs/DESIGN.md §6).
 		plan = append(plan, chromeLine(""))
 		plan, placedCreate = m.appendSectionPlan(plan, pending, width, bg, placedCreate)
+		// A root append draft (createBeforeID "") has no anchor in the Pending
+		// section, so appendSectionPlan cannot place it. End the section with
+		// the input here, above the rule and the Complete section, so the row
+		// the new task will join is the section it is about to join: the
+		// pending tasks. Without this the input fell to the very end of the
+		// plan, after Complete, and jumped to the top of the list on submit.
+		if m.creating && !placedCreate && m.createBeforeID == "" {
+			plan = append(plan, m.createLine(width, bg))
+			placedCreate = true
+		}
 		if len(complete) > 0 {
 			plan = append(plan, chromeLine(""))
 		}
@@ -473,10 +494,10 @@ func (m *Model) renderFilterRow(row apptypes.Row, width int, dimmed bool, matche
 // renderRow renders one task row as a full-width card: a ▌ bar column whose
 // color is accent when the row is selected and the row's own status color
 // otherwise, then the columns (checkbox, title) and the right-aligned
-// progress+status block. The expand/collapse marker (▾/▸) sits at the end of
-// the title, and each level of depth indents the whole card by two columns,
-// so a subtask's bar steps right and the row reads at its real depth
-// (docs/DESIGN.md §12).
+// progress+agent-spinner+assignee+priority+status block. The expand/collapse
+// marker (▾/▸) sits at the end of the title, and each level of depth indents
+// the whole card by two columns, so a subtask's bar steps right and the row
+// reads at its real depth (docs/DESIGN.md §12).
 func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIndexes []int) string {
 	cardIndent := strings.Repeat(" ", 2*row.Depth)
 	cardWidth := max(0, width-len(cardIndent))
@@ -494,7 +515,11 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 	}
 
 	// The expand/collapse marker is part of the title, not a leading column,
-	// so a parent's title starts at its own depth (docs/DESIGN.md §12).
+	// so a parent's title starts at its own depth (docs/DESIGN.md §12). It is
+	// styled with the row's own title tier here, before it is appended: the
+	// title's rendered span ends in a reset, so an unstyled marker after it
+	// would draw in the terminal's default color just like an unstyled title
+	// (crush-day: white glyph on a light panel).
 	trailing := ""
 	if row.HasChildren {
 		if m.collapsed[row.Task.ID] {
@@ -502,20 +527,32 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 		} else {
 			trailing = "▾"
 		}
+		trailing = lipgloss.NewStyle().Foreground(textFg).Render(trailing)
 	}
 
 	// A filtered row arrives with the offsets its query matched; highlighting
 	// paints the whole title (matched runs in accent, the rest in textFg), so
 	// it subsumes the complete-row dimming rather than nesting inside it.
+	// Every other row carries its theme tier explicitly too — never an
+	// unstyled title: text without a foreground draws in the terminal's own
+	// default color, light on nearly every terminal, which vanishes on a
+	// light theme's panels (crush-day: pending titles white on warm
+	// off-white).
 	title := row.Task.Title
-	switch {
-	case len(matchedIndexes) > 0:
+	if len(matchedIndexes) > 0 {
 		title = highlightMatch(title, matchedIndexes, textFg)
-	case row.Task.Status == apptypes.StatusComplete:
+	} else {
 		title = lipgloss.NewStyle().Foreground(textFg).Render(title)
 	}
 
-	isSelected := row.Task.ID == m.selectedID
+	// The selected treatment (accent bar, ModalBg, accent spinner) belongs to
+	// exactly one row: the selected task, or the inline create row while it is
+	// on screen (renderCreateRow draws its own ModalBg + accent chrome). So
+	// while creating, no task row may claim it: the previously selected task
+	// must not keep its accent highlight under the input. The create input is
+	// the only "selected" thing then, matching §5's focus-only-the-text-input
+	// rule on the visual axis too.
+	isSelected := row.Task.ID == m.selectedID && !m.creating
 	rowBg := chrome.ListRowBg(isSelected, m.focused)
 
 	checkboxColored := lipgloss.NewStyle().Foreground(checkboxFg).Render(checkbox)
@@ -602,6 +639,11 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 	// prefix = glyph + space
 	prefixWidth := 2
 	m.createInput.SetWidth(max(1, cardWidth-cardInset-prefixWidth))
+	// Seal onto the create card's own surface (ModalBg — see renderTaskCard
+	// below): the bubbles default carries no foreground on focused text,
+	// which vanishes on a light theme's card (crush-day). Per render, so a
+	// theme switch cannot leave a stale palette mid-entry.
+	chrome.SealInput(&m.createInput, appstyles.Active.ModalBg, appstyles.Active.ModalBg)
 
 	glyphColored := lipgloss.NewStyle().Foreground(appstyles.Active.Accent).Render(glyph)
 
@@ -665,14 +707,15 @@ const titleGutter = 1
 //
 // checkbox and title are never dropped. When the remainder would leave the
 // title under titleFloor, the passengers shed whole, in this order: the
-// status+icon block first, then the agent-spinner unit, then the assignee
-// badge, then the priority badge. Priority outlives the assignee because at
-// 40 columns "what should I pick up next" outlives "who has it". The
-// percentage sheds only to stop the row overflowing, because it is the one
-// thing on the row that appears nowhere else — the status label, by contrast,
-// is still carried by the ◻/◼ glyph, the row's foreground colour, and the
-// Pending/Complete section the row sits in, so dropping it costs the user
-// nothing.
+// status+icon block and the priority badge together first, then the assignee
+// badge, then the agent-spinner unit. Priority sheds with the status because
+// the two render adjacent and read as one state group; agent presence
+// outlives both because at narrow widths "who is actively working" outlives
+// "what should I pick up next". The percentage sheds only to stop the row
+// overflowing, because it is the one thing on the row that appears nowhere
+// else — the status label, by contrast, is still carried by the ◻/◼ glyph,
+// the row's foreground colour, and the Pending/Complete section the row sits
+// in, so dropping it costs the user nothing.
 //
 // This reverses an older order (progress first, status last) that budgeted
 // for overflow alone, with no notion of a title floor: at narrow widths it
@@ -697,7 +740,7 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSp
 	}
 	agentW := 0
 	if agentSpinner != "" {
-		agentW = len(agentSpinner) + 1 // +1 for trailing gap
+		agentW = lipgloss.Width(agentSpinner) + 1 // +1 for trailing gap
 	}
 	assigneeW := 0
 	if assignee != "" {
@@ -705,7 +748,7 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSp
 	}
 	priorityW := 0
 	if priority != "" {
-		priorityW = len(priority) + 1 // +1 for trailing gap
+		priorityW = lipgloss.Width(priority) + 1 // +1 for trailing gap
 	}
 
 	// gutterNow is reserved only while something actually follows the title;
@@ -724,15 +767,13 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSp
 
 	if statusW > 0 && titleTextNow() < titleFloor {
 		statusW, detailsW = 0, 0
-	}
-	if agentW > 0 && titleTextNow() < titleFloor {
-		agentW = 0
+		priorityW = 0
 	}
 	if assigneeW > 0 && titleTextNow() < titleFloor {
 		assigneeW = 0
 	}
-	if priorityW > 0 && titleTextNow() < titleFloor {
-		priorityW = 0
+	if agentW > 0 && titleTextNow() < titleFloor {
+		agentW = 0
 	}
 	if progressW > 0 && titleTextNow() < 1 {
 		progressW = 0
@@ -757,29 +798,27 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSp
 func priorityLabel(p apptypes.Priority) string {
 	switch p {
 	case apptypes.PriorityHigh:
-		return "HIGH"
+		return "● HIGH"
 	case apptypes.PriorityMedium:
-		return "MED"
+		return "● MED"
 	case apptypes.PriorityLow:
-		return "LOW"
+		return "● LOW"
 	}
 	return ""
 }
 
-// priorityFg draws the rank as a text tier rather than a colour of its own:
-// high on TextPrimary, medium on TextMuted, low on TextDim. The ladder IS the
-// signal — a higher-priority task reads louder — and it spends no new theme
-// token, which is what §12 asks of a new badge. It deliberately does not
-// borrow a status colour: the row already spends StatusInProgress and
-// StatusComplete on its own status, and StatusOverdue on a stale assignee.
+// priorityFg draws the rank as a colored indicator: high on StatusOverdue
+// (red), medium on StatusInProgress (amber), low on StatusPending (grey).
+// The colored dot plus text creates a clear visual hierarchy that's more
+// distinctive than text tier alone.
 func priorityFg(p apptypes.Priority) color.Color {
 	switch p {
 	case apptypes.PriorityHigh:
-		return appstyles.Active.TextPrimary
+		return appstyles.Active.StatusOverdue
 	case apptypes.PriorityMedium:
-		return appstyles.Active.TextMuted
+		return appstyles.Active.StatusInProgress
 	default:
-		return appstyles.Active.TextDim
+		return appstyles.Active.StatusPending
 	}
 }
 
@@ -918,19 +957,20 @@ func padRightGlyph(glyph string) string {
 
 // buildRowContent renders a task row's columns — checkbox, title (plus the
 // optional trailing expand/collapse marker), and the right-aligned
-// progress+priority+assignee+agent-spinner+status block — to fit a card's
+// progress+agent-spinner+assignee+priority+status block — to fit a card's
 // inner content width. cols.title absorbs the remaining budget after those
 // columns, so the status cell ends flush at the card's right padding: that is
 // the right-alignment ("status at the end of the line").
 //
-// The two durable-ownership cells sit next to the presence spinner on
-// purpose: the assignee badge immediately left of the spinner is what makes
-// "assigned, but nobody is here" legible as a gap rather than as two
-// unrelated facts (docs/DESIGN.md §12).
+// The assignee badge sits immediately right of the presence spinner on
+// purpose: the two cells together are what makes "assigned, but nobody is
+// here" legible as a gap rather than as two unrelated facts. The spinner
+// says an agent is at the keyboard, the badge says who owns the work, and
+// priority+status group as the state the row is in (docs/DESIGN.md §12).
 //
-// Drop order under narrowness: the status+icon block first, then
-// agent-spinner, then assignee, then priority, then progress, all whole
-// (docs/DESIGN.md §12).
+// Drop order under narrowness: the status+icon block first, then the
+// assignee badge, then the priority badge, then the agent-spinner unit,
+// then progress, all whole (docs/DESIGN.md §12).
 func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, agentSpinner, assignee, priority string,
 	checkboxWidth, contentWidth int, statusColor, spinnerColor, assigneeColor, priorityColor color.Color) string {
 	prefixWidth := checkboxWidth + 1
@@ -1010,7 +1050,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 			Render(detailsGlyph)
 	}
 
-	parts := []string{checkboxCell, " ", titleCell, progressCell, priorityCell, assigneeCell, agentSpinnerCell, statusCell, detailsCell}
+	parts := []string{checkboxCell, " ", titleCell, progressCell, agentSpinnerCell, assigneeCell, priorityCell, statusCell, detailsCell}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 

@@ -787,7 +787,7 @@ func (m *Model) save() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, cmds.CloseDetailsSide(cmds.RefreshTasks(m.store, m.listID))
+	return m, cmds.CloseDetailsSide(cmds.RefreshTasks(m.store, m.listID, apptypes.SortManual))
 }
 
 // postComment writes the compose input's text as a comment attributed to the

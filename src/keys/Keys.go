@@ -44,6 +44,10 @@ type GlobalKeys struct {
 	Filter key.Binding
 	// Picker opens (F) the cross-list search picker.
 	Picker key.Binding
+	// CopyID copies the currently selected item's ID (task or list).
+	CopyID key.Binding
+	// Sort cycles through sort modes (manual, priority, created, updated, alpha).
+	Sort key.Binding
 }
 
 // TaskTreeKeys act on the task tree: navigation, expand/collapse, toggling
@@ -97,13 +101,20 @@ type CreateKeys struct {
 }
 
 // ListsPanelKeys act on the lists panel: navigating lists, creating,
-// renaming, deleting.
+// renaming, deleting, and reordering (alt+up/alt+k, alt+down/alt+j: the
+// same handshape the task tree uses for its own MoveUp/MoveDown, so reorder
+// never has two different keys in two panels).
 type ListsPanelKeys struct {
 	Navigate key.Binding
 	Select   key.Binding
 	New      key.Binding
 	Rename   key.Binding
 	Delete   key.Binding
+	// MoveUp/MoveDown reorder the highlighted list within the ordering
+	// (docs/DESIGN.md §5). Alt is the modifier vim-move and VS Code
+	// converge on for moving a line, matching Tree.MoveUp/MoveDown.
+	MoveUp   key.Binding
+	MoveDown key.Binding
 }
 
 // ListNameModalKeys act inside the list name modal's Rename mode only: enter
@@ -164,6 +175,8 @@ var Global = GlobalKeys{
 	Theme:            key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "theme")),
 	Filter:           key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 	Picker:           key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "search")),
+	CopyID:           key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "copy id")),
+	Sort:             key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
 }
 
 var Tree = TaskTreeKeys{
@@ -205,6 +218,10 @@ var Lists = ListsPanelKeys{
 	New:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new list")),
 	Rename: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "rename list")),
 	Delete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	// The same alt+arrows the task tree's reorder uses: one handshape for
+	// "move this row" wherever rows are ordered.
+	MoveUp:   key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
+	MoveDown: key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
 }
 
 var ListNameModal = ListNameModalKeys{
@@ -374,28 +391,47 @@ func Active(ctx Context) []key.Binding {
 		if ctx.ListsPanelVisible {
 			return []key.Binding{
 				Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete,
+				Lists.MoveUp, Lists.MoveDown,
 				Global.NextPanel, Global.Quit,
 			}
 		}
 	case constants.COMPONENT_TASK_TREE:
 		if ctx.HasActiveList && !ctx.TaskTreeEmpty {
-			return []key.Binding{
+			bindings := []key.Binding{
 				Tree.Navigate, Tree.Toggle, Tree.OpenDetails,
 				Tree.Expand, Tree.Collapse, Tree.Delete, Tree.New,
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
 				Tree.Unassign, Tree.ReleaseList,
 				Tree.GoToStart, Tree.GoToEnd, Tree.PageUp, Tree.PageDown,
-				Global.NextPanel, Global.Quit,
 			}
+			// tab is advertised only while a side panel is open: with the
+			// lists panel hidden the focus cycle is a single zone, so the
+			// key has nothing to cycle and the hint would be dead
+			// (docs/DESIGN.md §5). The Details panel never reaches this
+			// branch: it owns the keyboard and returns above.
+			if ctx.ListsPanelVisible {
+				bindings = append(bindings, Global.NextPanel)
+			}
+			return append(bindings, Global.Quit)
 		}
 		if ctx.HasActiveList {
 			// Empty tree: n (new) is the only task action there is — the
 			// inline input is the empty state's way in.
-			return []key.Binding{Tree.New, Global.NextPanel, Global.Quit}
+			bindings := []key.Binding{Tree.New}
+			if ctx.ListsPanelVisible {
+				bindings = append(bindings, Global.NextPanel)
+			}
+			return append(bindings, Global.Quit)
 		}
 	}
 
-	return []key.Binding{Global.NextPanel, Global.Quit}
+	// Nothing focused or a stale zone: the only live key is quit, plus tab
+	// while the lists panel is open (the one case where the focus cycle has
+	// a second zone to move to).
+	if ctx.ListsPanelVisible {
+		return []key.Binding{Global.NextPanel, Global.Quit}
+	}
+	return []key.Binding{Global.Quit}
 }
 
 // Globals are the always-available keys the footer pins to its right-hand side,
@@ -406,6 +442,43 @@ func Globals() []key.Binding {
 		Global.PrevPanel,
 		Global.Help,
 	}
+}
+
+// GlobalsFor returns the always-available keys minus the ones that do
+// nothing in ctx. While the inline create input is live, creating a task
+// focuses only the text input: tab/shift+tab do not cycle panels and ? types
+// a literal, so advertising any of the three would be a dead hint
+// (docs/DESIGN.md §5). With no side panel open (neither Lists nor Details),
+// the focus cycle is a single zone, so tab/shift+tab have nothing to cycle
+// and are dropped the same way.
+func GlobalsFor(ctx Context) []key.Binding {
+	out := Globals()
+	if ctx.Creating && ctx.Focused == constants.COMPONENT_TASK_TREE {
+		out = withoutBindings(out, Global.NextPanel, Global.PrevPanel, Global.Help)
+	}
+	if !ctx.ListsPanelVisible && !ctx.DetailsPanelVisible {
+		out = withoutBindings(out, Global.NextPanel, Global.PrevPanel)
+	}
+	return out
+}
+
+// withoutBindings returns a copy of bindings minus every binding that matches
+// one of drops (content comparison, the same as containsBinding).
+func withoutBindings(bindings []key.Binding, drops ...key.Binding) []key.Binding {
+	out := make([]key.Binding, 0, len(bindings))
+	for _, b := range bindings {
+		drop := false
+		for _, d := range drops {
+			if sameBinding(b, d) {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // Scope is one group of related keys in the help overlay.
@@ -456,7 +529,7 @@ func Catalog(ctx Context) []Scope {
 			Entries: entries(
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
 				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
-				Global.Theme, Global.Filter, Global.Picker,
+				Global.Theme, Global.Filter, Global.Picker, Global.CopyID,
 			),
 		},
 		{
@@ -473,7 +546,7 @@ func Catalog(ctx Context) []Scope {
 		{
 			Title:   "Creating a task",
 			Entries: entries(Create.Submit, Create.Cancel, Tree.Outdent, Tree.Indent),
-			Note:    "[ and ] set the new task's level while the input is open.",
+			Note:    "[ and ] set the new task's level while the input is open. Focus is locked to the input: tab and shift+tab do not cycle panels, and ? types a literal.",
 		},
 		{
 			Title:   "Filtering",
@@ -482,8 +555,8 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Lists",
-			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete),
-			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively.",
+			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete, Lists.MoveUp, Lists.MoveDown),
+			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively. alt+↑/alt+k and alt+↓/alt+j reorder the highlighted list.",
 		},
 		{
 			Title:   "Renaming a list",
@@ -512,13 +585,13 @@ func pressableNow(ctx Context) []key.Binding {
 		return append(Active(ctx), Global.ForceQuit)
 	}
 
-	live := append(Active(ctx), Globals()...)
+	live := append(Active(ctx), GlobalsFor(ctx)...)
 	live = append(live, Global.ForceQuit)
 
 	// When a modal owns the keyboard, or the user is typing a create or
 	// filter input, only the always-available keys remain pressable.
 	if !ctx.HasModal && !ctx.Creating && !ctx.Filtering {
-		live = append(live, Global.Back, Global.Theme, Global.ToggleListsPanel, Global.Filter, Global.Picker)
+		live = append(live, Global.Back, Global.Theme, Global.ToggleListsPanel, Global.Filter, Global.Picker, Global.CopyID)
 	}
 
 	// shift+tab is tab's twin: live wherever tab is.

@@ -2,6 +2,7 @@ package keybindingbar
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/filipemolina/chore-crusher/src/apptypes"
 	"github.com/filipemolina/chore-crusher/src/cmds"
 	"github.com/filipemolina/chore-crusher/src/keys"
 )
@@ -12,6 +13,7 @@ import (
 type Model struct {
 	ctx           keys.Context
 	terminalWidth int
+	sortMode      apptypes.SortMode
 }
 
 // Init satisfies tea.Model.
@@ -48,6 +50,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Filtering:           msg.Filtering,
 			HasModal:            msg.HasModal,
 		}
+		m.sortMode = msg.SortMode
 	case cmds.SetFocusMsg:
 		m.ctx.Focused = int(msg)
 	}

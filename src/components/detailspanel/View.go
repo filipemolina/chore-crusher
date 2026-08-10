@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/chore-crusher/src/appstyles"
@@ -160,30 +159,23 @@ func (m *Model) applyTextareaStyles(bg color.Color) {
 // applyInputStyles seals the title and compose textinputs onto whatever surface
 // they sit on, so their text rows do not bleed the terminal default behind
 // them, matching the notes textarea. Rebuilt every render for the same
-// theme-switch reason as applyTextareaStyles.
+// theme-switch reason as applyTextareaStyles. The sealing itself is the
+// shared chrome.SealInput helper — the two inputs sit on different surfaces,
+// so each passes its own pair (docs/DESIGN.md §12).
 //
-// The two inputs sit on different surfaces, so they are sealed separately. The
-// Title field sits directly on the modal and lifts to BackgroundElevated across
-// its full width while focused, the app's one way of showing focus
-// (docs/DESIGN.md §12) — before that it had no edge and no frame of its own, so
-// the only thing marking it as active was its section label going bold, easy to
-// miss on a modal with four zones. The widgets pick Focused vs Blurred from
-// their own state, which cycleFocus already drives.
+// The Title field sits directly on the modal and lifts to BackgroundElevated
+// across its full width while focused, the app's one way of showing focus
+// (docs/DESIGN.md §12) — before that it had no edge and no frame of its own,
+// so the only thing marking it as active was its section label going bold,
+// easy to miss on a modal with four zones. The widgets pick Focused vs
+// Blurred from their own state, which cycleFocus already drives.
 func (m *Model) applyInputStyles(bg color.Color) {
-	seal := func(in *textinput.Model, focusedBg, blurredBg color.Color) {
-		st := in.Styles()
-		st.Focused.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(focusedBg)
-		st.Blurred.Text = lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary).Background(blurredBg)
-		st.Focused.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(focusedBg)
-		st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(blurredBg)
-		in.SetStyles(st)
-	}
-	seal(&m.titleInput, appstyles.Active.BackgroundElevated, bg)
+	chrome.SealInput(&m.titleInput, appstyles.Active.BackgroundElevated, bg)
 	// The compose input only ever renders INSIDE the compose card, so it takes
 	// the card's tier in both states — it has no bare-modal row to seal onto.
 	// Sealing it onto the modal background cut a modal-coloured stripe through
 	// the middle of the card and made the card read as broken.
-	seal(&m.commentInput, composeCardBg(), composeCardBg())
+	chrome.SealInput(&m.commentInput, composeCardBg(), composeCardBg())
 }
 
 // progressModeLabel is the user-facing name for a progress mode. The stored
