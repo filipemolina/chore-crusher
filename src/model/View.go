@@ -3,10 +3,10 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
-	"github.com/filipemolina/chore-crusher/src/components/keybindingbar"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/components/chrome"
+	"github.com/filipemolina/farol/src/components/keybindingbar"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // View renders the whole screen. The header, body zones, and footer compose

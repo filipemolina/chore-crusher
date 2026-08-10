@@ -22,10 +22,10 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/constants"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/constants"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // focusedZoneID is the zone id this component answers to. Details is focused

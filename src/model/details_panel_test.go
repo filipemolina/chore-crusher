@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // seededTaskID returns the id of the single task seedOneList created.

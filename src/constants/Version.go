@@ -4,7 +4,7 @@ import "runtime/debug"
 
 // version is stamped at build time:
 //
-//	go build -ldflags "-X github.com/filipemolina/chore-crusher/src/constants.version=v0.1.0"
+//	go build -ldflags "-X github.com/filipemolina/farol/src/constants.version=v0.1.0"
 //
 // which is what the Makefile and the release build do. It is unexported so
 // the stamp has exactly one reader, Version(), and every caller gets the same

@@ -7,9 +7,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/components/chrome"
 )
 
 // testBg is a concrete background the row renderer seals itself against so a

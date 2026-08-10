@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // TestDemoTapeCreateSequence replays the exact keystroke sequence the

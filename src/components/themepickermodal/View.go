@@ -7,10 +7,10 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
-	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/components/chrome"
+	"github.com/filipemolina/farol/src/keys"
 )
 
 // themePickerDelegate renders one theme name per row, marking the active

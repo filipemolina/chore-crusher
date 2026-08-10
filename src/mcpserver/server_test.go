@@ -12,9 +12,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/mcpserver"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/mcpserver"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // setupMCP starts an in-memory MCP server backed by a fresh temporary store

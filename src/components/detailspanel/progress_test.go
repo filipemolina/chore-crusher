@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // Each progress mode renders a self-describing label. "simple" told the user

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/store"
 )
 
 func TestTaskTreeAndCascade(t *testing.T) {

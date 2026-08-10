@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/store"
 )
 
 func openTestStore(t *testing.T) *store.Store {

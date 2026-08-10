@@ -8,10 +8,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/components/chrome"
 )
 
 // TestPriorityLabelRendersRankAndNothingForNone pins the badge text: the three

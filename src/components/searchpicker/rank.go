@@ -1,7 +1,7 @@
 package searchpicker
 
 import (
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/store"
 	"github.com/sahilm/fuzzy"
 )
 

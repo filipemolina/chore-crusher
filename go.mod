@@ -1,4 +1,4 @@
-module github.com/filipemolina/chore-crusher
+module github.com/filipemolina/farol
 
 go 1.26.4
 

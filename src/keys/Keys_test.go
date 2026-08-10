@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/key"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // The fixed global bindings are part of docs/DESIGN.md §5 — pin them so a

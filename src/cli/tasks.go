@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // idJSON is the success payload of the two add commands — the one value an

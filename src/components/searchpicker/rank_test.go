@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/store"
 )
 
 func testStore(t *testing.T) *store.Store {

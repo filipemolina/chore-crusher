@@ -6,8 +6,8 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/cmds"
 )
 
 // deliverAsync executes cmd (nil, a single leaf, or a tea.Batch of both) and

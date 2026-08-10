@@ -3,8 +3,8 @@ package model
 import (
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // GetInitialModel must do no database work: it constructs components and

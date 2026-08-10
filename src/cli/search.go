@@ -8,7 +8,7 @@ import (
 	"github.com/sahilm/fuzzy"
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // searchResultJSON is one `crush search` hit: the task plus the name of

@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/cmds"
 )
 
 // gardenRows is the demo shape the /-filter bug was reported against: one

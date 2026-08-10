@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
-	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/components/chrome"
+	"github.com/filipemolina/farol/src/keys"
 )
 
 // contentWidth is the column the overlay's hints wrap to: the terminal minus

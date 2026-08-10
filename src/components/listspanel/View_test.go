@@ -6,9 +6,9 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/components/chrome"
 )
 
 // TestListSpinnerFgRule pins the list-row spinner color rule: Accent on the

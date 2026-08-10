@@ -9,7 +9,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/farol/src/appstyles"
 )
 
 // figletText is the pre-rendered ASCII art for "Chore Crusher" (font: slant).

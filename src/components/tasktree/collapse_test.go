@@ -3,7 +3,7 @@ package tasktree
 import (
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/farol/src/apptypes"
 )
 
 // threeLevelTree builds A > B > C, plus a sibling D under A — the fixture

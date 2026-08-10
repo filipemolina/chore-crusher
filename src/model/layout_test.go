@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/components/chrome"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // drive feeds messages through the model the way the Bubble Tea loop would,

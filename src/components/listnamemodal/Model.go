@@ -7,11 +7,11 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/chrome"
-	"github.com/filipemolina/chore-crusher/src/keys"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/components/chrome"
+	"github.com/filipemolina/farol/src/keys"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // Mode is whether the modal is for creating a new list or renaming an existing one.

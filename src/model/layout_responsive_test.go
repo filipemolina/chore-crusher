@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // The startup width policy (docs/DESIGN.md §5): Lists auto-shows at

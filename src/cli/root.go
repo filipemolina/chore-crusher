@@ -13,11 +13,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/constants"
-	"github.com/filipemolina/chore-crusher/src/model"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/constants"
+	"github.com/filipemolina/farol/src/model"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // domainErr marks a RunE failure as a domain failure — docs/DESIGN.md §9's

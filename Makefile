@@ -6,7 +6,7 @@
 # binary falls back to the commit in its own build info — see
 # constants.Version, which is why this can be missing without breaking.
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null)
-LDFLAGS := -X github.com/filipemolina/chore-crusher/src/constants.version=$(VERSION)
+LDFLAGS := -X github.com/filipemolina/farol/src/constants.version=$(VERSION)
 
 dev:
 	go run main.go

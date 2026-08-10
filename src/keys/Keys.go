@@ -11,7 +11,7 @@ package keys
 import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // GlobalKeys work anywhere that no overlay owns the keyboard.

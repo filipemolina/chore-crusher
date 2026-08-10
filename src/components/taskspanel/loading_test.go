@@ -8,9 +8,9 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/appstyles"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // fgSeq returns the bare foreground SGR token lipgloss emits for c (e.g.

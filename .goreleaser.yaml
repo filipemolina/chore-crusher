@@ -22,7 +22,7 @@ builds:
     # `make build` answer --version the same way. .Version is the tag with
     # the leading v stripped, so put it back.
     ldflags:
-      - -s -w -X github.com/filipemolina/chore-crusher/src/constants.version=v{{ .Version }}
+      - -s -w -X github.com/filipemolina/farol/src/constants.version=v{{ .Version }}
 
 # No Windows build for now — re-evaluate once phase 7's details screen lands
 # its $EDITOR handover.

@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/farol/src/keys"
 )
 
 // bindingsOf reflects over one of the keymap structs in src/keys and returns

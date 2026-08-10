@@ -2,7 +2,7 @@ package mainmenu
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/farol/src/cmds"
 )
 
 // Model is the top menu bar. It is not focusable and handles no keys; it

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filipemolina/chore-crusher/src/store/migrations"
+	"github.com/filipemolina/farol/src/store/migrations"
 )
 
 func TestCreateTaskValidations(t *testing.T) {

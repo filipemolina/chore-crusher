@@ -2,7 +2,7 @@ package cmds
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/farol/src/apptypes"
 )
 
 // SetSortModeMsg updates the current sort mode for the task tree.

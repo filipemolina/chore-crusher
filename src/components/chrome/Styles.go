@@ -8,7 +8,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/farol/src/appstyles"
 )
 
 // WrapperStyle is the frame every zone renders inside: Padding(1, 2), fixed,

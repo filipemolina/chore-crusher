@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // listJSON is the --json shape of one list row (docs/DESIGN.md §9): the

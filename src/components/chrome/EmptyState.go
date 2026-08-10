@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/farol/src/appstyles"
 )
 
 // emptyStateFrame is the width and height the card's own chrome costs on top

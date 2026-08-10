@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/farol/src/cmds"
 )
 
 func TestHeaderRendersWordmark(t *testing.T) {

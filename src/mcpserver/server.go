@@ -13,10 +13,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/constants"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/constants"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // ownerTagPattern is the human-readable form of createdByRE, used in error

@@ -5,8 +5,8 @@ import (
 
 	"charm.land/bubbles/v2/cursor"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // stepDiscard runs one message through Update and drops the returned

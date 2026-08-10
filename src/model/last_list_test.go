@@ -3,8 +3,8 @@ package model
 import (
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // lastListSetting reads the persisted last-active-list id straight from the

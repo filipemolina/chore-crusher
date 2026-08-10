@@ -3,7 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/filipemolina/chore-crusher/src/mcpserver"
+	"github.com/filipemolina/farol/src/mcpserver"
 )
 
 // newMcpCmd returns the `crush mcp` subcommand that runs the Model Context

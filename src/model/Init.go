@@ -2,9 +2,9 @@ package model
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/constants"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/constants"
 )
 
 // Init starts the app: the poll tick (which re-issues itself for the life

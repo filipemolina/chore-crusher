@@ -3,7 +3,7 @@ package helpoverlay
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/farol/src/keys"
 )
 
 // helpOverlayMaxWidth caps the content column so hint runs wrap in a few

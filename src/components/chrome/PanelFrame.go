@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/farol/src/appstyles"
 )
 
 const panelTitleChromeHeight = 2

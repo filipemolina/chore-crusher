@@ -2,9 +2,9 @@ package keybindingbar
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/keys"
 )
 
 // Model is the one-line footer that advertises the keys live in the current

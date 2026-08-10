@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // openTestStore opens a throwaway store in a per-test temp dir.

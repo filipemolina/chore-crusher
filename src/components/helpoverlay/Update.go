@@ -3,8 +3,8 @@ package helpoverlay
 import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/keys"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/keys"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

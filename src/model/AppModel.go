@@ -2,17 +2,17 @@ package model
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/cmds"
-	"github.com/filipemolina/chore-crusher/src/components/detailspanel"
-	"github.com/filipemolina/chore-crusher/src/components/keybindingbar"
-	"github.com/filipemolina/chore-crusher/src/components/listspanel"
-	"github.com/filipemolina/chore-crusher/src/components/mainmenu"
-	"github.com/filipemolina/chore-crusher/src/components/taskspanel"
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/constants"
-	"github.com/filipemolina/chore-crusher/src/keys"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/components/detailspanel"
+	"github.com/filipemolina/farol/src/components/keybindingbar"
+	"github.com/filipemolina/farol/src/components/listspanel"
+	"github.com/filipemolina/farol/src/components/mainmenu"
+	"github.com/filipemolina/farol/src/components/taskspanel"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/constants"
+	"github.com/filipemolina/farol/src/keys"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // AppModel is the top-level Bubble Tea model: it owns the store handle, the

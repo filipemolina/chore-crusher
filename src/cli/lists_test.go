@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/config"
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/config"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // listOwnerOf opens the store behind a CLI data dir and returns the list's

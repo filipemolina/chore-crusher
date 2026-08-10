@@ -8,7 +8,7 @@ package main
 import (
 	"os"
 
-	"github.com/filipemolina/chore-crusher/src/cli"
+	"github.com/filipemolina/farol/src/cli"
 )
 
 func main() {

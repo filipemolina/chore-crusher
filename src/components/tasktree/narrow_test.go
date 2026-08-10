@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/farol/src/apptypes"
 )
 
 // narrowRows is the fixture the width tests share: an in-progress row with a

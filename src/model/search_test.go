@@ -3,8 +3,8 @@ package model
 import (
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/apptypes"
-	"github.com/filipemolina/chore-crusher/src/cmds"
+	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/cmds"
 )
 
 // selectedID reports the task tree's current selection, which the picker's

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/store"
+	"github.com/filipemolina/farol/src/store"
 )
 
 // fillNonZero sets every field reachable from v to a recognisable non-zero

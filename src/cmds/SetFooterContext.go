@@ -2,7 +2,7 @@ package cmds
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/filipemolina/chore-crusher/src/apptypes"
+	"github.com/filipemolina/farol/src/apptypes"
 )
 
 // SetFooterContextMsg is the screen state the keybinding bar needs to decide

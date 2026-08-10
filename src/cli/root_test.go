@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/filipemolina/chore-crusher/src/appstyles"
+	"github.com/filipemolina/farol/src/appstyles"
 )
 
 // runCLI executes the root command with args against a store rooted at
