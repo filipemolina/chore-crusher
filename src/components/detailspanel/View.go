@@ -180,7 +180,7 @@ func (m *Model) applyInputStyles(bg color.Color) {
 
 // progressModeLabel is the user-facing name for a progress mode. The stored
 // ProgressKind values ("simple", "subtasks", "percentage") are a public
-// contract — the column value, the CLI's `crush progress --mode`, and the MCP
+// contract — the column value, the CLI's `farol progress --mode`, and the MCP
 // tool's parameter all speak them (docs/DESIGN.md §9) — so they are never
 // renamed. This maps them to language a reader recognises, for display only:
 // "simple" in particular describes nothing on its own, where §3's actual

@@ -1,4 +1,4 @@
-// Command crush is a terminal to-do list manager with a CLI surface an
+// Command farol is a terminal to-do list manager with a CLI surface an
 // agent can drive. Phase 2 replaced phase 0's hand-rolled flag handling
 // with Cobra: the root command dispatches every subcommand in
 // docs/DESIGN.md §9, and with no subcommand it will launch the TUI
