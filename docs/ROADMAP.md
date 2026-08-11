@@ -11,6 +11,10 @@ decided is summarised here, and the contracts they set are in
 
 ## Alpha shipped
 
+**2026-08: renamed Chore Crusher → Farol** (repo, binary, MCP URIs, env var,
+themes, config/data dirs). Past entries below keep the names the app had when
+they were written; this note covers them.
+
 Phases 0 through 9 are done and merged in `main`, tagged `v0.1.0`. Each phase
 was a feature branch of small commits, `go build ./... && go vet ./... && go
 test ./...` green at every commit, merged with `--no-ff` so the phase can be
@@ -28,7 +32,7 @@ adopted unchanged here.
 | 6 | Lists panel: toggle, CRUD gated on visible+focused, switching lists |
 | 7 | Details screen: notes textarea, progress-kind/percent editor |
 | 8 | Search: local fuzzy filter (`/`) and the cross-list picker (`F`) |
-| 9 | Polish and release: narrow-terminal handling, `crush mv`, VHS demo, tagged release |
+| 9 | Polish and release: narrow-terminal handling, `farol mv`, VHS demo, tagged release |
 
 ### Decisions already taken
 
@@ -49,9 +53,10 @@ equivalent list asks for:
   with a dozen-plus verbs, and Cobra's `--help` generation matters for an
   agent introspecting the interface. This is a deliberate, documented
   departure from stack-stitcher's minimal-deps stance, not an oversight.
-- **The binary is called `crush`.** `crush <task-id>` marking a task
-  crush without opening the TUI is the founding example this whole project
+- **The binary is called `farol`.** `farol <task-id>` marking a task
+  complete without opening the TUI is the founding example this whole project
   was scoped around; the name has to make that command read naturally.
+  (Renamed from `crush` in 2026-08, with the repo and the MCP URIs.)
 - **Themes are ported from stack-stitcher, hex-for-hex**, with only the
   status-color field names changed to fit this app's domain. See
   `docs/DESIGN.md` §11. Do not redesign the palette or the tier-derivation
@@ -62,7 +67,7 @@ equivalent list asks for:
   Adding one later is a migration, not a redesign, because `store`'s tables
   already isolate "the fields a task has" from "the code that reads them" —
   see `docs/DESIGN.md` §1.
-- **Re-parenting outside the ±1-level add-flow (`crush mv`) is CLI-only
+- **Re-parenting outside the ±1-level add-flow (`farol mv`) is CLI-only
   and scheduled last (phase 9).** It's useful, it's cheap given the schema,
   and it is not blocking anything before it.
 
@@ -87,12 +92,12 @@ equivalent list asks for:
 
 ## MCP server track (agent todo store)
 
-The founding use case after alpha: **agents use Chore Crusher as their todo
+The founding use case after alpha: **agents use Farol as their todo
 list, and humans create tasks for agents to work on**, with the TUI as the live
 dashboard.
 
-**Surface today:** `crush mcp` — **12 tools, 2 resources, 2 prompts**. The
-identity an agent acts under comes from `CRUSH_AGENT` when set, and is
+**Surface today:** `farol mcp` — **12 tools, 2 resources, 2 prompts**. The
+identity an agent acts under comes from `FAROL_AGENT` when set, and is
 otherwise generated per process; ownership is cooperative trust, not auth. Full
 contract: `docs/DESIGN.md` §9. The tool count is a deliberate ceiling: it trades
 tool count against *call* count, and call count wins.

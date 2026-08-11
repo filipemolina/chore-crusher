@@ -2,15 +2,19 @@
 
 ## Alpha shipped
 
+**2026-08: renamed Chore Crusher → Farol** (repo, binary, MCP URIs, env var,
+themes, config/data dirs). The entries below keep the names the app had when
+they were written; this note covers them.
+
 The repo/tool/command rename is finished and all roadmap phases are in
 `main`, tagged `v0.1.0`:
 
-- Repo/tool name: **chore-crusher**
-- Command/binary name: **crush**
-- Go module: `github.com/filipemolina/chore-crusher`
-- Config dir: `~/.config/chore-crusher`
-- Data dir / DB: `~/.local/share/chore-crusher/chore-crusher.db`
-- Default theme: `crush-ember`
+- Repo/tool name: **farol**
+- Command/binary name: **farol**
+- Go module: `github.com/filipemolina/farol`
+- Config dir: `~/.config/farol`
+- Data dir / DB: `~/.local/share/farol/farol.db`
+- Default theme: `farol-ember`
 - Current tag: `v0.1.0`
 
 Phases 0–9 (scaffolding through polish/release) are complete. See
@@ -92,9 +96,11 @@ post-alpha backlog.
 
 ## Caveats / deferred work
 
-- No migration was written for existing `~/.config/complete` /
-  `~/.local/share/complete` data. That data is left in place; a fresh install
-  will use the new `chore-crusher` paths.
+- The 2026-08 farol rename ships a one-shot migration
+  (`config.MigrateLegacyDirs`) that moves `~/.config/chore-crusher` and
+  `~/.local/share/chore-crusher` to the farol paths on first launch. Data
+  from the earlier `~/.config/complete` era (pre-chore-crusher) predates
+  that and is left in place.
 
 ## Media
 
