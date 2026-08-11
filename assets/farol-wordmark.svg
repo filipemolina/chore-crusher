@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="394" height="220" viewBox="0 0 394 220"><defs>
+  <radialGradient id="wmglow" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0" stop-color="#F0B263" stop-opacity="0.55"/>
+    <stop offset="1" stop-color="#F0B263" stop-opacity="0"/>
+  </radialGradient>
+</defs>
+  <text x="72" y="138" font-family="Georgia, 'Iowan Old Style', 'Palatino Linotype', Palatino, 'DejaVu Serif', serif" font-size="116"
+        fill="#F5EDE4" textLength="271" lengthAdjust="spacingAndGlyphs">Farol</text>
+  <circle cx="362.0" cy="130.344" r="26.5" fill="url(#wmglow)"/>
+  <circle cx="362.0" cy="130.344" r="10.208" fill="#F0B263"/></svg>
