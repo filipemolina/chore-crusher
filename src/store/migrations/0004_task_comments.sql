@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS TaskComment (
     id         text primary key,          -- ULID, generated in store.NewID
     task_id    text not null references Task(id) on delete cascade,
-    author     text not null,             -- OS username (human) or CRUSH_AGENT identity (agent)
+    author     text not null,             -- OS username (human) or FAROL_AGENT identity (agent)
     note       text not null,
     created_at integer not null           -- unix seconds
 );

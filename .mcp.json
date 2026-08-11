@@ -3,7 +3,7 @@
     "farol": {
       "command": "/home/filipe/go/bin/farol",
       "args": ["mcp"],
-      "env": { "CRUSH_AGENT": "pi" }
+      "env": { "FAROL_AGENT": "pi" }
     }
   }
 }

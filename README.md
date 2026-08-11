@@ -172,7 +172,7 @@ Run `crush mcp` to start an MCP server that agents can discover and use:
       "name": "chore-crusher",
       "command": "crush",
       "args": ["mcp"],
-      "env": { "CRUSH_AGENT": "claude" }
+      "env": { "FAROL_AGENT": "claude" }
     }
   ]
 }
@@ -183,7 +183,7 @@ Run `crush mcp` to start an MCP server that agents can discover and use:
     "chore-crusher": {
       "command": "crush",
       "args": ["mcp"],
-      "env": { "CRUSH_AGENT": "cursor" }
+      "env": { "FAROL_AGENT": "cursor" }
     }
   }
 }

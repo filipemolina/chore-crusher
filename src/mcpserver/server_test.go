@@ -26,13 +26,13 @@ func setupMCP(t *testing.T) *mcp.ClientSession {
 	// Keep every test isolated on its own temp data directory.
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	// Pin the identity. Unset, CRUSH_AGENT now yields a per-process tag,
+	// Pin the identity. Unset, FAROL_AGENT now yields a per-process tag,
 	// which would make every assertion about the "agent" tag unrepeatable.
 	// These tests are about behaviour under a known identity, not about what
 	// the default is — TestServerIdentityIsUniquePerProcess covers the
 	// default itself.
-	if os.Getenv("CRUSH_AGENT") == "" {
-		t.Setenv("CRUSH_AGENT", "agent")
+	if os.Getenv("FAROL_AGENT") == "" {
+		t.Setenv("FAROL_AGENT", "agent")
 	}
 
 	server, store, err := mcpserver.NewServer()
@@ -61,10 +61,10 @@ func setupMCP(t *testing.T) *mcp.ClientSession {
 }
 
 // setupMCPAs is setupMCP with a fixed server identity: the server reads
-// CRUSH_AGENT at NewServer, so the helper sets it before setupMCP opens one.
+// FAROL_AGENT at NewServer, so the helper sets it before setupMCP opens one.
 func setupMCPAs(t *testing.T, identity string) *mcp.ClientSession {
 	t.Helper()
-	t.Setenv("CRUSH_AGENT", identity)
+	t.Setenv("FAROL_AGENT", identity)
 	return setupMCP(t)
 }
 
@@ -72,12 +72,12 @@ func setupMCPAs(t *testing.T, identity string) *mcp.ClientSession {
 // pointed at dataDir — the caller sets XDG_DATA_HOME to dataDir first, so
 // multiple sessions from this helper share one store (the same pattern
 // TestInboxResourceReturnsMineAndForeign builds inline for a human+pi pair).
-// Used where a test needs two distinct CRUSH_AGENT identities acting on the
+// Used where a test needs two distinct FAROL_AGENT identities acting on the
 // same data, e.g. the comment tool's delete-mode cross-author refusal.
 func sessionAs(t *testing.T, dataDir, identity string) *mcp.ClientSession {
 	t.Helper()
 	t.Setenv("XDG_DATA_HOME", dataDir)
-	t.Setenv("CRUSH_AGENT", identity)
+	t.Setenv("FAROL_AGENT", identity)
 
 	server, st, err := mcpserver.NewServer()
 	if err != nil {
@@ -291,7 +291,7 @@ func TestMCPToolSurface(t *testing.T) {
 }
 
 // TestMCPMyList guards S3: my_list auto-provisions the agent's own list
-// (named after the CRUSH_AGENT tag) so the agent never has to run an
+// (named after the FAROL_AGENT tag) so the agent never has to run an
 // add_list + copy-id dance before writing its first task. Idempotent: a
 // second call returns the same list without creating a duplicate.
 func TestMCPMyList(t *testing.T) {
@@ -403,7 +403,7 @@ func TestMCPInstructionsUsesPrefixedToolNames(t *testing.T) {
 }
 
 // TestMCPInstructionsUsesIdentity guards H1: the Instructions doc must name
-// the configured CRUSH_AGENT, not a hardcoded "pi" — an agent running under
+// the configured FAROL_AGENT, not a hardcoded "pi" — an agent running under
 // another tag is otherwise told to use pi: lists it does not own.
 func TestMCPInstructionsUsesIdentity(t *testing.T) {
 	session := setupMCPAs(t, "claude")
@@ -416,7 +416,7 @@ func TestMCPInstructionsUsesIdentity(t *testing.T) {
 		t.Fatalf("Instructions must name the configured identity (claude);\nfull text:\n%s", instructions)
 	}
 	if strings.Contains(instructions, "pi:") {
-		t.Fatalf("Instructions must not hardcode pi: when CRUSH_AGENT=claude;\nfull text:\n%s", instructions)
+		t.Fatalf("Instructions must not hardcode pi: when FAROL_AGENT=claude;\nfull text:\n%s", instructions)
 	}
 }
 
@@ -1263,7 +1263,7 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 		"title":   "Write docs",
 	}), &task)
 
-	// Claim as the server identity (CRUSH_AGENT=pi), seeded at store level.
+	// Claim as the server identity (FAROL_AGENT=pi), seeded at store level.
 	claimWork(t, "task", task["id"], "pi")
 
 	// Age the claim through a second connection to the same store file.
@@ -1307,7 +1307,7 @@ func TestMCPStatusWritesRefreshClaim(t *testing.T) {
 
 // TestMCPAssignDefaultsToIdentity pins the "assignment always lands on
 // this server's identity" rule: assign_task and next_task take no agent_id,
-// so the assignment always matches the CRUSH_AGENT that all the takeover
+// so the assignment always matches the FAROL_AGENT that all the takeover
 // and heartbeat logic keys off. The old claim_work's agent_id default
 // (tested here before step 9) is a concept of the removed tool.
 func TestMCPAssignDefaultsToIdentity(t *testing.T) {
@@ -1517,7 +1517,7 @@ func TestInboxResourceReturnsMineAndForeign(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", dataDir)
 
 	// human session: create a list + two pending tasks (one with notes).
-	t.Setenv("CRUSH_AGENT", "human")
+	t.Setenv("FAROL_AGENT", "human")
 	humanServer, humanStore, err := mcpserver.NewServer()
 	if err != nil {
 		t.Fatalf("NewServer (human): %v", err)
@@ -1543,7 +1543,7 @@ func TestInboxResourceReturnsMineAndForeign(t *testing.T) {
 	callTool(t, hSession, "add_task", map[string]any{"list_id": hlist["id"], "title": "F2"})
 
 	// pi session: read the inbox resource.
-	t.Setenv("CRUSH_AGENT", "pi")
+	t.Setenv("FAROL_AGENT", "pi")
 	piServer, _, err := mcpserver.NewServer()
 	if err != nil {
 		t.Fatalf("NewServer (pi): %v", err)
@@ -4287,18 +4287,18 @@ func TestMCPAssignRejectsAgentID(t *testing.T) {
 // TestTwoUnconfiguredSessionsCannotWriteEachOthersTasks is the core of the
 // step: the measured failure this plan exists to fix, inverted.
 //
-// Before per-session identity, two clients with CRUSH_AGENT unset both acted as
+// Before per-session identity, two clients with FAROL_AGENT unset both acted as
 // "agent", so B completed a task A held, renamed it, and deleted a task A
 // created — no refusal, no force, no takeover comment, and no trail for the
 // human. Every guard compares against identity, and equal tags compare equal.
 func TestTwoUnconfiguredSessionsCannotWriteEachOthersTasks(t *testing.T) {
 	dataDir := t.TempDir()
 
-	// Both sessions come up with CRUSH_AGENT unset, the default setup.
+	// Both sessions come up with FAROL_AGENT unset, the default setup.
 	sessionUnset := func(t *testing.T) *mcp.ClientSession {
 		t.Helper()
 		t.Setenv("XDG_DATA_HOME", dataDir)
-		t.Setenv("CRUSH_AGENT", "")
+		t.Setenv("FAROL_AGENT", "")
 
 		server, st, err := mcpserver.NewServer()
 		if err != nil {

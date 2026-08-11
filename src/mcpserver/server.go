@@ -28,7 +28,7 @@ const ownerTagPattern = "^[A-Za-z0-9_-]{1,32}$"
 // layer is the only place this check lives.
 var createdByRE = regexp.MustCompile(ownerTagPattern)
 
-// serverIdentity returns the agent tag this server acts as. CRUSH_AGENT wins
+// serverIdentity returns the agent tag this server acts as. FAROL_AGENT wins
 // verbatim when set, so a human who wants a stable tag across sessions keeps
 // one. When it is unset the tag is unique to this PROCESS — "agent-" plus six
 // random hex digits — rather than the constant it used to be.
@@ -44,11 +44,11 @@ var createdByRE = regexp.MustCompile(ownerTagPattern)
 // because it is written to list.created_by and validated there; "agent-7f3a2c"
 // does.
 //
-// WARNING: when CRUSH_AGENT is unset this returns a DIFFERENT value on every
+// WARNING: when FAROL_AGENT is unset this returns a DIFFERENT value on every
 // call. Call it once per process and thread the result — Run does. Two calls
 // would leave the server releasing claims under a tag it never wrote.
 func serverIdentity() string {
-	if identity := os.Getenv("CRUSH_AGENT"); identity != "" {
+	if identity := os.Getenv("FAROL_AGENT"); identity != "" {
 		return identity
 	}
 	var b [3]byte
@@ -157,7 +157,7 @@ type searchResultJSON struct {
 // the configured server. The caller owns the store and must close it.
 //
 // The identity is resolved here and is not reported back. Run needs the same
-// value to clean up under on the way out, and with an unset CRUSH_AGENT a
+// value to clean up under on the way out, and with an unset FAROL_AGENT a
 // second serverIdentity() call would produce a different tag — so Run resolves
 // it once and uses newServer directly rather than calling this.
 func NewServer() (*mcp.Server, *store.Store, error) {
@@ -181,7 +181,7 @@ func newServer(identity string) (*mcp.Server, *store.Store, error) {
 		Version: constants.Version(),
 	}, &mcp.ServerOptions{Instructions: `Farol is the todo store this work lives in; the TUI is how the human watches it. Read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked.
 
-IDENTITY & OWNERSHIP. You act under the tag "` + identity + `" — CRUSH_AGENT when it is set, otherwise a tag unique to this session. Either way it is yours alone: no other running agent shares it, and anything you still hold is released when this session ends. Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything, grab tasks (assign_task, next_task), change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: only the comment tool's delete mode (comment(id=..., delete=true, force=true)) removes a comment, and only one whose author is your own tag, regardless of who owns the list it's on.
+IDENTITY & OWNERSHIP. You act under the tag "` + identity + `" — FAROL_AGENT when it is set, otherwise a tag unique to this session. Either way it is yours alone: no other running agent shares it, and anything you still hold is released when this session ends. Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything, grab tasks (assign_task, next_task), change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: only the comment tool's delete mode (comment(id=..., delete=true, force=true)) removes a comment, and only one whose author is your own tag, regardless of who owns the list it's on.
 
 ASSIGNMENT — grab a task before you research it. Three separate axes, do not confuse them: status is what the work IS; the TUI spinner is presence, a 120-second claim any write refreshes and the end of your session clears; assignee is ownership with NO TTL and no sweeper — it changes when someone assigns, releases or completes, and it is released for you when THIS session ends. Grabbing first is the point: next_task(list_id) or assign_task(ids=[...]) makes the task yours before you spend tokens on it, so a second agent does not research the same thing in parallel. Every task row you read carries assignee, assigned_at, assignee_live and priority. An assignee with assignee_live false is abandoned work, not free work: it means a session died before it could release, which is the only way an assignment outlives its owner. A write to a task another agent holds (set_status, edit_task, delete_task) is REFUSED; force=true performs it, reassigns the task to you and records a takeover comment. Commenting is never refused — leaving a note on another agent's task is how coordination works. Completing a task auto-unassigns it, every descendant the cascade completes, and every ancestor it promotes. Assignment reserves the subtree: a task whose ancestor or descendant is held by someone else is refused EVEN with force — release the blocker with assign_task(ids=[blocker], release=true, force=true), or ask the human to release the whole list from the TUI.
 
@@ -234,7 +234,7 @@ GOTCHAS: set_status(progress='subtasks') derives from children — on a shared t
 // Run starts the MCP server on the stdio transport. It blocks until the
 // client disconnects or the context is cancelled.
 func Run(ctx context.Context) error {
-	// Resolved ONCE, here, and threaded into the server: with CRUSH_AGENT
+	// Resolved ONCE, here, and threaded into the server: with FAROL_AGENT
 	// unset serverIdentity returns a fresh tag per call, so asking twice would
 	// build the server under one identity and clean up under another, leaving
 	// this session's claims and assignments behind forever.
@@ -299,7 +299,7 @@ func addListTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "my_list",
-		Description: "Get or create your own list (named after the CRUSH_AGENT tag) for tracking your own work, plus a summary of every other (foreign) list, so you can start a session in one call. Example: my_list(). Returns {mine: {id,name,pending,complete}, foreign_lists: [{id,name,pending,complete,created_by,collaborative}]}. collaborative=true means structural edits (add_task, edit_task, delete_task) are allowed on that list despite not owning it.",
+		Description: "Get or create your own list (named after the FAROL_AGENT tag) for tracking your own work, plus a summary of every other (foreign) list, so you can start a session in one call. Example: my_list(). Returns {mine: {id,name,pending,complete}, foreign_lists: [{id,name,pending,complete,created_by,collaborative}]}. collaborative=true means structural edits (add_task, edit_task, delete_task) are allowed on that list despite not owning it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		id, err := s.GetOrCreateAgentList(identity)
 		if err != nil {
@@ -523,7 +523,7 @@ func addTaskTools(server *mcp.Server, s *store.Store, identity string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "comment",
-		Description: "Add a comment on a task, or delete one of your own. Add: comment(task_id='01ABC...', note='checking in') — anyone may comment on any task regardless of ownership or assignment (posting is never blocked by the assignment guard: leaving a note on another agent's task is how coordination works), unless the list has comments disabled; author is not accepted — comments are attributed to this server's identity (CRUSH_AGENT). Delete: comment(id='01XYZ...', delete=true, force=true) — deletion requires force=true and removes only a comment whose author is this server's identity, regardless of who owns the list it's on; a foreign comment is refused.",
+		Description: "Add a comment on a task, or delete one of your own. Add: comment(task_id='01ABC...', note='checking in') — anyone may comment on any task regardless of ownership or assignment (posting is never blocked by the assignment guard: leaving a note on another agent's task is how coordination works), unless the list has comments disabled; author is not accepted — comments are attributed to this server's identity (FAROL_AGENT). Delete: comment(id='01XYZ...', delete=true, force=true) — deletion requires force=true and removes only a comment whose author is this server's identity, regardless of who owns the list it's on; a foreign comment is refused.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		TaskID string `json:"task_id,omitempty" jsonschema:"task id or unambiguous prefix (add mode)"`
 		Note   string `json:"note,omitempty" jsonschema:"the comment text (add mode)"`

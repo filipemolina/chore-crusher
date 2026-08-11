@@ -245,7 +245,7 @@ func (s *Store) PruneStaleWork(now int64) (int, error) {
 // claims regardless of staleness because the process that made them is going away.
 //
 // Decision 1: scoped by agent_id. Two concurrent sessions running under the same
-// CRUSH_AGENT tag still clear each other's claims on exit.
+// FAROL_AGENT tag still clear each other's claims on exit.
 func (s *Store) ReleaseAgentClaims(agentID string) (int, error) {
 	if agentID == "" {
 		return 0, fmt.Errorf("release agent claims: agent_id must not be empty")

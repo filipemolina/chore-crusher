@@ -156,7 +156,7 @@ type AgentActivity struct {
 }
 
 // Comment is a task's append-only v1 comment thread: a note authored
-// by a user (OS username) or agent (CRUSH_AGENT identity), with no edit or
+// by a user (OS username) or agent (FAROL_AGENT identity), with no edit or
 // delete in v1. It mirrors store.Comment — the conversion boundary keeps the
 // TUI layer from depending on store's row shape.
 type Comment struct {

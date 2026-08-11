@@ -587,9 +587,9 @@ func formatTime(unix int64) string {
 // (comments, task creation). Falls back to $USER/$LOGNAME when
 // os/user.Current fails — some minimal containers lack /etc/passwd.
 func osUser() string {
-	// CRUSH_AGENT env var takes precedence: when an agent drives the CLI,
+	// FAROL_AGENT env var takes precedence: when an agent drives the CLI,
 	// comments should be attributed to the agent, not the OS user.
-	if agent := os.Getenv("CRUSH_AGENT"); agent != "" {
+	if agent := os.Getenv("FAROL_AGENT"); agent != "" {
 		return agent
 	}
 	if u, err := user.Current(); err == nil && u.Username != "" {
@@ -777,11 +777,11 @@ func runMv(cmd *cobra.Command, args []string) error {
 }
 
 // agentIdentity is the agent tag this CLI invocation assigns under:
-// CRUSH_AGENT, defaulting to "agent" — the same env var and default the MCP
-// server reads (docs/DESIGN.md §9), so a shell that exports CRUSH_AGENT
+// FAROL_AGENT, defaulting to "agent" — the same env var and default the MCP
+// server reads (docs/DESIGN.md §9), so a shell that exports FAROL_AGENT
 // owns tasks under the same tag over either surface.
 func agentIdentity() string {
-	if id := os.Getenv("CRUSH_AGENT"); id != "" {
+	if id := os.Getenv("FAROL_AGENT"); id != "" {
 		return id
 	}
 	return "agent"

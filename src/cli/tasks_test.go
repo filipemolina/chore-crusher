@@ -470,7 +470,7 @@ func TestShowIncludesCommentsArray(t *testing.T) {
 // echoes the new holder.
 func TestAssignJSONShapes(t *testing.T) {
 	data := t.TempDir()
-	t.Setenv("CRUSH_AGENT", "pi")
+	t.Setenv("FAROL_AGENT", "pi")
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
@@ -490,7 +490,7 @@ func TestAssignJSONShapes(t *testing.T) {
 
 	// A second agent's assign without --force fails with exactly one JSON
 	// error value naming the holder.
-	t.Setenv("CRUSH_AGENT", "claude")
+	t.Setenv("FAROL_AGENT", "claude")
 	code, out, errOut := runCLI(t, data, "assign", tid, "--json")
 	if code != 1 || errOut != "" {
 		t.Fatalf("conflicting assign: exit %d stderr %q, want exit 1 with empty stderr", code, errOut)
@@ -517,13 +517,13 @@ func TestAssignJSONShapes(t *testing.T) {
 // another agent's task is the §9 error shape.
 func TestUnassignJSONShapes(t *testing.T) {
 	data := t.TempDir()
-	t.Setenv("CRUSH_AGENT", "pi")
+	t.Setenv("FAROL_AGENT", "pi")
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 	mustCLI(t, data, "assign", tid)
 
 	// Another agent cannot release it.
-	t.Setenv("CRUSH_AGENT", "claude")
+	t.Setenv("FAROL_AGENT", "claude")
 	code, out, _ := runCLI(t, data, "unassign", tid, "--json")
 	if code != 1 {
 		t.Fatalf("foreign unassign: exit %d, want 1", code)
@@ -536,7 +536,7 @@ func TestUnassignJSONShapes(t *testing.T) {
 	}
 
 	// The holder's release succeeds and clears both fields.
-	t.Setenv("CRUSH_AGENT", "pi")
+	t.Setenv("FAROL_AGENT", "pi")
 	var res assignResultJSON
 	mustJSONCLI(t, data, &res, "unassign", tid, "--json")
 	if !res.OK || res.Assignee != "" {
@@ -559,7 +559,7 @@ func TestUnassignJSONShapes(t *testing.T) {
 // a success, not an error (docs/DESIGN.md §9).
 func TestUnassignListJSONShape(t *testing.T) {
 	data := t.TempDir()
-	t.Setenv("CRUSH_AGENT", "pi")
+	t.Setenv("FAROL_AGENT", "pi")
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
 	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
 	t2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "two"))
@@ -651,7 +651,7 @@ func TestPriorityJSONShapes(t *testing.T) {
 // rows: assignee is "" when unassigned and the holder's tag once assigned.
 func TestTasksRowsCarryAssignment(t *testing.T) {
 	data := t.TempDir()
-	t.Setenv("CRUSH_AGENT", "pi")
+	t.Setenv("FAROL_AGENT", "pi")
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
