@@ -6,7 +6,7 @@ import (
 	"github.com/filipemolina/farol/src/mcpserver"
 )
 
-// newMcpCmd returns the `crush mcp` subcommand that runs the Model Context
+// newMcpCmd returns the `farol mcp` subcommand that runs the Model Context
 // Protocol server over stdin/stdout. Clients connect to it and call tools
 // instead of exec'ing the CLI for every operation (docs/DESIGN.md §9,
 // docs/ROADMAP.md post-alpha backlog).

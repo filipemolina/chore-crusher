@@ -49,7 +49,7 @@ func TestFlattenEmpty(t *testing.T) {
 }
 
 // TestDescendantsOfDepthRelativeToRoot pins the shared children shape used by
-// `crush show` and show_task: descendants only (root excluded), preorder,
+// `farol show` and show_task: descendants only (root excluded), preorder,
 // depth relative to the root with direct children at depth 1, has-children
 // annotated. This is exactly the shape Flatten cannot produce (no roots).
 func TestDescendantsOfDepthRelativeToRoot(t *testing.T) {

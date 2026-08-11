@@ -54,7 +54,7 @@ func flattenInto(t Task, depth int, children map[string][]Task, out *[]Row) {
 // excluded) as depth-annotated rows, with depth relative to rootID: direct
 // children at depth 1. Flatten cannot produce this shape — it only emits
 // ParentID==nil rows, and a pure-descendant set has no roots — so this is
-// the one helper both `crush show` (CLI) and show_task (MCP) use for their
+// the one helper both `farol show` (CLI) and show_task (MCP) use for their
 // children rows, and the two surfaces cannot drift again.
 func DescendantsOf(tasks []Task, rootID string) []Row {
 	children := make(map[string][]Task)

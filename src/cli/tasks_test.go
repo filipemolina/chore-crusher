@@ -177,7 +177,7 @@ func TestShow(t *testing.T) {
 	}
 }
 
-// TestCLIShowIncludesChildren pins H4: `crush show --json` must emit
+// TestCLIShowIncludesChildren pins H4: `farol show --json` must emit
 // non-empty children with depth relative to the shown
 // task (child at 1, grandchild at 2) — the old code ran the descendant set
 // through apptypes.Flatten, which only emits ParentID==nil rows, so children
@@ -265,21 +265,21 @@ func TestMoveReparents(t *testing.T) {
 
 // TestTasksJSONCarriesListOwner pins the list_owner field (the
 // parent list's created_by) appears on task rows and show output. An owner
-// tag is set via `crush lists add --owner`, which is the CLI analogue of
+// tag is set via `farol lists add --owner`, which is the CLI analogue of
 // the MCP add_list(created_by=...) path.
 func TestTasksJSONCarriesListOwner(t *testing.T) {
 	data := t.TempDir()
 	owned := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Sprint", "--owner", "pi"))
 	mustCLI(t, data, "add", owned, "Write tests")
 
-	// crush tasks --json carries list_owner on every row.
+	// farol tasks --json carries list_owner on every row.
 	var rows []taskRowJSON
 	mustJSONCLI(t, data, &rows, "tasks", owned, "--json")
 	if len(rows) != 1 || rows[0].ListOwner != "pi" {
 		t.Errorf("tasks --json list_owner = %+v, want pi", rows)
 	}
 
-	// crush show --json carries list_owner on the task and its children.
+	// farol show --json carries list_owner on the task and its children.
 	tid := strings.TrimSpace(mustCLI(t, data, "add", owned, "Child task", "--parent", rows[0].ID))
 	var details showJSON
 	mustJSONCLI(t, data, &details, "show", tid, "--json")
@@ -288,9 +288,9 @@ func TestTasksJSONCarriesListOwner(t *testing.T) {
 	}
 }
 
-// TestCommentRoundTrip pins the CLI comment surface: `crush tasks
+// TestCommentRoundTrip pins the CLI comment surface: `farol tasks
 // comment` writes a comment attributed to the OS username, and
-// `crush show --json` includes it in the comments array, oldest first.
+// `farol show --json` includes it in the comments array, oldest first.
 func TestCommentRoundTrip(t *testing.T) {
 	data := t.TempDir()
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
@@ -445,7 +445,7 @@ func TestCommentRmForce(t *testing.T) {
 	}
 }
 
-// TestShowIncludesCommentsArray pins that `crush show --json` emits the
+// TestShowIncludesCommentsArray pins that `farol show --json` emits the
 // comments field (even when empty, as an empty array) so callers always
 // get the key — additive per docs/DESIGN.md §9.
 func TestShowIncludesCommentsArray(t *testing.T) {
@@ -463,7 +463,7 @@ func TestShowIncludesCommentsArray(t *testing.T) {
 	}
 }
 
-// TestAssignJSONShapes pins the step-5 acceptance criterion for `crush
+// TestAssignJSONShapes pins the step-5 acceptance criterion for `farol
 // assign` (docs/DESIGN.md §9): exactly one JSON value on stdout, success or
 // failure. Success echoes the caller's own tag; a conflict without --force
 // is the §9 error shape naming the holder; --force takes the task and
@@ -512,7 +512,7 @@ func TestAssignJSONShapes(t *testing.T) {
 	}
 }
 
-// TestUnassignJSONShapes pins `crush unassign <task-id>`: the holder's
+// TestUnassignJSONShapes pins `farol unassign <task-id>`: the holder's
 // release emits {"ok":true,"assignee":""} and clears assigned_at; releasing
 // another agent's task is the §9 error shape.
 func TestUnassignJSONShapes(t *testing.T) {
@@ -554,7 +554,7 @@ func TestUnassignJSONShapes(t *testing.T) {
 	}
 }
 
-// TestUnassignListJSONShape pins `crush unassign --list`: one JSON value
+// TestUnassignListJSONShape pins `farol unassign --list`: one JSON value
 // reporting how many assignments were cleared — 0 on a list holding none is
 // a success, not an error (docs/DESIGN.md §9).
 func TestUnassignListJSONShape(t *testing.T) {
@@ -588,7 +588,7 @@ func TestUnassignListJSONShape(t *testing.T) {
 	}
 }
 
-// TestPriorityJSONShapes pins `crush priority`: the echoed level on success,
+// TestPriorityJSONShapes pins `farol priority`: the echoed level on success,
 // the §9 error shape for an invalid level, and — the trap — an omitted
 // --level failing as an error rather than defaulting to none.
 func TestPriorityJSONShapes(t *testing.T) {
@@ -647,7 +647,7 @@ func TestPriorityJSONShapes(t *testing.T) {
 	}
 }
 
-// TestTasksRowsCarryAssignment pins the new fields on `crush tasks --json`
+// TestTasksRowsCarryAssignment pins the new fields on `farol tasks --json`
 // rows: assignee is "" when unassigned and the holder's tag once assigned.
 func TestTasksRowsCarryAssignment(t *testing.T) {
 	data := t.TempDir()

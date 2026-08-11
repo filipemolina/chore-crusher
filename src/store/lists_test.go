@@ -252,7 +252,7 @@ func TestGetOrCreateAgentListIsOwnerFirst(t *testing.T) {
 	}
 
 	// Owner-first also the other way: on a fresh store whose only owned list is
-	// named differently (e.g. a handoff from `crush lists add --owner pi`), the
+	// named differently (e.g. a handoff from `farol lists add --owner pi`), the
 	// lookup returns it instead of creating a second pi: Inbox.
 	s2 := newTestStore(t)
 	handoff, err := s2.CreateList("Sprint", "pi")

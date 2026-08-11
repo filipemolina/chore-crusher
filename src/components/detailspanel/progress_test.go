@@ -72,7 +72,7 @@ func TestSubtasksWithNoChildrenKeepsItsAnnotation(t *testing.T) {
 }
 
 // The relabelling is display-only. These are the values the DB column, the
-// CLI's `crush progress --mode`, and the MCP tool's parameter all speak
+// CLI's `farol progress --mode`, and the MCP tool's parameter all speak
 // (docs/DESIGN.md §9); renaming one would break every caller outside the TUI.
 func TestStoredModeVocabularyIsUnchanged(t *testing.T) {
 	for _, tc := range []struct {

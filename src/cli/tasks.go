@@ -44,7 +44,7 @@ func progressOf(s *store.Store, id string) (progressJSON, error) {
 	return progressJSON{Kind: string(kind), Percent: p, DisplayAsSimple: simple}, nil
 }
 
-// taskRowJSON is one row of `crush tasks` (and `crush show`'s
+// taskRowJSON is one row of `farol tasks` (and `farol show`'s
 // children) in JSON mode: a flat preorder array with depth, so a caller
 // walks the same shape whether or not it asked for --flat (docs/DESIGN.md
 // §9).
@@ -401,7 +401,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 }
 
 // commentJSON is one comment on a task, mirrored between the CLI's
-// `crush show --json` and the MCP's show_task/comments payload (docs/DESIGN.md
+// `farol show --json` and the MCP's show_task/comments payload (docs/DESIGN.md
 // §9: MCP is a superset of CLI --json, additive fields only).
 type commentJSON struct {
 	ID        string `json:"id"`
@@ -410,7 +410,7 @@ type commentJSON struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
-// attachmentJSON is one attachment on a task, included in `crush show --json`
+// attachmentJSON is one attachment on a task, included in `farol show --json`
 // and the MCP show_task payload.
 type attachmentJSON struct {
 	ID        string `json:"id"`
@@ -418,7 +418,7 @@ type attachmentJSON struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
-// showJSON is `crush show`'s payload: the task's own fields plus its
+// showJSON is `farol show`'s payload: the task's own fields plus its
 // descendants as the same flat, depth-annotated rows `tasks` emits, so a
 // caller that can read one can read the other.
 type showJSON struct {
@@ -747,7 +747,7 @@ func runProgress(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// runMv wires `crush mv` to store.Reparent. The --parent flag carries the
+// runMv wires `farol mv` to store.Reparent. The --parent flag carries the
 // new parent's id (prefix accepted); an empty --parent — the flag's default,
 // so omitting it entirely — is how a caller asks to move a task to the list
 // root, recorded in docs/DESIGN.md §9.

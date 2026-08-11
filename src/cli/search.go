@@ -11,7 +11,7 @@ import (
 	"github.com/filipemolina/farol/src/store"
 )
 
-// searchResultJSON is one `crush search` hit: the task plus the name of
+// searchResultJSON is one `farol search` hit: the task plus the name of
 // the list it lives in, so a cross-list result carries its context without a
 // second lookup.
 type searchResultJSON struct {

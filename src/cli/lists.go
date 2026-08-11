@@ -108,7 +108,7 @@ func runListsAdd(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		// Human mode prints only the id — an agent capturing
-		// `id=$(crush lists add …)` strips nothing (§9).
+		// `id=$(farol lists add …)` strips nothing (§9).
 		printResult(jsonMode, func() { fmt.Println(id) }, idJSON{id})
 		return nil
 	})
