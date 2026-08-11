@@ -1,6 +1,6 @@
 # Design
 
-The guiding decisions of Chore Crusher, written down so a contributor —
+The guiding decisions of Farol, written down so a contributor —
 human or agent — has a north star instead of a one-line feature description to
 extrapolate from. Where a rule below looks oddly specific, it is specific on
 purpose: it was written to close off a plausible wrong implementation, not to
@@ -8,14 +8,14 @@ describe the obvious one.
 
 This document is self-contained: every rule below carries its own reasoning,
 and nothing here sends you to another repository's documentation to find out
-*why*. Chore Crusher shares its architecture with one sister project (they
+*why*. Farol shares its architecture with one sister project (they
 were built by the same author, one after the other), and several patterns
 were ported from it; where that provenance matters, the relevant reasoning is
 written out in full in this file instead of being left as a pointer.
 
 ## 1. What this app is, and isn't
 
-Chore Crusher is a to-do list manager with two front ends over one store: a
+Farol is a to-do list manager with two front ends over one store: a
 terminal UI for a human, and a CLI for scripts and coding agents. Neither is
 secondary. The TUI does not shell out to the CLI, and the CLI is not a
 read-only reporting layer bolted onto a TUI-owned database — both talk to the
@@ -86,7 +86,7 @@ Task
 ```
 
 Why ULIDs and not autoincrement integers: task and list ids are handed to the
-CLI as arguments (`crush <task-id>`) and printed by `add`. A ULID
+CLI as arguments (`farol <task-id>`) and printed by `add`. A ULID
 is a stable, copy-pasteable, sortable-by-creation-time string that never
 collides across a `list add` and a concurrent `task add` from two processes —
 an autoincrement id needs the database to hand it out, which is fine, but a
@@ -94,7 +94,7 @@ ULID lets `store.NewTaskID()` be generated before the transaction opens,
 which matters for §7's transaction-shape rule. Ids are **not** meant to be
 typed from memory; the CLI accepts an unambiguous *prefix* of an id
 (§9, `resolveID`) so a human or an agent copying an 8-character prefix from
-`crush tasks` output doesn't have to paste the full 26 characters.
+`farol tasks` output doesn't have to paste the full 26 characters.
 
 Nesting depth is **not** capped in the schema. `parent_id` is self-referential
 and a task can have a task at any depth as its parent. What *is* constrained
@@ -110,9 +110,9 @@ from what's written here. Intuition gets some of it right and a few of the
 edges wrong, so read the whole thing before writing `store` code that touches
 `status` or `progress_kind`.
 
-**States.** A task's `status` is one of `pending`, `in_progress`, `crush`.
+**States.** A task's `status` is one of `pending`, `in_progress`, `complete`.
 `progress_kind` only has meaning while `status = in_progress`; it is `none`
-for `pending` and `crush` tasks (§3 keeps this an invariant the store
+for `pending` and `complete` tasks (§3 keeps this an invariant the store
 enforces, not a convention callers remember).
 
 **The three flavors of `in_progress`:**
@@ -140,12 +140,12 @@ intent the next time they check the details screen.
 **Auto-completion is asymmetric between the two derived-vs-declared kinds,
 and this is deliberate:**
 
-- `subtasks` reaching 100% (every direct child `crush`) **promotes the
-  parent to `crush` automatically.** This is a verified fact — if every
+- `subtasks` reaching 100% (every direct child `complete`) **promotes the
+  parent to `complete` automatically.** This is a verified fact — if every
   child is done, the parent claiming otherwise would be a lie the store can
   see through — so the store does not wait for a human or a script to say so.
   This check re-runs on every child completion and must walk upward: completing
-  a leaf can crush its parent, which can crush *its* parent, and so on.
+  a leaf can complete its parent, which can complete *its* parent, and so on.
   Implement this as a single `recomputeAncestors(taskID)` walk after any
   status write, not as a special case bolted onto `Complete()` alone —
   `Reopen()` and `SetProgress()` can also change whether a parent's derived
@@ -153,19 +153,19 @@ and this is deliberate:**
 - `percentage` reaching 100 **does not** auto-complete. It's a claim, not a
   verified fact, and the store has no way to distinguish "I meant it" from
   "I typed 100 out of habit." Completing is a separate, explicit action
-  (`space` in the TUI, `crush <id>` on the CLI) even at 100%.
+  (`space` in the TUI, `farol <id>` on the CLI) even at 100%.
   If this surprises a future contributor enough to want to change it, that's
   a product decision to raise, not a bug to silently fix — it was chosen
   specifically to keep the one auto-promotion path (verified subtask
   completion) the only one, rather than accumulating several slightly
   different auto-complete triggers that a reader has to hold in their head.
 
-**Completing cascades down; reopening does not.** Marking a task `crush`
-(`space`, or `crush <id>`) sets every descendant, at every depth,
-to `crush` too — a `crush` task with a `pending` grandchild is a state
+**Completing cascades down; reopening does not.** Marking a task `complete`
+(`space`, or `farol <id>`) sets every descendant, at every depth,
+to `complete` too — a `complete` task with a `pending` grandchild is a state
 this app does not allow to exist, because the two-list split (§6) would then
 have to explain why a "done" tree still has visibly undone rows in it.
-Reopening a task (`crush reopen <id>`, or `space` again on an already
+Reopening a task (`farol reopen <id>`, or `space` again on an already
 complete task) does **not** cascade to children — it returns *only that task*
 to `pending`. This is intentionally lossy: the task's prior `progress_kind`
 and `progress_pct` are not restored, because tracking "what it was before
@@ -624,9 +624,9 @@ the exact dead-stop focus ring §5's tab rule forbids).
 `status != complete` renders (with its whole visible subtree) under
 `Pending`; a root-level task with `status = complete` renders under
 `Complete`. Because completing cascades to every descendant (§3), a tree
-under `Complete` is, by invariant, 100% crush rows all the way down — the
+under `Complete` is, by invariant, 100% complete rows all the way down — the
 section header is a true claim, not an approximation. A tree under `Pending`
-can and will contain a mix: a `pending` parent can have `crush` children
+can and will contain a mix: a `pending` parent can have `complete` children
 sitting inline (checked, perhaps struck through) underneath it, still nested
 in place. **Do not move a completed subtask out to the `Complete` section
 while its parent is still pending** — that would separate a task from the
@@ -742,7 +742,7 @@ poll is a `SELECT`, full stop. All writes — from the TUI's own keypress
 handlers as much as from an external CLI invocation — go through the same
 `store` functions the CLI uses (§8), each wrapping one short transaction that
 opens, writes, commits, and returns, so a rapid-fire agent loop calling
-crush <task-id> in a shell `for` loop is never waiting behind the TUI, and
+farol <task-id> in a shell `for` loop is never waiting behind the TUI, and
 the TUI is never waiting behind it either. SQLite's WAL mode (§8) is what
 makes concurrent readers and a writer not block each other; do not disable it.
 
@@ -756,8 +756,8 @@ more common choice by download count, but it would make this the one thing
 in the whole toolchain that needs a C compiler to cross-compile, for no
 capability this app uses that the pure-Go driver lacks.
 
-**One file:** `$XDG_DATA_HOME/chore-crusher/chore-crusher.db` (falling back to
-`~/.local/share/chore-crusher/chore-crusher.db`), opened in WAL journal mode. WAL is
+**One file:** `$XDG_DATA_HOME/farol/farol.db` (falling back to
+`~/.local/share/farol/farol.db`), opened in WAL journal mode. WAL is
 what lets the TUI's long-lived read connection and a CLI process's short
 write transaction coexist without either blocking the other — the default
 rollback-journal mode takes an exclusive lock for the duration of a write,
@@ -785,7 +785,7 @@ no-op, not an error). One function decides the schema is current, called from
 one place (`store.Open`), rather than each caller assuming someone else
 already did it — "one resolution, passed down".
 
-**Config** (`~/.config/chore-crusher/config.yaml`, or `$XDG_CONFIG_HOME`) holds
+**Config** (`~/.config/farol/config.yaml`, or `$XDG_CONFIG_HOME`) holds
 exactly two fields at launch, in a struct designed to grow — add a field,
 tag it, and `LoadConfig`/`SaveConfig` round-trip it automatically:
 
@@ -819,9 +819,9 @@ errors without reading the rest.
 
 **Output shape, human mode (default):** a write command that succeeds prints
 nothing but the one piece of information a script might want to capture
-(`crush lists add` prints the new list's id and nothing else; `crush add` prints the new task's id and nothing else). A read command prints a
+(`farol lists add` prints the new list's id and nothing else; `farol add` prints the new task's id and nothing else). A read command prints a
 formatted table or tree to stdout. Any failure prints one line to stderr,
-prefixed `crush: `, and the process exits non-zero.
+prefixed `farol: `, and the process exits non-zero.
 
 **Output shape, `--json` mode:** stdout is **always exactly one JSON value**,
 whether the command succeeded or failed — `{"error": "list not found:
@@ -846,8 +846,8 @@ domain error (exit `1`), not a silent pick of the first match — silently
 guessing which task an agent meant is exactly the kind of behavior this
 project exists to not have.
 
-**Destructive commands need `--force`.** `crush lists rm`, `crush rm`
-(task), and `crush comment rm` refuse to run without `--force`. The TUI's
+**Destructive commands need `--force`.** `farol lists rm`, `farol rm`
+(task), and `farol comment rm` refuse to run without `--force`. The TUI's
 equivalent actions go through a confirm modal; the CLI has no modal to route
 through and
 no human to ask, so the flag *is* the confirmation. This is the one place
@@ -857,7 +857,7 @@ delete with no prompt at all.
 
 **Comment deletion and its ownership rule.** Comments were append-only
 (§2); `store.DeleteComment` hard-deletes by id, with no soft-delete or
-tombstone. The CLI (`crush comment rm <comment-id> --force`) and the TUI
+tombstone. The CLI (`farol comment rm <comment-id> --force`) and the TUI
 (the Details modal's comments zone) are unenforced like every other
 human-facing delete — either may remove any comment. The MCP `comment`
 tool is the one gated surface: its `delete=true` mode
@@ -876,44 +876,44 @@ it does not own.
 prefix (see above) throughout.
 
 ```
-crush                                          launch the TUI
-crush lists                                    list all lists
-crush lists add <name>                         create a list; prints its id
-crush lists rename <list-id> <name>            rename a list
-crush lists rm <list-id> --force               delete a list and its tasks
+farol                                          launch the TUI
+farol lists                                    list all lists
+farol lists add <name>                         create a list; prints its id
+farol lists rename <list-id> <name>            rename a list
+farol lists rm <list-id> --force               delete a list and its tasks
 
-crush tasks <list-id> [--status pending|in_progress|complete|all] [--flat]
+farol tasks <list-id> [--status pending|in_progress|complete|all] [--flat]
                                                    list tasks (tree by default)
-crush add <list-id> <title> [--parent <task-id>] [--notes <text>]
+farol add <list-id> <title> [--parent <task-id>] [--notes <text>]
                                                    add a task; prints its id
-crush show <task-id>                           title, notes, status, progress, children
-crush rename <task-id> <title>                 rename a task
-crush notes <task-id> <text>                   replace a task's notes (whole text, not append)
-crush <task-id>                                mark complete (cascades to descendants)
-crush reopen <task-id>                         mark pending (does not cascade)
-crush toggle <task-id>                         complete <-> reopen, whichever applies
-crush progress <task-id> --mode simple
-crush progress <task-id> --mode percentage --percent <0-100>
-crush progress <task-id> --mode subtasks
-crush assign <task-id> [--force]               assign to the current agent; --force takes it from another
-crush unassign <task-id>                       release the current agent's assignment on the task
-crush unassign --list <list-id>                release the assignment on every task in the list
-crush priority <task-id> --level none|low|medium|high
+farol show <task-id>                           title, notes, status, progress, children
+farol rename <task-id> <title>                 rename a task
+farol notes <task-id> <text>                   replace a task's notes (whole text, not append)
+farol <task-id>                                mark complete (cascades to descendants)
+farol reopen <task-id>                         mark pending (does not cascade)
+farol toggle <task-id>                         complete <-> reopen, whichever applies
+farol progress <task-id> --mode simple
+farol progress <task-id> --mode percentage --percent <0-100>
+farol progress <task-id> --mode subtasks
+farol assign <task-id> [--force]               assign to the current agent; --force takes it from another
+farol unassign <task-id>                       release the current agent's assignment on the task
+farol unassign --list <list-id>                release the assignment on every task in the list
+farol priority <task-id> --level none|low|medium|high
                                                    set a task's priority
-crush mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
-crush rm <task-id> --force                     delete a task and its descendants
-crush comment rm <comment-id> --force          delete a comment
-crush search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
+farol mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
+farol rm <task-id> --force                     delete a task and its descendants
+farol comment rm <comment-id> --force          delete a comment
+farol search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
-crush mcp                                      run the MCP server on stdin/stdout
+farol mcp                                      run the MCP server on stdin/stdout
 
-crush --version
+farol --version
 ```
 
-**`crush mcp`** runs a Model Context Protocol server over stdin/stdout. The
+**`farol mcp`** runs a Model Context Protocol server over stdin/stdout. The
 tools it exposes mirror the CLI subcommands and return the same JSON shapes
 that `--json` would emit on the command line, so an agent host can call
-`crush` operations as native tool calls instead of spawning the CLI per
+`farol` operations as native tool calls instead of spawning the CLI per
 operation. The server is a thin adapter over `src/store` in
 `src/mcpserver`, not a layer on `src/cli`, preserving the "two front ends
 over one store" rule from §1 and §10.
@@ -939,8 +939,8 @@ is `false` for the stale-assignment tier (§3).
 6): `my_list` adds `position` and `created_by` to the `lists` rows it
 returns (`mine` + `foreign_lists`). **The read-only resources no longer
 mirror the tools.** Five resources that duplicated a tool row-for-row —
-`crush:///lists`, `crush:///lists/{id}`, `crush:///lists/{id}/tasks`,
-`crush:///tasks/{id}` and `crush:///search/{query}` — were deleted:
+`farol:///lists`, `farol:///lists/{id}`, `farol:///lists/{id}/tasks`,
+`farol:///tasks/{id}` and `farol:///search/{query}` — were deleted:
 keeping them meant every
 field added to a task had to be added in three places or the surfaces
 drifted, and MCP hosts do not auto-read resources, so they cost maintenance
@@ -949,7 +949,7 @@ no tool equivalent) and `farol://work` (presence) remain, and
 `TestMCPResourcesListed` pins that set at exactly two with zero templates.
 A new field belongs on the tool. The server-side tests that pin the
 MCP shapes live in `src/mcpserver/server_test.go`. The task read shapes —
-`show_task`/`crush show`, `list_tasks`/`crush tasks`, `search_tasks`/`crush
+`show_task`/`farol show`, `list_tasks`/`farol tasks`, `search_tasks`/`farol
 search` — carry `list_owner` on every row (the parent list's `created_by`,
 `""` for an unowned list), so an agent holding a task id knows at a glance
 whether its list is writable without a separate `my_list` round-trip
@@ -1117,15 +1117,15 @@ What is gated is *assignment*: `assign_task`, and any `set_status`/`edit_task`/
 unless `force=true` — the forced write performs the change, reassigns, and
 records a takeover comment — the refuse-with-override rule (§3). An **empty** `created_by`
 means owned by nobody, which makes the list foreign to *every* identity: an
-untagged list — the shape `crush lists add` and the TUI create — is read +
+untagged list — the shape `farol lists add` and the TUI create — is read +
 status/progress only for all agents, and only a human can restructure it.
 `add_list` defaults `created_by` to the session identity and accepts an
 explicit tag matching `^[A-Za-z0-9_-]{1,32}$`; `my_list` reports `created_by`
 on every row. Ownership is adopted from the `<tag>: <name>`
 naming convention in two places: a rename into a
 tag adopts the owner **in the same write** (`store.RenameList` — the human's
-`crush lists rename Groceries "pi: Groceries"` handoff path takes effect
-immediately), and `crush lists add --owner <tag>` provisions an owned list
+`farol lists rename Groceries "pi: Groceries"` handoff path takes effect
+immediately), and `farol lists add --owner <tag>` provisions an owned list
 from the start. One idempotent backfill pass at `store.Open` catches
 anything that predates both. The adoption cannot tell intent: any `^tag:`
 prefix is adopted, so a human list named `Note: buy milk` becomes owned by
@@ -1231,7 +1231,7 @@ distinguish "no data" from "failed" reads the exit code, never the bytes.
 - **Human output is plain text — no ANSI escapes** — so a script can capture
   any read command's stdout without stripping styling.
 
-`crush mv <task-id> [--parent <task-id>]` (re-parent a task) is the one
+`farol mv <task-id> [--parent <task-id>]` (re-parent a task) is the one
 CLI re-parent, without the ±1-level restriction §4 puts on the TUI's *add*
 flow — a CLI re-parent is a deliberate restructure, not the inline-add
 gesture that rule exists to keep predictable. The task stays in its current
@@ -1273,7 +1273,7 @@ src/
 ├── mcpserver/       # Model Context Protocol server; tools mirror the CLI but
 │                     # talk directly to src/store, not to src/cli
 ├── appstyles/       # Theme type + the 14-theme registry (§11)
-├── config/          # ~/.config/chore-crusher/config.yaml
+├── config/          # ~/.config/farol/config.yaml
 └── constants/       # layout widths, focusable-zone ids, branding
 ```
 
@@ -1285,7 +1285,7 @@ none of them ever builds a SQL string. **`src/cli`, `src/model`, and
 other**, which is the structural expression of "neither front end is
 secondary" from §1. `main.go` is the one file that imports the CLI and TUI
 to decide which to run, and `src/mcpserver` is reached through the
-`crush mcp` subcommand.
+`farol mcp` subcommand.
 
 ## 11. Theming
 
@@ -1659,7 +1659,7 @@ one is needed, it's added here first.
 | --- | --- | --- |
 | Task: pending | `◻` | Text-presentation square — the checkbox character Claude Code's todo lists use (`figures.squareSmall`, verified from its source, 2026-08-03). Single display cell, unlike the emoji ⬜ (2 cells). |
 | Task: in progress | `◻` | The same text-presentation square as pending — no dedicated glyph; the `IN PROGRESS` label and bar colour set the row apart. Used for all three progress kinds (§3) alike — the trailing percentage (below), not the checkbox, is what distinguishes them. |
-| Task: crush | `◼` | Filled square (`figures.squareSmallFilled`), tinted `StatusComplete`; title renders in `TextMuted`, not `TextPrimary`, once crush — see Typography below. |
+| Task: farol | `◼` | Filled square (`figures.squareSmallFilled`), tinted `StatusComplete`; title renders in `TextMuted`, not `TextPrimary`, once farol — see Typography below. |
 | Node has children, expanded | `▾` | One column wide, appended to the *end* of the title (see Row layout below). |
 | Node has children, collapsed | `▸` | Same column, same position — the marker never occupies a leading column, so a parent's title starts at its own depth. |
 | Node is a leaf | *(no glyph)* | Nothing appended; the title simply has no trailing marker. |
