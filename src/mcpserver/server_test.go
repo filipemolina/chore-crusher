@@ -25,6 +25,10 @@ func setupMCP(t *testing.T) *mcp.ClientSession {
 
 	// Keep every test isolated on its own temp data directory.
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// Same isolation for the config side: production paths run the
+	// one-shot dir migration (config.MigrateLegacyDirs) before opening
+	// the store, and the suite must never migrate the real ~/.config.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	// Pin the identity. Unset, FAROL_AGENT now yields a per-process tag,
 	// which would make every assertion about the "agent" tag unrepeatable.
@@ -77,6 +81,7 @@ func setupMCPAs(t *testing.T, identity string) *mcp.ClientSession {
 func sessionAs(t *testing.T, dataDir, identity string) *mcp.ClientSession {
 	t.Helper()
 	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("FAROL_AGENT", identity)
 
 	server, st, err := mcpserver.NewServer()
@@ -1514,6 +1519,7 @@ func TestMCPResourcesListed(t *testing.T) {
 func TestInboxResourceReturnsMineAndForeign(t *testing.T) {
 	// Use a shared data dir so two server identities (human + pi) see the same store.
 	dataDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", dataDir)
 
 	// human session: create a list + two pending tasks (one with notes).
@@ -2098,6 +2104,7 @@ func TestMCPPendingClaimsClearedOnSessionEnd(t *testing.T) {
 // for tasks B holds.
 func TestMCPAgentLivePresenceSurvivesOtherAgentSessionEnd(t *testing.T) {
 	// Set up two agents sharing the same data directory
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	dataDir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataDir)
 
@@ -4295,6 +4302,7 @@ func TestTwoUnconfiguredSessionsCannotWriteEachOthersTasks(t *testing.T) {
 	dataDir := t.TempDir()
 
 	// Both sessions come up with FAROL_AGENT unset, the default setup.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	sessionUnset := func(t *testing.T) *mcp.ClientSession {
 		t.Helper()
 		t.Setenv("XDG_DATA_HOME", dataDir)

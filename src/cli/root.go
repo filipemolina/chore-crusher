@@ -86,6 +86,11 @@ marks the task with that id complete (cascading to descendants).`,
 			if len(args) >= 1 {
 				return fmt.Errorf("unknown command %q for %q", args[0], cmd.Name())
 			}
+			// One-shot migration: move a pre-rename chore-crusher config/data
+			// pair to the farol paths before either is opened (idempotent).
+			if err := config.MigrateLegacyDirs(); err != nil {
+				return domainError(err)
+			}
 			s, err := store.Open(config.DBPath())
 			if err != nil {
 				return domainError(err)
@@ -136,6 +141,14 @@ marks the task with that id complete (cascading to descendants).`,
 // via printResult. No RunE writes its own error handling (docs/DESIGN.md §9).
 func runStore(cmd *cobra.Command, fn func(s *store.Store) error) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	// One-shot migration before the store opens (idempotent; see
+	// config.MigrateLegacyDirs). Failure is fatal: starting against an
+	// empty store while the user's data sits under the old name would
+	// look like data loss.
+	if err := config.MigrateLegacyDirs(); err != nil {
+		printError(jsonMode, err)
+		return domainError(err)
+	}
 	s, err := store.Open(config.DBPath())
 	if err != nil {
 		printError(jsonMode, err)

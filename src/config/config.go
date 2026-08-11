@@ -1,5 +1,5 @@
 // Package config reads and writes the user's persistent preferences:
-// ~/.config/chore-crusher/config.yaml (or $XDG_CONFIG_HOME if set).
+// ~/.config/farol/config.yaml (or $XDG_CONFIG_HOME if set).
 //
 // The config file is a small YAML document:
 //
@@ -57,12 +57,11 @@ func PollInterval(cfg Config) time.Duration {
 	return DefaultPollInterval
 }
 
-// configDir returns the directory the config file lives in:
-// $XDG_CONFIG_HOME/chore-crusher if XDG_CONFIG_HOME is set, otherwise
-// ~/.config/chore-crusher.
-func configDir() (string, error) {
+// configBase returns the XDG config root the app's config dir hangs off:
+// $XDG_CONFIG_HOME when set, ~/.config otherwise.
+func configBase() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "chore-crusher"), nil
+		return xdg, nil
 	}
 
 	home, err := os.UserHomeDir()
@@ -70,7 +69,29 @@ func configDir() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(home, ".config", "chore-crusher"), nil
+	return filepath.Join(home, ".config"), nil
+}
+
+// configDir returns the directory the config file lives in:
+// $XDG_CONFIG_HOME/farol if XDG_CONFIG_HOME is set, otherwise
+// ~/.config/farol.
+func configDir() (string, error) {
+	base, err := configBase()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "farol"), nil
+}
+
+// legacyConfigDir returns where the pre-rename config lived
+// ($XDG_CONFIG_HOME/chore-crusher). MigrateLegacyDirs moves it to
+// configDir() on first launch after the rename.
+func legacyConfigDir() (string, error) {
+	base, err := configBase()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "chore-crusher"), nil
 }
 
 // configPath returns the full path to the config file.

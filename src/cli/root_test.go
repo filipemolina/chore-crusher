@@ -21,6 +21,15 @@ import (
 func runCLI(t *testing.T, dataDir string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	t.Setenv("XDG_DATA_HOME", dataDir)
+	// The migration (config.MigrateLegacyDirs) runs before the store
+	// opens in production paths, so every CLI invocation in tests must
+	// point the CONFIG side at a scratch dir too — otherwise the suite
+	// migrates (or warns about) the real ~/.config on this machine.
+	// A test that already pinned XDG_CONFIG_HOME (e.g. the saved-theme
+	// round trip) keeps its dir.
+	if os.Getenv("XDG_CONFIG_HOME") == "" {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	}
 
 	outR, outW, err := os.Pipe()
 	if err != nil {
@@ -129,7 +138,7 @@ func TestSavedThemeAppliedAtStartup(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 
-	dir := filepath.Join(cfgHome, "chore-crusher")
+	dir := filepath.Join(cfgHome, "farol")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

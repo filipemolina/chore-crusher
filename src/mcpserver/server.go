@@ -167,6 +167,12 @@ func NewServer() (*mcp.Server, *store.Store, error) {
 // newServer is NewServer with the identity supplied, so a caller that needs to
 // know which tag the server acts as can resolve it once and pass it in.
 func newServer(identity string) (*mcp.Server, *store.Store, error) {
+	// One-shot migration before the store opens (idempotent; see
+	// config.MigrateLegacyDirs). Failure is fatal for the same reason the
+	// CLI treats it as fatal: a silently empty store looks like data loss.
+	if err := config.MigrateLegacyDirs(); err != nil {
+		return nil, nil, err
+	}
 	s, err := store.Open(config.DBPath())
 	if err != nil {
 		return nil, nil, err

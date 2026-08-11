@@ -45,8 +45,8 @@ func TestRoundTrip(t *testing.T) {
 		t.Errorf("round-tripped poll_interval_ms = %d, want %d", loaded.PollIntervalMs, original.PollIntervalMs)
 	}
 
-	// The file should live at $XDG_CONFIG_HOME/chore-crusher/config.yaml.
-	path := filepath.Join(home, "chore-crusher", "config.yaml")
+	// The file should live at $XDG_CONFIG_HOME/farol/config.yaml.
+	path := filepath.Join(home, "farol", "config.yaml")
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("config file not found at %s: %v", path, err)
 	}
@@ -56,7 +56,7 @@ func TestLoadConfigMalformed(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	dir := filepath.Join(home, "chore-crusher")
+	dir := filepath.Join(home, "farol")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	dir := filepath.Join(home, "chore-crusher")
+	dir := filepath.Join(home, "farol")
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("expected %s to not exist yet", dir)
 	}
