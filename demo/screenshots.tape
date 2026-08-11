@@ -20,13 +20,13 @@ Set TypingSpeed 45ms
 # Set up the throwaway XDG dirs so the TUI reads the seeded store.
 # Hide the shell setup — we only want to capture the app.
 Hide
-Type "export XDG_DATA_HOME=/tmp/chore-crusher-demo/data XDG_CONFIG_HOME=/tmp/chore-crusher-demo/config && clear"
+Type "export XDG_DATA_HOME=/tmp/farol-demo/data XDG_CONFIG_HOME=/tmp/farol-demo/config && clear"
 Enter
 Sleep 800ms
 Show
 
 # Launch the TUI.
-Type "/tmp/chore-crusher-demo/crush"
+Type "/tmp/farol-demo/farol"
 Enter
 Sleep 3s
 

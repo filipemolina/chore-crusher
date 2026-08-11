@@ -3,30 +3,30 @@
 # The tapes (demo/*.tape) set the same XDG dirs, so a stamped seed is what
 # they show — the recording neither depends on nor clobbers the real store.
 #
-#   ./demo/seed.sh [binary]     launch path defaults to /tmp/chore-crusher-demo/crush
+#   ./demo/seed.sh [binary]     launch path defaults to /tmp/farol-demo/farol
 #
-# Everything lives under /tmp/chore-crusher-demo so a run is reproducible from a
+# Everything lives under /tmp/farol-demo so a run is reproducible from a
 # clean checkout and touches nothing outside it.
 set -euo pipefail
 
-DATA=/tmp/chore-crusher-demo/data
-CONFIG=/tmp/chore-crusher-demo/config
-BIN=${1:-/tmp/chore-crusher-demo/crush}
+DATA=/tmp/farol-demo/data
+CONFIG=/tmp/farol-demo/config
+BIN=${1:-/tmp/farol-demo/farol}
 
 # Build the binary into the demo dir when it is missing, so the script is
 # self-contained from a clean checkout. The caller may pass an explicit path
-# (or rely on `crush` already being built/on PATH); otherwise we build in place.
+# (or rely on `farol` already being built/on PATH); otherwise we build in place.
 if [ ! -x "$BIN" ]; then
     mkdir -p "$(dirname "$BIN")"
     go build -o "$BIN" .
 fi
 
 # Pin the theme so frames don't depend on whatever the recorder's own config
-# holds. crush-ember is the compiled default, so this is belt-and-suspenders
+# holds. farol-ember is the compiled default, so this is belt-and-suspenders
 # against a later re-theme.
 rm -rf "$DATA" "$CONFIG"
-mkdir -p "$DATA" "$CONFIG/chore-crusher"
-printf 'theme: crush-ember\n' > "$CONFIG/chore-crusher/config.yaml"
+mkdir -p "$DATA" "$CONFIG/farol"
+printf 'theme: farol-ember\n' > "$CONFIG/farol/config.yaml"
 
 export XDG_DATA_HOME="$DATA"
 export XDG_CONFIG_HOME="$CONFIG"

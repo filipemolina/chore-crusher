@@ -12,10 +12,10 @@ dev:
 	go run main.go
 
 # Build and install to $(go env GOPATH)/bin (~/go/bin by default).
-# ~/go/bin is on PATH, so `crush` is runnable immediately
+# ~/go/bin is on PATH, so `farol` is runnable immediately
 # after `make build` — no sudo, no extra setup.
 build:
-	go build -ldflags "$(LDFLAGS)" -o "$(shell go env GOPATH)/bin/crush" .
+	go build -ldflags "$(LDFLAGS)" -o "$(shell go env GOPATH)/bin/farol" .
 
 # Run the test suite
 test:
@@ -25,8 +25,8 @@ test:
 # Build and seed the demo, then record a new demo GIF.
 # Requires VHS (https://github.com/charmbracelet/vhs) and ffmpeg.
 demo:
-	go build -o /tmp/chore-crusher-demo/crush .
-	./demo/seed.sh /tmp/chore-crusher-demo/crush
+	go build -o /tmp/farol-demo/farol .
+	./demo/seed.sh /tmp/farol-demo/farol
 	vhs demo/demo.tape
 	./demo/compress.sh
 	vhs demo/screenshots.tape

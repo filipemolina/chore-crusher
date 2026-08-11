@@ -1,7 +1,7 @@
-# VHS tape for the chore-crusher README demo.
+# VHS tape for the farol README demo.
 # Install VHS first: https://github.com/charmbracelet/vhs (needs ttyd + ffmpeg too).
 #
-# seed.sh compiles ./crush into /tmp/chore-crusher-demo/crush and seeds the
+# seed.sh compiles ./farol into /tmp/farol-demo/farol and seeds the
 # throwaway store there, so the recording never touches the recorder's real
 # data. Re-record from the repo root with:
 #
@@ -28,8 +28,8 @@ Set Theme "Dracula"
 Set CursorBlink false
 Set TypingSpeed 45ms
 
-# Build the binary and seed the throwaway store. seed.sh compiles ./crush into
-# /tmp/chore-crusher-demo/crush itself, so this is self-contained from a clean
+# Build the binary and seed the throwaway store. seed.sh compiles ./farol into
+# /tmp/farol-demo/farol itself, so this is self-contained from a clean
 # checkout. Hide every frame of setup — the GIF starts at the TUI on the
 # seeded "Home" list.
 Hide
@@ -38,12 +38,12 @@ Enter
 Sleep 3s
 # Export the same throwaway XDG dirs inside the visible shell so the TUI reads
 # them (also hidden — we only want to show the app).
-Type "export XDG_DATA_HOME=/tmp/chore-crusher-demo/data XDG_CONFIG_HOME=/tmp/chore-crusher-demo/config && clear"
+Type "export XDG_DATA_HOME=/tmp/farol-demo/data XDG_CONFIG_HOME=/tmp/farol-demo/config && clear"
 Enter
 Sleep 800ms
 
 # Launch the TUI. Show only after it has had time to render.
-Type "/tmp/chore-crusher-demo/crush"
+Type "/tmp/farol-demo/farol"
 Enter
 Sleep 3s
 Show
