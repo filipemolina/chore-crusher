@@ -13,7 +13,7 @@ import (
 // TestRowNeverDrawsDefaultForeground pins the foreground-bleed invariant for
 // every row state: a title drawn with no foreground SGR renders in the
 // terminal's own default color, which vanishes on a light theme's panel
-// (crush-day made the bug visible: pending titles were white on warm
+// (farol-day made the bug visible: pending titles were white on warm
 // off-white). The fix gave every state an explicit tier — TextPrimary for
 // pending and in progress, TextMuted for complete — and styled the
 // expand/collapse marker with the row's own tier rather than leaving it

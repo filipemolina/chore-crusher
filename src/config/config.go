@@ -3,7 +3,7 @@
 //
 // The config file is a small YAML document:
 //
-//	theme: crush-ember
+//	theme: farol-ember
 //	poll_interval_ms: 1000
 //
 // More fields will land later (docs/ROADMAP.md). The struct and the write

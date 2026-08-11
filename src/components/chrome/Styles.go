@@ -165,7 +165,7 @@ func BarColumn(fg color.Color, bg color.Color, content string) string {
 // default style a textinput.New() ships carries NO foreground on its
 // focused Text (and a hardcoded ANSI-256 white on the blurred one), which
 // reads on the dark panels but disappears on a light theme's panel
-// (crush-day: white text on warm off-white). Every tier here comes from the
+// (farol-day: white text on warm off-white). Every tier here comes from the
 // active theme: the typed text is TextPrimary in both focus states, the
 // placeholder is TextDim (§12's inert-text tier), and the two states sit on
 // the caller's own surfaces. Rebuilt every render, the same way detailspanel's

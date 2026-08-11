@@ -4,7 +4,7 @@ import "testing"
 
 // TestHasDefaultForeground pins the invariant that keeps light themes legible:
 // any visible glyph drawn with no foreground SGR in effect reads in the
-// terminal's own default color, which vanishes on crush-day's light panels.
+// terminal's own default color, which vanishes on farol-day's light panels.
 // The table transcribes the SGR state machine lineHasDefaultForeground walks:
 // a foreground is in effect from the first fg-setting sequence until a reset
 // clears it, and only non-space glyphs count.

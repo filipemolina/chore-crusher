@@ -87,7 +87,7 @@ func (m Model) ViewInPanel(width, height int, bg color.Color) string {
 	// Seal the filter input onto this panel's surface every render: the
 	// bubbles textinput default carries no foreground on its focused Text
 	// (and a hardcoded white on the blurred one), which vanishes on a light
-	// theme's panel (crush-day). Rebuilt here, not once in New, so a theme
+	// theme's panel (farol-day). Rebuilt here, not once in New, so a theme
 	// switch cannot leave a stale palette on the bar (docs/DESIGN.md §12).
 	chrome.SealInput(&m.filterInput, bg, bg)
 
@@ -519,7 +519,7 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 	// styled with the row's own title tier here, before it is appended: the
 	// title's rendered span ends in a reset, so an unstyled marker after it
 	// would draw in the terminal's default color just like an unstyled title
-	// (crush-day: white glyph on a light panel).
+	// (farol-day: white glyph on a light panel).
 	trailing := ""
 	if row.HasChildren {
 		if m.collapsed[row.Task.ID] {
@@ -536,7 +536,7 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 	// Every other row carries its theme tier explicitly too — never an
 	// unstyled title: text without a foreground draws in the terminal's own
 	// default color, light on nearly every terminal, which vanishes on a
-	// light theme's panels (crush-day: pending titles white on warm
+	// light theme's panels (farol-day: pending titles white on warm
 	// off-white).
 	title := row.Task.Title
 	if len(matchedIndexes) > 0 {
@@ -641,7 +641,7 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 	m.createInput.SetWidth(max(1, cardWidth-cardInset-prefixWidth))
 	// Seal onto the create card's own surface (ModalBg — see renderTaskCard
 	// below): the bubbles default carries no foreground on focused text,
-	// which vanishes on a light theme's card (crush-day). Per render, so a
+	// which vanishes on a light theme's card (farol-day). Per render, so a
 	// theme switch cannot leave a stale palette mid-entry.
 	chrome.SealInput(&m.createInput, appstyles.Active.ModalBg, appstyles.Active.ModalBg)
 

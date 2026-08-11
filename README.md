@@ -50,7 +50,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | **Live agent presence** | Animated spinner lights on task writes. You see exactly what's working. |
 | **4-value priority** | `high` > `medium` > `low` > `none` (drives `next_task` ordering) |
 | **MCP server** | 12 tools + 2 resources + 3 prompts for discoverable agent integration |
-| **Themes** | 14 themes: four of the app's own (`crush-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
+| **Themes** | 14 themes: four of the app's own (`farol-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
 
 ---
 
@@ -98,7 +98,7 @@ On first launch, Chore Crusher creates:
 - Data: `~/.local/share/chore-crusher/chore-crusher.db` (SQLite store)
 - Config: `~/.config/chore-crusher/config.yaml` (theme, layout)
 
-The default list `Inbox` is created automatically under `crush-ember` theme.
+The default list `Inbox` is created automatically under `farol-ember` theme.
 
 ---
 

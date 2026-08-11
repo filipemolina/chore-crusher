@@ -29,7 +29,7 @@ func TestRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	original := Config{Theme: "crush-slate", PollIntervalMs: 500}
+	original := Config{Theme: "farol-slate", PollIntervalMs: 500}
 	if err := SaveConfig(original); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 		t.Fatalf("expected %s to not exist yet", dir)
 	}
 
-	if err := SaveConfig(Config{Theme: "crush-dark"}); err != nil {
+	if err := SaveConfig(Config{Theme: "farol-dark"}); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 
@@ -92,10 +92,10 @@ func TestSaveConfigOverwrites(t *testing.T) {
 	home := t.TempDir()
 	withConfigHome(t, home)
 
-	if err := SaveConfig(Config{Theme: "crush-slate"}); err != nil {
+	if err := SaveConfig(Config{Theme: "farol-slate"}); err != nil {
 		t.Fatalf("first SaveConfig: %v", err)
 	}
-	if err := SaveConfig(Config{Theme: "crush-ember"}); err != nil {
+	if err := SaveConfig(Config{Theme: "farol-ember"}); err != nil {
 		t.Fatalf("second SaveConfig: %v", err)
 	}
 
@@ -103,7 +103,7 @@ func TestSaveConfigOverwrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if loaded.Theme != "crush-ember" {
-		t.Errorf("overwritten theme = %q, want %q", loaded.Theme, "crush-ember")
+	if loaded.Theme != "farol-ember" {
+		t.Errorf("overwritten theme = %q, want %q", loaded.Theme, "farol-ember")
 	}
 }

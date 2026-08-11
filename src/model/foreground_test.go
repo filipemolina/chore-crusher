@@ -17,14 +17,14 @@ import (
 // foreground invariant against the light theme that exposed the bug class:
 // every visible glyph in a rendered frame must carry an explicit foreground
 // tier, because a glyph with none draws in the terminal's own default
-// color — light on nearly every terminal, invisible on crush-day's warm
+// color — light on nearly every terminal, invisible on farol-day's warm
 // off-white panels. The original report was pending task titles rendering
 // white on white; the fix styled the rows and sealed every text input, and
 // this test guards all of it at once by asserting
 // appstyles.HasDefaultForeground over the entire composed frame.
 func TestFullFrameDrawsNoDefaultForegroundOnCrushDay(t *testing.T) {
-	if !appstyles.SetTheme("crush-day") {
-		t.Fatal("crush-day theme not registered")
+	if !appstyles.SetTheme("farol-day") {
+		t.Fatal("farol-day theme not registered")
 	}
 	defer appstyles.SetTheme(appstyles.DefaultTheme)
 
@@ -86,7 +86,7 @@ func TestFullFrameDrawsNoDefaultForegroundOnCrushDay(t *testing.T) {
 		}
 	}
 	if appstyles.HasDefaultForeground(out) {
-		t.Errorf("crush-day frame draws glyphs in the terminal default foreground:\n%s", stripped)
+		t.Errorf("farol-day frame draws glyphs in the terminal default foreground:\n%s", stripped)
 	}
 }
 
@@ -115,8 +115,8 @@ func TestFullFrameDrawsNoDefaultForegroundOnDefaultTheme(t *testing.T) {
 // activate the filter, type a character, and assert the bar and the panel
 // beneath it are clean. Same setup as quit_test.go's lists-filter case.
 func TestListsFilterBarDrawsNoDefaultForegroundOnCrushDay(t *testing.T) {
-	if !appstyles.SetTheme("crush-day") {
-		t.Fatal("crush-day theme not registered")
+	if !appstyles.SetTheme("farol-day") {
+		t.Fatal("farol-day theme not registered")
 	}
 	defer appstyles.SetTheme(appstyles.DefaultTheme)
 
@@ -139,6 +139,6 @@ func TestListsFilterBarDrawsNoDefaultForegroundOnCrushDay(t *testing.T) {
 		t.Fatalf("frame does not show the lists filter bar:\n%s", stripped)
 	}
 	if appstyles.HasDefaultForeground(out) {
-		t.Errorf("crush-day lists filter frame draws glyphs in the terminal default foreground:\n%s", stripped)
+		t.Errorf("farol-day lists filter frame draws glyphs in the terminal default foreground:\n%s", stripped)
 	}
 }

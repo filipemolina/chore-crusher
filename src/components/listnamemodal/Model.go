@@ -167,7 +167,7 @@ func (m Model) View() tea.View {
 
 	// Seal the input onto the modal surface every render: the bubbles
 	// textinput default carries no foreground on focused text, which
-	// vanishes on a light theme's modal (crush-day). Same per-render
+	// vanishes on a light theme's modal (farol-day). Same per-render
 	// discipline as detailspanel's inputs (docs/DESIGN.md §12).
 	chrome.SealInput(&m.input, appstyles.Active.ModalBg, appstyles.Active.ModalBg)
 

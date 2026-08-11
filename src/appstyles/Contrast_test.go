@@ -62,17 +62,17 @@ func TestElevationSeparation(t *testing.T) {
 // separately. This test still pins the step so a future change can't collapse
 // elevated and panel onto the same fill.
 //
-// Measured floor: ~1.10 (crush-day, the lone light theme). The panel-surface
+// Measured floor: ~1.10 (farol-day, the lone light theme). The panel-surface
 // step is inherently bounded at ~1.1-1.2 for BOTH light and dark themes,
 // because both tiers derive from the same near-white (light) or near-black
 // (dark) base by Lighten/Darken: in a light theme a larger coefficient
 // darkens elevated toward the (lighter) panel, shrinking the ratio, so the
-// additive raise ladder cannot exceed ~1.2 on crush-day without also moving
+// additive raise ladder cannot exceed ~1.2 on farol-day without also moving
 // the base palette. (A geometric ladder was prototyped and hit the same
 // ~1.1-1.2 cap — the base, not the step function, is the binding variable.)
 // The genuinely perceptible, theme-independent focus signal is therefore the
 // SELECTED-ROW contrast (ModalBg focused vs BackgroundElevated unfocused,
-// fixed in Step 1), which measures ~9.5:1 on crush-day — three orders of
+// fixed in Step 1), which measures ~9.5:1 on farol-day — three orders of
 // magnitude more legible than the panel-surface step. This floor of 1.10
 // only catches a regression that makes the two tiers identical; it is not, and
 // cannot be under the current elevation math, a perceptibility guarantee.

@@ -15,7 +15,7 @@ import (
 // foreground unset, so the glyph draws in whatever the user's terminal
 // calls "normal text". Nearly every terminal default is light, which reads
 // on the app's dark panels but vanishes on a light theme's panels
-// (crush-day made the bug visible: pending task titles rendered white on
+// (farol-day made the bug visible: pending task titles rendered white on
 // warm off-white). The fix is never here — foreground cannot be repainted
 // mechanically the way FillBackground repaints whitespace — so this
 // function only asserts the invariant, and components keep it by drawing

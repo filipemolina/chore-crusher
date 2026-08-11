@@ -790,7 +790,7 @@ exactly two fields at launch, in a struct designed to grow — add a field,
 tag it, and `LoadConfig`/`SaveConfig` round-trip it automatically:
 
 ```yaml
-theme: crush-dark
+theme: farol-dark
 poll_interval_ms: 1000
 ```
 
@@ -1344,10 +1344,10 @@ tier"), but the step's *contrast ratio* is inherently small for every theme:
 0.08)`, `BackgroundElevated = raise(Panel, 0.12)`, `BackgroundRecessed =
 Panel` (un-raised base). Both elevated and panel derive from the same base by
 `Lighten` (dark) / `Darken` (light), so for a near-black base (dark themes)
-the additive step near black is tiny, and for a near-white base (crush-day,
+the additive step near black is tiny, and for a near-white base (farol-day,
 the lone light theme) a larger coefficient *darkens* elevated toward the
 *lighter* panel, shrinking the ratio. Measured: the elevated-vs-panel step is
-~1.10-1.17 for every theme and is capped at ~1.2 for crush-day under the
+~1.10-1.17 for every theme and is capped at ~1.2 for farol-day under the
 additive ladder — a geometric ladder was prototyped and hit the same cap, so
 the base palette, not the step function, is the binding variable. The nominal
 1.35 target for this step is therefore unreachable without moving the base
@@ -1355,7 +1355,7 @@ colors and/or relaxing the `TextPrimary on elevated ≥ 4.5` ceiling, both out
 of scope for the focus bug. The genuinely perceptible, theme-independent focus
 signal is the **selected-row** contrast (`ModalBg` for the focused panel's
 active row vs `BackgroundElevated` for an unfocused panel's remembered row),
-which `chrome.ListRowBg` produces and which measures ~9.5:1 on crush-day —
+which `chrome.ListRowBg` produces and which measures ~9.5:1 on farol-day —
 that is the fix that makes focus obvious, not the panel-surface step.
 
 **Text colors that sit on the elevated tier.** Three imported palettes ship a
@@ -1377,15 +1377,15 @@ match this app's domain:
 | `StatusInProgress` | active |
 | `StatusOverdue` | *(reserved; unused until a due-date feature exists — see `docs/ROADMAP.md`)* |
 
-The registry holds 14 themes: four of this app's own — `crush-dark`,
-`crush-ember`, `crush-slate`, `crush-day` — plus ten imported community
+The registry holds 14 themes: four of this app's own — `farol-dark`,
+`farol-ember`, `farol-slate`, `farol-day` — plus ten imported community
 palettes (catppuccin-mocha, gruvbox-dark, tokyo-night, nord, dracula,
 solarized-dark, one-dark, everforest-dark, rose-pine, kanagawa-wave). The
 imported palettes carry their original accent, text/panel/modal bases and
 status hexes unchanged: a person who knows "Tokyo Night" should see it
 render the same way here, because it is the same theme, not a
 reinterpretation of one. **The fresh-install default is
-`"crush-ember"`** — `DefaultTheme` names it, and a config with no
+`"farol-ember"`** — `DefaultTheme` names it, and a config with no
 `theme:` preference activates it; every other registered theme (including
 `gruvbox-dark`) stays selectable through the `T` picker and as a saved
 `theme:` value.
@@ -1459,7 +1459,7 @@ optional polish, it's the mechanical check that catches a missing
 Background sealing alone is not enough: a glyph with no foreground SGR in
 effect draws in whatever the user's terminal calls "normal text", and nearly
 every terminal default is light. On the dark themes that reads fine; on a
-light theme it vanishes — `crush-day` made the bug visible, with pending
+light theme it vanishes — `farol-day` made the bug visible, with pending
 task titles rendering white on warm off-white. The rule is the foreground
 analogue of the sealing rule:
 
