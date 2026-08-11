@@ -53,20 +53,39 @@ func progressOf(s *store.Store, id string) (progressJSON, error) {
 	return progressJSON{Kind: string(kind), Percent: p, DisplayAsSimple: simple}, nil
 }
 
-// taskRowJSON is one row of `farol tasks` (and `farol show`'s
+// listTasksResult is the `farol tasks --json` envelope: the tasks array plus
+// the ids of the rows the --include body budget dropped (so the caller can
+// re-fetch them with `farol show`) and whether the budget was exceeded at all
+// — true exactly when elided is non-empty. Mirrors the MCP list_tasks result.
+type listTasksResult struct {
+	Tasks          []taskRowJSON `json:"tasks"`
+	Elided         []string      `json:"elided"`
+	BudgetExceeded bool          `json:"budget_exceeded"`
+}
+
 // children) in JSON mode: a flat preorder array with depth, so a caller
 // walks the same shape whether or not it asked for --flat (docs/DESIGN.md
-// §9).
+// §9). It is a superset of the MCP list_tasks row: the additive fields
+// (has_notes, notes_len, assigned_at, assignee_live, context_only, the
+// inlined notes/comments) are MCP-compatible so the CLI can fully replace
+// the server. omitempty keeps the payload legible when the fields are empty.
 type taskRowJSON struct {
-	ID        string       `json:"id"`
-	ParentID  *string      `json:"parent_id"`
-	Title     string       `json:"title"`
-	Status    string       `json:"status"`
-	Progress  progressJSON `json:"progress"`
-	Depth     int          `json:"depth"`
-	ListOwner string       `json:"list_owner"`
-	Assignee  string       `json:"assignee"`
-	Priority  string       `json:"priority"`
+	ID           string        `json:"id"`
+	ParentID     *string       `json:"parent_id"`
+	Title        string        `json:"title"`
+	Status       string        `json:"status"`
+	Progress     progressJSON  `json:"progress"`
+	Depth        int           `json:"depth"`
+	ListOwner    string        `json:"list_owner"`
+	Assignee     string        `json:"assignee"`
+	AssignedAt   *int64        `json:"assigned_at,omitempty"`
+	AssigneeLive bool          `json:"assignee_live"`
+	Priority     string        `json:"priority"`
+	HasNotes     bool          `json:"has_notes"`
+	NotesLen     int           `json:"notes_len"`
+	Notes        string        `json:"notes,omitempty"`
+	ContextOnly  bool          `json:"context_only,omitempty"`
+	Comments     []commentJSON `json:"comments,omitempty"`
 }
 
 // taskView is one flattened row with its derived progress computed once, so
@@ -88,6 +107,10 @@ func newTasksCmd() *cobra.Command {
 		"filter by root task status: pending, in_progress, complete, or all")
 	cmd.Flags().Bool("flat", false,
 		"print id, status, and title per line instead of the indented tree")
+	cmd.Flags().Int64("since", 0,
+		"unix seconds; return only tasks whose activity changed strictly after this (widens default status to all)")
+	cmd.Flags().StringSlice("include", nil,
+		"inline extra per-row fields: 'notes' and/or 'comments'; a byte budget caps the response and over-budget rows are named in 'elided'")
 	return cmd
 }
 
@@ -352,8 +375,15 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	status, _ := cmd.Flags().GetString("status")
 	flat, _ := cmd.Flags().GetBool("flat")
+	since, _ := cmd.Flags().GetInt64("since")
+	include, _ := cmd.Flags().GetStringSlice("include")
 	if !validStatusFilter(status) {
 		err := fmt.Errorf("invalid --status %q: want pending, in_progress, complete, or all", status)
+		printError(jsonMode, err)
+		return domainError(err)
+	}
+	includeNotes, includeComments, err := parseInclude(include)
+	if err != nil {
 		printError(jsonMode, err)
 		return domainError(err)
 	}
@@ -370,6 +400,12 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		// One presence read per request, shared by every row's
+		// assignee_live field (docs/DESIGN.md §3).
+		live, err := liveAgents(s)
+		if err != nil {
+			return err
+		}
 		pending, complete := sectionRows(tasks, status)
 		pendingViews, err := viewsOf(s, pending)
 		if err != nil {
@@ -382,21 +418,58 @@ func runTasks(cmd *cobra.Command, args []string) error {
 
 		payload := make([]taskRowJSON, 0, len(pendingViews)+len(completeViews))
 		for _, v := range append(pendingViews, completeViews...) {
+			t := v.row.Task
 			payload = append(payload, taskRowJSON{
-				ID:        v.row.Task.ID,
-				ParentID:  v.row.Task.ParentID,
-				Title:     v.row.Task.Title,
-				Status:    string(v.row.Task.Status),
-				Progress:  v.prog,
-				Depth:     v.row.Depth,
-				ListOwner: l.CreatedBy,
-				Assignee:  v.row.Task.Assignee,
-				Priority:  string(v.row.Task.Priority),
+				ID:           t.ID,
+				ParentID:     t.ParentID,
+				Title:        t.Title,
+				Status:       string(t.Status),
+				Progress:     v.prog,
+				Depth:        v.row.Depth,
+				ListOwner:    l.CreatedBy,
+				Assignee:     t.Assignee,
+				AssignedAt:   t.AssignedAt,
+				AssigneeLive: assigneeLive(live, t.Assignee),
+				Priority:     string(t.Priority),
+				HasNotes:     t.Notes != "",
+				NotesLen:     len(t.Notes),
 			})
 		}
 
+		// The folded list_changes: keep only rows whose activity changed
+		// strictly after `since`. An explicit --since widens the default
+		// status to all, matching the MCP list_tasks contract (a change
+		// feed must not be blind to completions).
+		if since > 0 {
+			changed, err := s.TasksChangedSince(id, since)
+			if err != nil {
+				return err
+			}
+			changedSet := make(map[string]bool, len(changed))
+			for _, t := range changed {
+				changedSet[t.ID] = true
+			}
+			kept := payload[:0]
+			for _, r := range payload {
+				if changedSet[r.ID] {
+					kept = append(kept, r)
+				}
+			}
+			payload = kept
+		}
+
+		var elided []string
+		var budgetExceeded bool
+		if includeNotes || includeComments {
+			elided, budgetExceeded, err = inlineBodyBudget(s, id, payload, tasks, includeNotes, includeComments)
+			if err != nil {
+				return err
+			}
+		}
+
+		humanViews := append(pendingViews, completeViews...)
 		printResult(jsonMode, func() {
-			if len(pendingViews) == 0 && len(completeViews) == 0 {
+			if len(humanViews) == 0 {
 				return // an empty result prints nothing in human mode (§9)
 			}
 			if flat {
@@ -406,9 +479,26 @@ func runTasks(cmd *cobra.Command, args []string) error {
 			}
 			renderSection("Pending", pendingViews)
 			renderSection("Complete", completeViews)
-		}, payload)
+		}, listTasksResult{Tasks: payload, Elided: elided, BudgetExceeded: budgetExceeded})
 		return nil
 	})
+}
+
+// parseInclude validates the --include values and maps them to the two
+// boolean flags inlineBodyBudget understands. Unknown values are a hard error
+// (§9), not a silent no-op.
+func parseInclude(values []string) (notes, comments bool, err error) {
+	for _, v := range values {
+		switch v {
+		case "notes":
+			notes = true
+		case "comments":
+			comments = true
+		default:
+			return false, false, fmt.Errorf("unknown --include %q: supported values are notes, comments", v)
+		}
+	}
+	return notes, comments, nil
 }
 
 // renderSection prints a §6 section header and its rows — the header shows

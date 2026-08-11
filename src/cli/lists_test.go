@@ -135,10 +135,11 @@ func TestPrefixResolution(t *testing.T) {
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
 
 	mustCLI(t, data, "rename", tid[:8], "Renamed task")
-	var payload []taskRowJSON
+	var payload listTasksResult
 	mustJSONCLI(t, data, &payload, "tasks", lid[:6], "--json")
-	if payload[0].Title != "Renamed task" {
-		t.Errorf("prefix rename/resolve: %+v", payload)
+	rows := payload.Tasks
+	if rows[0].Title != "Renamed task" {
+		t.Errorf("prefix rename/resolve: %+v", rows)
 	}
 }
 

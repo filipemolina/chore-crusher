@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/filipemolina/farol/src/config"
 	"github.com/filipemolina/farol/src/store"
@@ -27,24 +29,27 @@ func TestTaskTreeAndCascade(t *testing.T) {
 
 	// Completing the parent cascades to the child.
 	mustCLI(t, data, parent)
-	var payload []taskRowJSON
+	var payload listTasksResult
 	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
-	if payload[0].Status != "complete" || payload[1].Status != "complete" || payload[1].ID != child {
-		t.Errorf("after cascade: %+v", payload)
+	rows := payload.Tasks
+	if rows[0].Status != "complete" || rows[1].Status != "complete" || rows[1].ID != child {
+		t.Errorf("after cascade: %+v", rows)
 	}
 
 	// Reopening the parent does not cascade.
 	mustCLI(t, data, "reopen", parent)
 	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
-	if payload[0].Status != "pending" || payload[1].Status != "complete" {
-		t.Errorf("after reopen: %+v", payload)
+	rows = payload.Tasks
+	if rows[0].Status != "pending" || rows[1].Status != "complete" {
+		t.Errorf("after reopen: %+v", rows)
 	}
 
 	// Toggle flips whichever applies: complete parent back to pending.
 	mustCLI(t, data, "toggle", parent)
 	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
-	if payload[0].Status != "complete" {
-		t.Errorf("after toggle: %+v", payload)
+	rows = payload.Tasks
+	if rows[0].Status != "complete" {
+		t.Errorf("after toggle: %+v", rows)
 	}
 
 	// §6: the whole tree renders under Complete once its root is complete.
@@ -84,10 +89,11 @@ func TestProgressValidationAndDisplay(t *testing.T) {
 	// A valid percentage starts the task (pending -> in_progress) and shows
 	// the trailing suffix.
 	mustCLI(t, data, "progress", tid, "--mode", "percentage", "--percent", "60")
-	var payload []taskRowJSON
+	var payload listTasksResult
 	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
-	if payload[0].Status != "in_progress" || payload[0].Progress.Percent == nil || *payload[0].Progress.Percent != 60 {
-		t.Errorf("after progress: %+v", payload[0])
+	rows := payload.Tasks
+	if rows[0].Status != "in_progress" || rows[0].Progress.Percent == nil || *rows[0].Progress.Percent != 60 {
+		t.Errorf("after progress: %+v", rows[0])
 	}
 	out := mustCLI(t, data, "tasks", lid)
 	if !strings.Contains(out, "[~] task (60%)") {
@@ -232,12 +238,13 @@ func TestMoveReparents(t *testing.T) {
 	// `complete mv` is a deliberate restructure: move a root task under
 	// another task's subtree, with no ±1-level add-flow restriction.
 	mustCLI(t, data, "mv", other, "--parent", root)
-	var payload []taskRowJSON
+	var payload listTasksResult
 	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
-	if len(payload) != 3 || payload[0].ID != root || payload[1].ID != child || payload[2].ID != other {
-		t.Fatalf("after mv preorder = %s,%s,%s; want root, child, other", payload[0].ID, payload[1].ID, payload[2].ID)
+	rows := payload.Tasks
+	if len(rows) != 3 || rows[0].ID != root || rows[1].ID != child || rows[2].ID != other {
+		t.Fatalf("after mv preorder = %s,%s,%s; want root, child, other", rows[0].ID, rows[1].ID, rows[2].ID)
 	}
-	for _, p := range payload[1:] {
+	for _, p := range rows[1:] {
 		if p.ParentID == nil || *p.ParentID != root {
 			t.Errorf("row %s parent = %v after mv, want root", p.ID, p.ParentID)
 		}
@@ -246,9 +253,10 @@ func TestMoveReparents(t *testing.T) {
 	// An empty --parent (the flag default, i.e. omitting it) moves to root.
 	mustCLI(t, data, "mv", child, "--parent", "")
 	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
-	for _, p := range payload {
+	rows = payload.Tasks
+	for _, p := range rows {
 		if p.ID == child && p.ParentID != nil {
-			t.Errorf("child parent = %v after moving to root, want nil", p.ParentID)
+			t.Errorf("child parent = %v after mv to root, want nil", p.ParentID)
 		}
 	}
 
@@ -273,8 +281,9 @@ func TestTasksJSONCarriesListOwner(t *testing.T) {
 	mustCLI(t, data, "add", owned, "Write tests")
 
 	// farol tasks --json carries list_owner on every row.
-	var rows []taskRowJSON
-	mustJSONCLI(t, data, &rows, "tasks", owned, "--json")
+	var res listTasksResult
+	mustJSONCLI(t, data, &res, "tasks", owned, "--json")
+	rows := res.Tasks
 	if len(rows) != 1 || rows[0].ListOwner != "pi" {
 		t.Errorf("tasks --json list_owner = %+v, want pi", rows)
 	}
@@ -573,8 +582,9 @@ func TestUnassignListJSONShape(t *testing.T) {
 		t.Fatalf("unassign --list --json = %+v, want ok:true released:2", rel)
 	}
 
-	var rows []taskRowJSON
-	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	var res listTasksResult
+	mustJSONCLI(t, data, &res, "tasks", lid, "--json")
+	rows := res.Tasks
 	for _, r := range rows {
 		if r.Assignee != "" {
 			t.Errorf("row %s still assigned after unassign --list: %+v", r.ID, r)
@@ -608,8 +618,9 @@ func TestPriorityJSONShapes(t *testing.T) {
 	if details.Priority != "high" {
 		t.Errorf("show priority = %q, want high", details.Priority)
 	}
-	var rows []taskRowJSON
-	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	var tres listTasksResult
+	mustJSONCLI(t, data, &tres, "tasks", lid, "--json")
+	rows := tres.Tasks
 	if len(rows) != 1 || rows[0].Priority != "high" {
 		t.Errorf("tasks rows = %+v, want priority high", rows)
 	}
@@ -655,16 +666,114 @@ func TestTasksRowsCarryAssignment(t *testing.T) {
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
-	var rows []taskRowJSON
-	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	var res listTasksResult
+	mustJSONCLI(t, data, &res, "tasks", lid, "--json")
+	rows := res.Tasks
 	if len(rows) != 1 || rows[0].Assignee != "" || rows[0].Priority != "none" {
 		t.Fatalf("new task rows = %+v, want assignee \"\" and priority none", rows)
 	}
 
 	mustCLI(t, data, "assign", tid)
-	mustJSONCLI(t, data, &rows, "tasks", lid, "--json")
+	mustJSONCLI(t, data, &res, "tasks", lid, "--json")
+	rows = res.Tasks
 	if rows[0].Assignee != "pi" {
 		t.Errorf("assigned row = %+v, want assignee pi", rows[0])
+	}
+}
+
+// TestTasksRowSupersetAndInclude pins the parity 1.3/1.4 surface:
+// has_notes/notes_len on every row, --include notes inlines bodies under the
+// byte budget with elided/budget_exceeded, and --since returns only rows
+// changed after the cutoff.
+func TestTasksRowSupersetAndInclude(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	withNotes := strings.TrimSpace(mustCLI(t, data, "add", lid, "has notes"))
+	mustCLI(t, data, "notes", withNotes, "some body text here")
+	plain := strings.TrimSpace(mustCLI(t, data, "add", lid, "plain"))
+
+	// has_notes / notes_len present on every row.
+	var res listTasksResult
+	mustJSONCLI(t, data, &res, "tasks", lid, "--json")
+	if len(res.Tasks) != 2 {
+		t.Fatalf("tasks = %d, want 2", len(res.Tasks))
+	}
+	for _, r := range res.Tasks {
+		switch r.ID {
+		case withNotes:
+			if !r.HasNotes || r.NotesLen != len("some body text here") {
+				t.Errorf("withNotes row %+v: want has_notes true and notes_len", r)
+			}
+		case plain:
+			if r.HasNotes || r.NotesLen != 0 {
+				t.Errorf("plain row %+v: want has_notes false, notes_len 0", r)
+			}
+		}
+		if res.Elided != nil {
+			t.Errorf("no --include: elided should be nil, got %v", res.Elided)
+		}
+	}
+
+	// --include notes inlines the body.
+	mustJSONCLI(t, data, &res, "tasks", lid, "--include", "notes", "--json")
+	var inlined *taskRowJSON
+	for i := range res.Tasks {
+		if res.Tasks[i].ID == withNotes {
+			inlined = &res.Tasks[i]
+		}
+	}
+	if inlined == nil || inlined.Notes != "some body text here" {
+		t.Fatalf("--include notes: body not inlined on %s: %+v", withNotes, res.Tasks)
+	}
+	if res.BudgetExceeded {
+		t.Errorf("small bodies should not exceed budget")
+	}
+}
+
+// TestTasksSinceFilter pins the folded list_changes: --since returns only
+// rows whose activity is strictly after the cutoff.
+func TestTasksSinceFilter(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	old := strings.TrimSpace(mustCLI(t, data, "add", lid, "old task"))
+	cutoff := time.Now().Unix()
+	// Sleep long enough that the next write is strictly after cutoff.
+	time.Sleep(1100 * time.Millisecond)
+	recent := strings.TrimSpace(mustCLI(t, data, "add", lid, "recent task"))
+
+	var res listTasksResult
+	mustJSONCLI(t, data, &res, "tasks", lid, "--since", strconv.FormatInt(cutoff, 10), "--json")
+	ids := map[string]bool{}
+	for _, r := range res.Tasks {
+		ids[r.ID] = true
+	}
+	if ids[old] {
+		t.Errorf("--since returned pre-cutoff task %s", old)
+	}
+	if !ids[recent] {
+		t.Errorf("--since dropped post-cutoff task %s", recent)
+	}
+	if len(res.Tasks) != 1 {
+		t.Fatalf("--since returned %d tasks, want 1", len(res.Tasks))
+	}
+}
+
+// TestTasksIncludeInvalidRejected pins that an unknown --include value is a
+// §9 error, not a silent no-op.
+func TestTasksIncludeInvalidRejected(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	mustCLI(t, data, "add", lid, "task")
+
+	code, out, _ := runCLI(t, data, "tasks", lid, "--include", "bogus", "--json")
+	if code != 1 {
+		t.Fatalf("invalid --include: exit %d, want 1", code)
+	}
+	if !strings.Contains(out, "unknown --include") {
+		t.Errorf("invalid --include error = %q, want it to name --include", out)
 	}
 }
 
