@@ -667,3 +667,61 @@ func TestTasksRowsCarryAssignment(t *testing.T) {
 		t.Errorf("assigned row = %+v, want assignee pi", rows[0])
 	}
 }
+
+// TestNextGrabsAndShows pins `farol next`: it atomically assigns the top
+// eligible task (highest priority, then tree order) to FAROL_AGENT and returns
+// its full show payload; an empty/exhausted list is {ok:false,reason:...} in
+// --json, not an error. Pulled from the MCP next_task contract.
+func TestNextGrabsAndShows(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	tLow := strings.TrimSpace(mustCLI(t, data, "add", lid, "low prio"))
+	tHigh := strings.TrimSpace(mustCLI(t, data, "add", lid, "high prio"))
+	mustCLI(t, data, "priority", tLow, "--level", "low")
+	mustCLI(t, data, "priority", tHigh, "--level", "high")
+
+	// next picks the high-priority task, and assigns it.
+	var got showJSON
+	mustJSONCLI(t, data, &got, "next", lid, "--json")
+	if got.ID != tHigh {
+		t.Fatalf("next = %s, want the high-priority task %s", got.ID, tHigh)
+	}
+	if got.Assignee != "pi" {
+		t.Errorf("next did not assign to pi: assignee=%q", got.Assignee)
+	}
+
+	// next again grabs the remaining low-priority task.
+	mustJSONCLI(t, data, &got, "next", lid, "--json")
+	if got.ID != tLow {
+		t.Fatalf("second next = %s, want the low-priority task %s", got.ID, tLow)
+	}
+
+	// Exhausted list: {ok:false}, not an error.
+	var empty nextEmptyJSON
+	code, out, _ := runCLI(t, data, "next", lid, "--json")
+	if code != 0 {
+		t.Fatalf("exhausted next: exit %d, want 0", code)
+	}
+	if err := json.Unmarshal([]byte(out), &empty); err != nil {
+		t.Fatalf("exhausted next stdout %q is not one JSON value: %v", out, err)
+	}
+	if empty.OK {
+		t.Fatalf("exhausted next: ok=%v, want false", empty.OK)
+	}
+}
+
+// TestNextHumanEmptyPrintsNothing pins the §9 human-mode contract: an
+// exhausted list prints nothing and exits 0.
+func TestNextHumanEmptyPrintsNothing(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	code, out, _ := runCLI(t, data, "next", lid)
+	if code != 0 {
+		t.Fatalf("exhausted next: exit %d, want 0", code)
+	}
+	if out != "" {
+		t.Fatalf("exhausted next human output = %q, want empty", out)
+	}
+}

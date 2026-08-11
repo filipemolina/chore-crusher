@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -12,6 +13,14 @@ import (
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/store"
 )
+
+// nextEmptyJSON is the --json shape when a list has no eligible task: an
+// explicit {ok:false} rather than an error, so an agent can branch on it
+// without treating an empty board as a failure (docs/DESIGN.md §9).
+type nextEmptyJSON struct {
+	OK     bool   `json:"ok"`
+	Reason string `json:"reason"`
+}
 
 // idJSON is the success payload of the two add commands — the one value an
 // agent captures from either (docs/DESIGN.md §9).
@@ -207,9 +216,83 @@ func taskCommands() []*cobra.Command {
 	}
 	priorityCmd.Flags().String("level", "", "none, low, medium, or high (required)")
 
+	nextCmd := &cobra.Command{
+		Use:   "next <list-id>",
+		Short: "grab and show the top eligible task (highest priority, then tree order)",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runNext,
+	}
+
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
 		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd,
-		assignCmd, unassignCmd, priorityCmd}
+		assignCmd, unassignCmd, priorityCmd, nextCmd}
+}
+
+// runNext grabs the top eligible task in a list and shows it — the CLI
+// equivalent of the MCP next_task tool. Eligibility (not complete, unassigned,
+// no cross-agent subtree reservation) and the priority-then-preorder ordering
+// come from store.NextAssignable, which atomically assigns the pick to this
+// agent and returns the row. An exhausted list is a normal state, not an
+// error: it prints nothing in human mode and {ok:false,reason:...} in --json.
+// The grab is a write, so it claims presence under FAROL_AGENT (best-effort —
+// a conflicting live claim is ignored, matching the MCP autoClaim), keeping
+// the TUI spinner live once the MCP server is gone.
+func runNext(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	return runStore(cmd, func(s *store.Store) error {
+		listID, err := s.ResolveID("list", args[0])
+		if err != nil {
+			return err
+		}
+		t, err := s.NextAssignable(listID, agentIdentity())
+		if err != nil {
+			if errors.Is(err, store.ErrNoAssignable) {
+				printResult(jsonMode, func() {}, nextEmptyJSON{OK: false, Reason: "no eligible task in this list"})
+				return nil
+			}
+			return err
+		}
+		// Best-effort presence claim: a conflicting claim from another agent
+		// is not a failure here (the assignment already succeeded).
+		if _, cerr := s.ClaimWork("task", t.ID, agentIdentity(), store.ActivityWorking); cerr != nil && !errors.Is(cerr, store.ErrActivityConflict) {
+			return cerr
+		}
+		v, err := buildShowJSON(s, t.ID)
+		if err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {
+			fmt.Fprintf(os.Stdout, "Title: %s\n", v.t.Title)
+			fmt.Fprintf(os.Stdout, "ID: %s\n", t.ID)
+			fmt.Fprintf(os.Stdout, "List: %s\n", t.ListID)
+			fmt.Fprintf(os.Stdout, "Status: %s\n", v.t.Status)
+			fmt.Fprintf(os.Stdout, "Progress: %s\n", progressHuman(v.payload.Progress))
+			fmt.Fprintf(os.Stdout, "Notes:\n")
+			for _, line := range strings.Split(v.t.Notes, "\n") {
+				fmt.Fprintf(os.Stdout, "  %s\n", line)
+			}
+			if len(v.childViews) > 0 {
+				fmt.Fprintf(os.Stdout, "Children (%d):\n", len(v.childViews))
+				for _, cv := range v.childViews {
+					renderRow(cv)
+				}
+			}
+			if len(v.comments) > 0 {
+				fmt.Fprintf(os.Stdout, "Comments (%d):\n", len(v.comments))
+				for _, c := range v.comments {
+					fmt.Fprintf(os.Stdout, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
+				}
+			}
+			if len(v.attachments) > 0 {
+				fmt.Fprintf(os.Stdout, "Attachments (%d):\n", len(v.attachments))
+				for _, a := range v.attachments {
+					fmt.Fprintf(os.Stdout, "  - %s: %s\n", a.ID, a.Path)
+				}
+			}
+		}, v.payload)
+		return nil
+	})
 }
 
 func validStatusFilter(s string) bool {
@@ -440,106 +523,90 @@ type showJSON struct {
 	Attachments []attachmentJSON `json:"attachments"`
 }
 
-func runShow(cmd *cobra.Command, args []string) error {
-	errSilence(cmd)
-	jsonMode, _ := cmd.Flags().GetBool("json")
-	return runStore(cmd, func(s *store.Store) error {
-		id, err := s.ResolveID("task", args[0])
-		if err != nil {
-			return err
-		}
-		t, err := s.GetTask(id)
-		if err != nil {
-			return err
-		}
-		prog, err := progressOf(s, id)
-		if err != nil {
-			return err
-		}
-		all, err := s.ListTasks(t.ListID)
-		if err != nil {
-			return err
-		}
-		l, err := s.GetList(t.ListID)
-		if err != nil {
-			return err
-		}
-		childViews, err := viewsOf(s, apptypes.DescendantsOf(apptypes.FromStoreTasks(all), id))
-		if err != nil {
-			return err
-		}
+// showView is everything runShow (and farol next) need to render one task:
+// the full JSON payload plus the human-mode data the printResult closure
+// reads. Extracted so farol next can grab-then-show with the identical shape.
+type showView struct {
+	payload     showJSON
+	t           store.Task
+	childViews  []taskView
+	comments    []store.Comment
+	attachments []store.Attachment
+}
 
-		children := make([]taskRowJSON, 0, len(childViews))
-		for _, v := range childViews {
-			children = append(children, taskRowJSON{
-				ID:        v.row.Task.ID,
-				ParentID:  v.row.Task.ParentID,
-				Title:     v.row.Task.Title,
-				Status:    string(v.row.Task.Status),
-				Progress:  v.prog,
-				Depth:     v.row.Depth,
-				ListOwner: l.CreatedBy,
-				Assignee:  v.row.Task.Assignee,
-				Priority:  string(v.row.Task.Priority),
-			})
-		}
+// buildShowJSON reads one task and its subtree/comments/attachments and
+// returns a showView. ids may be a prefix; an unresolvable id returns the
+// ResolveID error untouched.
+func buildShowJSON(s *store.Store, id string) (showView, error) {
+	t, err := s.GetTask(id)
+	if err != nil {
+		return showView{}, err
+	}
+	prog, err := progressOf(s, id)
+	if err != nil {
+		return showView{}, err
+	}
+	all, err := s.ListTasks(t.ListID)
+	if err != nil {
+		return showView{}, err
+	}
+	l, err := s.GetList(t.ListID)
+	if err != nil {
+		return showView{}, err
+	}
+	childViews, err := viewsOf(s, apptypes.DescendantsOf(apptypes.FromStoreTasks(all), id))
+	if err != nil {
+		return showView{}, err
+	}
 
-		comments, err := s.ListComments(id)
-		if err != nil {
-			return err
-		}
-		commentJSONs := make([]commentJSON, 0, len(comments))
-		for _, c := range comments {
-			commentJSONs = append(commentJSONs, commentJSON{
-				ID:        c.ID,
-				Author:    c.Author,
-				Note:      c.Note,
-				CreatedAt: c.CreatedAt,
-			})
-		}
+	children := make([]taskRowJSON, 0, len(childViews))
+	for _, v := range childViews {
+		children = append(children, taskRowJSON{
+			ID:        v.row.Task.ID,
+			ParentID:  v.row.Task.ParentID,
+			Title:     v.row.Task.Title,
+			Status:    string(v.row.Task.Status),
+			Progress:  v.prog,
+			Depth:     v.row.Depth,
+			ListOwner: l.CreatedBy,
+			Assignee:  v.row.Task.Assignee,
+			Priority:  string(v.row.Task.Priority),
+		})
+	}
 
-		attachments, err := s.ListAttachments(id)
-		if err != nil {
-			return err
-		}
-		attachmentJSONs := make([]attachmentJSON, 0, len(attachments))
-		for _, a := range attachments {
-			attachmentJSONs = append(attachmentJSONs, attachmentJSON{
-				ID:        a.ID,
-				Path:      a.Path,
-				CreatedAt: a.CreatedAt,
-			})
-		}
+	comments, err := s.ListComments(id)
+	if err != nil {
+		return showView{}, err
+	}
+	commentJSONs := make([]commentJSON, 0, len(comments))
+	for _, c := range comments {
+		commentJSONs = append(commentJSONs, commentJSON{
+			ID:        c.ID,
+			Author:    c.Author,
+			Note:      c.Note,
+			CreatedAt: c.CreatedAt,
+		})
+	}
 
-		printResult(jsonMode, func() {
-			fmt.Fprintf(os.Stdout, "Title: %s\n", t.Title)
-			fmt.Fprintf(os.Stdout, "ID: %s\n", id)
-			fmt.Fprintf(os.Stdout, "List: %s\n", t.ListID)
-			fmt.Fprintf(os.Stdout, "Status: %s\n", t.Status)
-			fmt.Fprintf(os.Stdout, "Progress: %s\n", progressHuman(prog))
-			fmt.Fprintf(os.Stdout, "Notes:\n")
-			for _, line := range strings.Split(t.Notes, "\n") {
-				fmt.Fprintf(os.Stdout, "  %s\n", line)
-			}
-			if len(childViews) > 0 {
-				fmt.Fprintf(os.Stdout, "Children (%d):\n", len(childViews))
-				for _, v := range childViews {
-					renderRow(v)
-				}
-			}
-			if len(comments) > 0 {
-				fmt.Fprintf(os.Stdout, "Comments (%d):\n", len(comments))
-				for _, c := range comments {
-					fmt.Fprintf(os.Stdout, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
-				}
-			}
-			if len(attachments) > 0 {
-				fmt.Fprintf(os.Stdout, "Attachments (%d):\n", len(attachments))
-				for _, a := range attachments {
-					fmt.Fprintf(os.Stdout, "  - %s: %s\n", a.ID, a.Path)
-				}
-			}
-		}, showJSON{
+	attachments, err := s.ListAttachments(id)
+	if err != nil {
+		return showView{}, err
+	}
+	attachmentJSONs := make([]attachmentJSON, 0, len(attachments))
+	for _, a := range attachments {
+		attachmentJSONs = append(attachmentJSONs, attachmentJSON{
+			ID:        a.ID,
+			Path:      a.Path,
+			CreatedAt: a.CreatedAt,
+		})
+	}
+
+	v := showView{
+		t:           t,
+		childViews:  childViews,
+		comments:    comments,
+		attachments: attachments,
+		payload: showJSON{
 			ID:          t.ID,
 			ListID:      t.ListID,
 			ListOwner:   l.CreatedBy,
@@ -556,7 +623,53 @@ func runShow(cmd *cobra.Command, args []string) error {
 			Children:    children,
 			Comments:    commentJSONs,
 			Attachments: attachmentJSONs,
-		})
+		},
+	}
+	return v, nil
+}
+
+func runShow(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("task", args[0])
+		if err != nil {
+			return err
+		}
+		v, err := buildShowJSON(s, id)
+		if err != nil {
+			return err
+		}
+		t, childViews, comments, attachments := v.t, v.childViews, v.comments, v.attachments
+		printResult(jsonMode, func() {
+			fmt.Fprintf(os.Stdout, "Title: %s\n", t.Title)
+			fmt.Fprintf(os.Stdout, "ID: %s\n", id)
+			fmt.Fprintf(os.Stdout, "List: %s\n", t.ListID)
+			fmt.Fprintf(os.Stdout, "Status: %s\n", t.Status)
+			fmt.Fprintf(os.Stdout, "Progress: %s\n", progressHuman(v.payload.Progress))
+			fmt.Fprintf(os.Stdout, "Notes:\n")
+			for _, line := range strings.Split(t.Notes, "\n") {
+				fmt.Fprintf(os.Stdout, "  %s\n", line)
+			}
+			if len(childViews) > 0 {
+				fmt.Fprintf(os.Stdout, "Children (%d):\n", len(childViews))
+				for _, cv := range childViews {
+					renderRow(cv)
+				}
+			}
+			if len(comments) > 0 {
+				fmt.Fprintf(os.Stdout, "Comments (%d):\n", len(comments))
+				for _, c := range comments {
+					fmt.Fprintf(os.Stdout, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
+				}
+			}
+			if len(attachments) > 0 {
+				fmt.Fprintf(os.Stdout, "Attachments (%d):\n", len(attachments))
+				for _, a := range attachments {
+					fmt.Fprintf(os.Stdout, "  - %s: %s\n", a.ID, a.Path)
+				}
+			}
+		}, v.payload)
 		return nil
 	})
 }
