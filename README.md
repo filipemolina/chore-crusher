@@ -98,7 +98,8 @@ On first launch, Farol creates:
 - Data: `~/.local/share/farol/farol.db` (SQLite store)
 - Config: `~/.config/farol/config.yaml` (theme, layout)
 
-The default list `Inbox` is created automatically under `farol-ember` theme.
+The default list `Inbox` is created automatically; the app opens on the
+`farol-dark` theme (switchable with `T`).
 
 ---
 

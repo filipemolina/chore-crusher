@@ -201,10 +201,12 @@ func srgbLinearize(v float64) float64 {
 	return math.Pow((v+0.055)/1.055, 2.4)
 }
 
-// DefaultTheme is the theme a fresh AppModel starts with. Farol Ember is
-// the app's default palette; gruvbox-dark, catppuccin-mocha and the rest
-// remain selectable through the theme picker (docs/DESIGN.md §11).
-const DefaultTheme = "farol-ember"
+// DefaultTheme is the theme a fresh AppModel starts with. farol-dark is the
+// brand pair's dark member - the Night Watch icon's deep navy with the
+// lamp's amber and the wordmark's cream - so a fresh install opens in the
+// logo's own colors. farol-ember, gruvbox-dark, catppuccin-mocha and the
+// rest remain selectable through the theme picker (docs/DESIGN.md §11).
+const DefaultTheme = "farol-dark"
 
 // Themes is the registry the theme picker chooses from. Every entry is built
 // through newTheme rather than a bare struct literal, so a registered theme

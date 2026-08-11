@@ -22,8 +22,9 @@ if [ ! -x "$BIN" ]; then
 fi
 
 # Pin the theme so frames don't depend on whatever the recorder's own config
-# holds. farol-ember is the compiled default, so this is belt-and-suspenders
-# against a later re-theme.
+# holds. The demo deliberately records in farol-ember (the warm amber reads
+# well at GIF scale); the compiled default is farol-dark, so the pin is what
+# keeps committed media reproducible if the default changes again.
 rm -rf "$DATA" "$CONFIG"
 mkdir -p "$DATA" "$CONFIG/farol"
 printf 'theme: farol-ember\n' > "$CONFIG/farol/config.yaml"

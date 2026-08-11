@@ -1385,10 +1385,11 @@ imported palettes carry their original accent, text/panel/modal bases and
 status hexes unchanged: a person who knows "Tokyo Night" should see it
 render the same way here, because it is the same theme, not a
 reinterpretation of one. **The fresh-install default is
-`"farol-ember"`** — `DefaultTheme` names it, and a config with no
+`"farol-dark"`** — `DefaultTheme` names it, and a config with no
 `theme:` preference activates it; every other registered theme (including
 `gruvbox-dark`) stays selectable through the `T` picker and as a saved
-`theme:` value.
+`theme:` value. The default is the brand pair's dark member below, so a
+fresh install opens in the logo's own colors.
 
 **`farol-dark` and `farol-day` are the brand pair** (2026-08-10): both are
 built from the logo family's three colors — the Night Watch icon's navy

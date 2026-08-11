@@ -14,7 +14,7 @@ The repo/tool/command rename is finished and all roadmap phases are in
 - Go module: `github.com/filipemolina/farol`
 - Config dir: `~/.config/farol`
 - Data dir / DB: `~/.local/share/farol/farol.db`
-- Default theme: `farol-ember`
+- Default theme: `farol-dark` (brand pair; see `docs/DESIGN.md` §11)
 - Current tag: `v0.1.0`
 
 Phases 0–9 (scaffolding through polish/release) are complete. See
@@ -22,6 +22,17 @@ Phases 0–9 (scaffolding through polish/release) are complete. See
 post-alpha backlog.
 
 ## Latest change
+
+- **The brand themes are the default.** `farol-dark` and `farol-day` are no
+  longer copies of stack-stitcher's palettes: both derive from the logo
+  family's navy/amber/cream (deep navy `#0E1B30` surfaces, lamp amber
+  `#F0B263` accent, cream `#F5EDE4` text; the light variant inverts them
+  with a darkened lamp amber `#A06A0E` accent). `DefaultTheme` moved from
+  `farol-ember` to `farol-dark`, so a fresh install opens in the brand
+  colors; farol-ember stays selectable through `T` and as a saved
+  `theme:` value. Demo media stays pinned to farol-ember (a deliberate
+  recording choice, see `demo/seed.sh`). Tests:
+  `TestDefaultThemeIsFarolDark` (appstyles). See `docs/DESIGN.md` §11.
 
 - **Light-theme readability: no glyph ever draws in the terminal's default
   color.** On `crush-day`, pending and in-progress task titles rendered
