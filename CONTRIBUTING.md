@@ -1,6 +1,6 @@
 # Contributing
 
-Chore Crusher is a keyboard-first task manager for humans and AI agents
+Farol is a keyboard-first task manager for humans and AI agents
 working from one store: a TUI, a CLI, and an MCP server over a single SQLite
 database. This file is for human contributors. If you are an AI coding agent,
 read [`AGENTS.md`](AGENTS.md) instead; it has the operational rules, the
@@ -110,11 +110,11 @@ src/
 ├── keys/             # the one keymap package: see the rule above
 ├── store/            # SQLite schema, migrations, and every read/write function
 ├── cli/              # one file per subcommand group, thin cobra-to-store adapters
-├── mcpserver/        # the MCP server (`crush mcp`): tools mirror the CLI but
+├── mcpserver/        # the MCP server (`farol mcp`): tools mirror the CLI but
 │                     # talk directly to store (docs/DESIGN.md §9)
 ├── banner/           # the figlet wordmark rendered with the active theme
 ├── appstyles/        # Theme type + the 14-theme registry (docs/DESIGN.md §11)
-├── config/           # ~/.config/chore-crusher/config.yaml
+├── config/           # ~/.config/farol/config.yaml
 └── constants/        # layout widths, focusable-zone ids, branding
 docs/
 ├── DESIGN.md             # why: the specification

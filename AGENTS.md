@@ -34,7 +34,7 @@ In this order:
    one app rather than a collection of bespoke pieces.
 
 This repository is self-contained: everything a contributor needs is in the
-three documents above plus this file. Chore Crusher shares its architecture
+three documents above plus this file. Farol shares its architecture
 with one sister project (theming, the single-keymap-package discipline,
 request/response commands, panel layout broadcast), but the reasoning behind
 every one of those patterns is written into this repo's own docs. You should
@@ -333,13 +333,13 @@ should stay rare, because it's timing-based.
 
 ## Working the task list
 
-If you drive the app through its MCP server (`crush mcp`), read the resource
+If you drive the app through its MCP server (`farol mcp`), read the resource
 `farol:///inbox` at the start of every session: your list, every foreign
 list, and their top 20 pending tasks with notes inlined. Keep their status
 current as you work, on your own, without being asked: assign what you take,
 flip it to `in_progress` with a progress percentage, advance the percentage
 at milestones, comment at decision points, and complete it when done. The
-human watches the TUI; the statuses are the report. A per-call `crush mcp`
+human watches the TUI; the statuses are the report. A per-call `farol mcp`
 releases assignments when the process exits, so hold one persistent server
 process for the whole session.
 
