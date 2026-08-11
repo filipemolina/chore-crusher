@@ -1390,6 +1390,19 @@ reinterpretation of one. **The fresh-install default is
 `gruvbox-dark`) stays selectable through the `T` picker and as a saved
 `theme:` value.
 
+**`farol-dark` and `farol-day` are the brand pair** (2026-08-10): both are
+built from the logo family's three colors — the Night Watch icon's navy
+(`#0E1B30` deep / `#22385C` mid), the lamp's amber `#F0B263`, and the
+wordmark's cream `#F5EDE4`. The dark theme is the icon itself: deep-navy
+surfaces, amber accent, cream body text. The light theme is the lockup
+reversed — cream surfaces, navy ink, a darkened lamp-amber accent
+(`#A06A0E`, the darkest amber that still reads as the lamp against cream).
+Both keep the shared status/danger hexes (darkened for the light theme,
+per the washout rule above), and pending carries a navy tint in both,
+mirroring how `farol-ember`'s pending carries a warm one. They replaced the
+palettes previously copied from stack-stitcher's `stitcher-dark` /
+`stitcher-day`.
+
 ## 12. Visual coherence: the UI contract
 
 This section exists because "pick something reasonable and be consistent"

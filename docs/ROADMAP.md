@@ -13,7 +13,9 @@ decided is summarised here, and the contracts they set are in
 
 **2026-08: renamed Chore Crusher → Farol** (repo, binary, MCP URIs, env var,
 themes, config/data dirs). Past entries below keep the names the app had when
-they were written; this note covers them.
+they were written; this note covers them. Same day: `farol-dark` and
+`farol-day` stopped being copies of stack-stitcher's palettes and became the
+brand pair built from the logo's navy/amber/cream (see `docs/DESIGN.md` §11).
 
 Phases 0 through 9 are done and merged in `main`, tagged `v0.1.0`. Each phase
 was a feature branch of small commits, `go build ./... && go vet ./... && go

@@ -160,9 +160,9 @@ func newTheme(p themeParams) Theme {
 // comment) because the fills they sit on - a status pill, the accent title
 // chip - are not derived from the surface tiers. What *does* vary is which of
 // the two is correct, and that is a property of the fill, not of the call
-// site. Hard-coding it worked while one dark theme existed; with a light
+// Hard-coding it worked while one dark theme existed; with a light
 // theme and ten imported palettes in the registry, the same call site draws
-// on a #BC3FBC magenta in one theme and a #A7C080 sage in another.
+// on a #A06A0E amber in one theme and a #A7C080 sage in another.
 func InkOn(fill color.Color) color.Color {
 	if Contrast(Active.InkOnLight, fill) >= Contrast(Active.InkOnDark, fill) {
 		return Active.InkOnLight
@@ -213,17 +213,23 @@ const DefaultTheme = "farol-ember"
 // a background-bleed bug. See src/appstyles/Theme_test.go and
 // src/appstyles/Background_test.go.
 var Themes = map[string]Theme{
+	// farol-dark is the Night Watch icon's palette: a deep-navy base with the
+	// lamp's amber as the accent and the wordmark's cream as body text. The
+	// icon's navy gradient (#22385C → #0E1B30) supplies the surface tier, and
+	// pending picks up a navy tint the way farol-ember's picks up a warm one.
+	// The shared status/danger colors keep the task-state vocabulary consistent
+	// across themes.
 	"farol-dark": newTheme(themeParams{
 		Name:   "farol-dark",
 		Dark:   true,
-		Accent: lipgloss.Color("#BC3FBC"),
-		Text:   lipgloss.Color("#FAFAFA"),
-		Panel:  lipgloss.Color("#151520"),
-		Modal:  lipgloss.Color("#282828"),
+		Accent: lipgloss.Color("#F0B263"),
+		Text:   lipgloss.Color("#F5EDE4"),
+		Panel:  lipgloss.Color("#0E1B30"),
+		Modal:  lipgloss.Color("#3A4A63"),
 		Danger: lipgloss.Color("#D9534F"),
 
 		Complete:   lipgloss.Color("#67C58A"),
-		Pending:    lipgloss.Color("#858392"),
+		Pending:    lipgloss.Color("#8A94A8"),
 		InProgress: lipgloss.Color("#E8C547"),
 		Overdue:    lipgloss.Color("#EB4268"),
 	}),
@@ -263,23 +269,23 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#EB4268"),
 	}),
 
-	// farol-day is farol-dark inverted: the same #BC3FBC magenta on a
-	// warm off-white rather than a violet near-black. The neutral carries a
-	// faint magenta bias so the greys read as chosen rather than as default
-	// terminal grey, and the status colors are darkened from their dark-theme
-	// values because a #67C58A green that reads on a near-black panel washes
-	// out entirely on a near-white one.
+	// farol-day is the same brand turned inside out: cream paper (the
+	// wordmark's own fill) with navy ink and a darkened lamp-amber accent, the
+	// way the lockup's cream-on-navy reads reversed. The accent is the darkest
+	// amber that still reads as the lamp against cream. The status colors are
+	// darkened from their dark-theme values because a #67C58A green that reads
+	// on a near-black panel washes out entirely on a near-white one.
 	"farol-day": newTheme(themeParams{
 		Name:   "farol-day",
 		Dark:   false,
-		Accent: lipgloss.Color("#BC3FBC"),
-		Text:   lipgloss.Color("#241F2B"),
-		Panel:  lipgloss.Color("#F6F2F7"),
-		Modal:  lipgloss.Color("#FCF8FD"),
+		Accent: lipgloss.Color("#A06A0E"),
+		Text:   lipgloss.Color("#22385C"),
+		Panel:  lipgloss.Color("#F5EDE4"),
+		Modal:  lipgloss.Color("#FCF8F1"),
 		Danger: lipgloss.Color("#B33A3A"),
 
 		Complete:   lipgloss.Color("#1E7F4E"),
-		Pending:    lipgloss.Color("#4A4758"),
+		Pending:    lipgloss.Color("#454F63"),
 		InProgress: lipgloss.Color("#A87409"),
 		Overdue:    lipgloss.Color("#C0243F"),
 	}),
