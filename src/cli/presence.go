@@ -25,3 +25,29 @@ func liveAgents(s *store.Store) (map[string]bool, error) {
 func assigneeLive(live map[string]bool, assignee string) bool {
 	return assignee != "" && live[assignee]
 }
+
+// autoClaim renews the writing agent's live claim on entityID, or opens one
+// if none exists. It is the CLI mirror of the MCP server's autoClaim and
+// exists for the same reason: the moment farol mcp is removed, every agent
+// task write must keep the TUI presence spinner alive, or presence goes dark.
+//
+// Best-effort, like MCP: any error is swallowed because the write already
+// committed and presence tracking is not a write guarantee. TouchWork first
+// (a heartbeat that extends a still-live claim without creating a new row or
+// reviving an expired one); if there is no claim to touch, ClaimWork opens one
+// — but a claim held by another agent returns ErrActivityConflict, which is
+// silently dropped here: we do not steal their spinner, and the write itself
+// is allowed because the write path does not gate on claims (unchanged
+// behaviour from the MCP surface).
+func autoClaim(s *store.Store, entityType, entityID, agentID string) {
+	if err := s.TouchWork(entityType, entityID, agentID); err == nil {
+		_, _ = s.ClaimWork(entityType, entityID, agentID, store.ActivityWorking)
+	}
+}
+
+// autoClaimTask claims presence on a task under the default agent identity.
+// The MCP server's auto-claim sites only ever claim the task (never its
+// owning list), and claim failures are non-fatal, so this matches them.
+func autoClaimTask(s *store.Store, taskID string) {
+	autoClaim(s, "task", taskID, agentIdentity())
+}

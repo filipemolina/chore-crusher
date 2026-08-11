@@ -581,6 +581,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() { fmt.Println(id) }, idJSON{id})
 		return nil
 	})
@@ -921,6 +922,7 @@ func runComment(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() { fmt.Println(cid) }, idJSON{cid})
 		return nil
 	})
@@ -959,6 +961,7 @@ func runRename(cmd *cobra.Command, args []string) error {
 		if err := s.RenameTask(id, args[1]); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
@@ -975,6 +978,7 @@ func runNotes(cmd *cobra.Command, args []string) error {
 		if err := s.SetNotes(id, args[1]); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
@@ -991,6 +995,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		if err := s.Complete(id); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
@@ -1007,6 +1012,7 @@ func runReopen(cmd *cobra.Command, args []string) error {
 		if err := s.Reopen(id); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
@@ -1023,6 +1029,7 @@ func runToggle(cmd *cobra.Command, args []string) error {
 		if err := s.Toggle(id); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
@@ -1050,6 +1057,7 @@ func runProgress(cmd *cobra.Command, args []string) error {
 		if err := s.SetProgress(id, store.ProgressKind(mode), percent); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
@@ -1079,6 +1087,7 @@ func runMv(cmd *cobra.Command, args []string) error {
 		if err := s.Reparent(id, parent); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, okPayload{true})
 		return nil
 	})
@@ -1132,6 +1141,7 @@ func runAssign(cmd *cobra.Command, args []string) error {
 		if err := s.AssignTask(id, agent, force); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, assignResultJSON{OK: true, Assignee: agent})
 		return nil
 	})
@@ -1161,6 +1171,7 @@ func runUnassign(cmd *cobra.Command, args []string) error {
 		if err := s.UnassignTask(id, agentIdentity(), false); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, assignResultJSON{OK: true, Assignee: ""})
 		return nil
 	})
@@ -1188,6 +1199,7 @@ func runPriority(cmd *cobra.Command, args []string) error {
 		if err := s.SetPriority(id, store.Priority(level)); err != nil {
 			return err
 		}
+		autoClaimTask(s, id)
 		printResult(jsonMode, func() {}, priorityResultJSON{OK: true, Priority: level})
 		return nil
 	})
@@ -1209,6 +1221,15 @@ func runRm(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		// Claim presence before the delete: ClaimWork validates that the
+		// entity still exists, so we light the spinner while the row is
+		// present (matches MCP, which claims during the write). DeleteTask
+		// then removes any AgentActivity rows for the task by design — an
+		// orphaned spinner on a vanished task is worse than none — so this
+		// claim is best-effort and leaves nothing behind. That is the
+		// correct, TUI-safe behaviour; it is intentionally not asserted as a
+		// surviving claim.
+		autoClaimTask(s, id)
 		if err := s.DeleteTask(id); err != nil {
 			return err
 		}
