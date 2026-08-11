@@ -15,12 +15,19 @@ written out in full in this file instead of being left as a pointer.
 
 ## 1. What this app is, and isn't
 
-Farol is a to-do list manager with two front ends over one store: a
-terminal UI for a human, and a CLI for scripts and coding agents. Neither is
-secondary. The TUI does not shell out to the CLI, and the CLI is not a
-read-only reporting layer bolted onto a TUI-owned database — both talk to the
-same `store` package (§8), and a write from either is visible to the other
-within one poll tick (§7).
+Farol is a to-do list manager with one store and two ways to reach it: a
+terminal UI for the human at the keyboard, and a CLI that is the single
+agent-facing front end (scripts and coding agents, including agents that use
+Farol as their todo store). Neither is secondary — they simply serve different
+users. The TUI does not shell out to the CLI, and the CLI is not a read-only
+reporting layer bolted onto a TUI-owned database — both talk to the same
+`store` package (§8), and a write from either is visible to the other within
+one poll tick (§7).
+
+The MCP server (`farol mcp`) is deprecated and being removed in favour of the
+CLI. The CLI is the only agent surface that new features should target; the
+MCP server stays wired only until it is deleted, and must not gain new
+behaviour.
 
 It is **not**:
 
@@ -910,13 +917,19 @@ farol mcp                                      run the MCP server on stdin/stdou
 farol --version
 ```
 
+> **Deprecated.** The MCP server is being removed in favour of the CLI
+> (cli-first migration). The CLI is the only agent-facing front end that new
+> work should target; this section is retained only until the server is
+> deleted, and describes behaviour that will go away. New agent features
+> belong on the CLI (the command reference below, the parity gap table in the
+> migration plan, and the `--json` contract).
+
 **`farol mcp`** runs a Model Context Protocol server over stdin/stdout. The
 tools it exposes mirror the CLI subcommands and return the same JSON shapes
 that `--json` would emit on the command line, so an agent host can call
 `farol` operations as native tool calls instead of spawning the CLI per
 operation. The server is a thin adapter over `src/store` in
-`src/mcpserver`, not a layer on `src/cli`, preserving the "two front ends
-over one store" rule from §1 and §10.
+`src/mcpserver`, not a layer on `src/cli`.
 
 **The MCP tool surface is exactly twelve tools**, pinned by
 `TestMCPToolSurface` in `src/mcpserver/server_test.go`: `my_list`,
@@ -1248,8 +1261,7 @@ complete the task first, then move.
 
 Two halves: the Bubble Tea half (`model`, `components`, `cmds`, `keys`,
 `appstyles`, `constants`) and the non-Bubble-Tea half (`store`, `apptypes`,
-`config`), with one addition (`cli`, `mcpserver`) for the two agent-facing
-front ends:
+`config`), with one addition (`cli`) for the agent-facing front end:
 
 ```
 main.go              # cobra root: no subcommand -> launch TUI; else dispatch
@@ -1270,22 +1282,21 @@ src/
 │                     # the only package that imports database/sql
 ├── cli/             # one file per subcommand group; each is a thin adapter from
 │                     # cobra flags to a store call and a --json-aware printer
-├── mcpserver/       # Model Context Protocol server; tools mirror the CLI but
-│                     # talk directly to src/store, not to src/cli
 ├── appstyles/       # Theme type + the 14-theme registry (§11)
 ├── config/          # ~/.config/farol/config.yaml
 └── constants/       # layout widths, focusable-zone ids, branding
 ```
 
 **`src/store` is the only package that imports `database/sql` or
-`modernc.org/sqlite`.** `src/model` (the TUI), `src/cli` (the CLI), and
-`src/mcpserver` (the MCP server) all depend on `store` and nothing deeper;
-none of them ever builds a SQL string. **`src/cli`, `src/model`, and
-`src/mcpserver` are siblings over the same `store`, not layered on each
-other**, which is the structural expression of "neither front end is
+`modernc.org/sqlite`.** `src/model` (the TUI) and `src/cli` (the CLI) both
+depend on `store` and nothing deeper; neither ever builds a SQL string.
+**`src/cli` and `src/model` are siblings over the same `store`, not layered on
+each other**, which is the structural expression of "neither front end is
 secondary" from §1. `main.go` is the one file that imports the CLI and TUI
-to decide which to run, and `src/mcpserver` is reached through the
-`farol mcp` subcommand.
+to decide which to run.
+
+The MCP server (`src/mcpserver`, reached via `farol mcp`) is deprecated and is
+being removed; see the cli-first migration plan. Do not add new code to it.
 
 ## 11. Theming
 

@@ -161,34 +161,27 @@ farol search "deck" --json       # JSON output
 farol --help                      # full CLI reference
 ```
 
-### The MCP server (for coding agents)
+### For coding agents
 
-Run `farol mcp` to start an MCP server that agents can discover and use:
+Agents drive Farol through its CLI: every operation is a `farol` subcommand,
+and `--json` gives machine-readable output. There is no separate server process
+to manage. Agent identity for presence (the TUI spinner) comes from the
+`FAROL_AGENT` environment variable; when unset it is generated per process.
 
 ```bash
-# Claude Code (claude.json)
-{
-  "mcpServers": [
-    {
-      "name": "farol",
-      "command": "farol",
-      "args": ["mcp"],
-      "env": { "FAROL_AGENT": "claude" }
-    }
-  ]
-}
-
-# Cursor (settings.json)
-{
-  "mcpServers": {
-    "farol": {
-      "command": "farol",
-      "args": ["mcp"],
-      "env": { "FAROL_AGENT": "cursor" }
-    }
-  }
-}
+# Claim a task, advance it, release it — all plain shell calls:
+export FAROL_AGENT=claude
+farol next <list-id> --json     # pick the top eligible task
+farol progress <task-id> --mode percentage --percent 50
+farol unassign <task-id>        # release the assignment when done
 ```
+
+The MCP server (`farol mcp`) is deprecated and being removed in favour of this
+CLI-first approach.
+
+A `farol skill` command that prints a copy-paste agent skill file is planned;
+until it lands, the command reference above and `farol --help` are the source
+of truth.
 
 ---
 

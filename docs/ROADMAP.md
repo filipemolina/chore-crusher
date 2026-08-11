@@ -98,11 +98,15 @@ The founding use case after alpha: **agents use Farol as their todo
 list, and humans create tasks for agents to work on**, with the TUI as the live
 dashboard.
 
-**Surface today:** `farol mcp` — **12 tools, 2 resources, 2 prompts**. The
-identity an agent acts under comes from `FAROL_AGENT` when set, and is
-otherwise generated per process; ownership is cooperative trust, not auth. Full
-contract: `docs/DESIGN.md` §9. The tool count is a deliberate ceiling: it trades
-tool count against *call* count, and call count wins.
+**Surface today:** the CLI is the single agent-facing front end. The MCP
+server (`farol mcp`) is deprecated and being removed in favour of the CLI
+(cli-first migration plan); this section is kept as a record of what the MCP
+track shipped. The identity an agent acts under comes from `FAROL_AGENT` when
+set, and is otherwise generated per process; ownership is cooperative trust,
+not auth. Full contract for the CLI: `docs/DESIGN.md` §9. The planned CLI
+surface trades tool count against *call* count, and call count wins — which is
+why batch reads (`farol show <id>...`), `--since`, and `--include` are part of
+the parity work.
 
 ### Shipped
 
