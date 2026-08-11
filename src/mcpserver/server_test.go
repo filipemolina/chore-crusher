@@ -421,9 +421,9 @@ func TestMCPInstructionsUsesIdentity(t *testing.T) {
 }
 
 // TestMCPInstructionsDoNotMandateEveryTodo guards the removal of the
-// always-on "use Chore Crusher for every todo" rule: the Instructions doc
+// always-on "use Farol for every todo" rule: the Instructions doc
 // must not claim the store is the agent's only todo list, and must not tell
-// it to avoid the host's built-in todo tool. Chore Crusher tracks the work
+// it to avoid the host's built-in todo tool. Farol tracks the work
 // that lives in its lists; what an agent does with the rest of its todos is
 // its own call. The working-loop guidance ("keep status current as you
 // work") stays; the removal is scoped to the mandate, not the upkeep.
@@ -519,7 +519,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	}
 	loop := strings.ToLower(tc.Text)
 	for _, want := range []string{
-		"get your tasks from chore crusher",
+		"get your tasks from farol",
 		"keep their status current",
 		"set_status",
 		"percentage",

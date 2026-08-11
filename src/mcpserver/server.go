@@ -174,12 +174,12 @@ func newServer(identity string) (*mcp.Server, *store.Store, error) {
 
 	// The Instructions doc is delivered to clients in the initialize result and
 	// is how an agent discovers this API without trial-and-error (query it with
-	// `mcp({ instructions: "chore-crusher" })`). Keep it in sync with the tool
+	// `mcp({ instructions: "farol" })`). Keep it in sync with the tool
 	// list below.
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "chore-crusher",
+		Name:    "farol",
 		Version: constants.Version(),
-	}, &mcp.ServerOptions{Instructions: `Chore Crusher is the todo store this work lives in; the TUI is how the human watches it. Read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked.
+	}, &mcp.ServerOptions{Instructions: `Farol is the todo store this work lives in; the TUI is how the human watches it. Read your tasks from here at the start of every session and keep their status current as you work — on your own, without being asked.
 
 IDENTITY & OWNERSHIP. You act under the tag "` + identity + `" — CRUSH_AGENT when it is set, otherwise a tag unique to this session. Either way it is yours alone: no other running agent shares it, and anything you still hold is released when this session ends. Track your own work in a list named "` + identity + `: ..." — chore_crusher_my_list get-or-creates it. Each list has an owner (created_by); a list is yours only when created_by == your tag. The server ENFORCES this: structural edits (add_task, edit_task, delete_task, add_list) on a list you do NOT own are refused. But on ANY list you may read everything, grab tasks (assign_task, next_task), change status/progress (set_status) and comment. Untagged lists (human-made) are owned by nobody and are foreign to you — UNLESS a human has explicitly marked it collaborative (a per-list opt-in flag, off by default, set from the TUI's list-rename modal): a collaborative list accepts structural edits from any agent regardless of created_by. Check the collaborative field on my_list's foreign_lists before assuming a foreign list is read-only. Comments have their own, narrower ownership rule: only the comment tool's delete mode (comment(id=..., delete=true, force=true)) removes a comment, and only one whose author is your own tag, regardless of who owns the list it's on.
 
@@ -1850,7 +1850,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 		msg := "Read the resource crush:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. Keep their status current as you work, on your own, without being asked.\n\n" +
 			"WORKING LOOP (run it automatically, without being told):\n" +
 			"1. Open the session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.\n" +
-			"2. Get your tasks from Chore Crusher at the start of every session and refresh them as you go; read from it rather than working from memory.\n" +
+			"2. Get your tasks from Farol at the start of every session and refresh them as you go; read from it rather than working from memory.\n" +
 			"3. Grab the task BEFORE you research it: next_task(list_id) atomically assigns you the top eligible task — highest priority (high > medium > low > none), then tree order — and returns its whole subtree, notes and comments in one call; assign_task(ids=[...]) grabs a specific one the same way. Owning it first is what stops a second agent burning tokens on the same work.\n" +
 			"4. Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).\n" +
 			"5. Starting a task: set_status(ids, progress=...) flips it to in_progress and auto-claims it (the spinner shows). Set a percentage scaled to the task: progress='percentage' with percent ~= fraction of steps done for multi-step work; progress='subtasks' when it has children; progress='simple' only for atomic tasks. A flat \"in progress\" with no percentage is not enough.\n" +

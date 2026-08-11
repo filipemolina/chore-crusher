@@ -12,7 +12,7 @@ func TestHeaderRendersWordmark(t *testing.T) {
 	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
 
 	out := updated.(Model).View().Content
-	if !strings.Contains(out, "Chore Crusher") {
+	if !strings.Contains(out, "Farol") {
 		t.Errorf("header output does not contain wordmark:\n%s", out)
 	}
 }

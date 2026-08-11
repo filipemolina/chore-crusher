@@ -1,10 +1,10 @@
 package constants
 
 // WORDMARK is the one-line badge rendered in the main menu bar.
-var WORDMARK = "▌ Chore Crusher"
+var WORDMARK = "▌ Farol"
 
 // APP_NAME is the lowercase, command-friendly name of the app.
-var APP_NAME = "chore-crusher"
+var APP_NAME = "farol"
 
 // DEFAULT_LIST_NAME is the name of the list the TUI creates for itself when
 // the store has none — first run, or every list deleted. It is a name, not a

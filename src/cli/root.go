@@ -58,19 +58,19 @@ func Execute(args []string) int {
 // letters and digits (the Crockford alphabet), 1–26 characters. A single
 // argument that looks like a task id is treated as the mark-complete
 // shorthand; anything else falls through to the unknown-command path so
-// typos like `crush frobnicate` still produce Cobra's usage error.
+// typos like `farol frobnicate` still produce Cobra's usage error.
 var taskIDPattern = regexp.MustCompile(`^[0-9A-Z]{1,26}$`)
 
 func looksLikeTaskID(s string) bool { return taskIDPattern.MatchString(s) }
 
-// NewRootCommand builds the crush command tree. Cobra owns argument
+// NewRootCommand builds the farol command tree. Cobra owns argument
 // parsing and --help; --version comes from the Version field (fed by
 // constants.Version), which also gives the -v shorthand phase 0 had.
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "crush",
+		Use:   "farol",
 		Short: "a terminal to-do list manager, and a CLI an agent can drive",
-		Long: `crush is a keyboard-driven terminal to-do list, paired with a
+		Long: `farol is a keyboard-driven terminal to-do list, paired with a
 full command-line interface for the same operations — the TUI and the CLI
 are two views of one store, and either one's changes are visible to the
 other within a second (docs/DESIGN.md §7).
@@ -111,7 +111,7 @@ marks the task with that id complete (cascading to descendants).`,
 			return nil
 		},
 	}
-	// Phase 0 printed "crush <version>"; keep that exact shape now that
+	// Phase 0 printed "farol <version>"; keep that exact shape now that
 	// Cobra owns the flag.
 	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 

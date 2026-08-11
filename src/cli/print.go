@@ -29,7 +29,7 @@ func printResult(jsonMode bool, humanFn func(), payload any) {
 // printError reports a failure per docs/DESIGN.md §9 and returns the exit
 // code it implies (1): in JSON mode {"error": ...} goes to stdout — the one
 // stream a --json caller reads, so it never checks two — and in human mode
-// "crush: ..." goes to stderr. The returned code and the one Execute
+// "farol: ..." goes to stderr. The returned code and the one Execute
 // derives from the wrapped error always agree; the int exists so the §9
 // contract has one obvious place to read "domain failure means 1".
 func printError(jsonMode bool, err error) int {
@@ -40,6 +40,6 @@ func printError(jsonMode bool, err error) int {
 		fmt.Println(string(b))
 		return 1
 	}
-	fmt.Fprintln(os.Stderr, "crush:", err)
+	fmt.Fprintln(os.Stderr, "farol:", err)
 	return 1
 }

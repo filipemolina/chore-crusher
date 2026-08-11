@@ -38,7 +38,7 @@ func TestTerminalTooSmallReplacesTheWholeFrame(t *testing.T) {
 		}
 		// Nothing else from the normal frame may render: not the header
 		// wordmark, not the panel title, not a footer hint.
-		for _, forbidden := range []string{"Chore Crusher", "Tasks", "tab next"} {
+		for _, forbidden := range []string{"Farol", "Tasks", "tab next"} {
 			if strings.Contains(out, forbidden) {
 				t.Errorf("%dx%d: frame still rendered %q alongside the message:\n%s",
 					size.w, size.h, forbidden, out)

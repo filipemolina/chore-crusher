@@ -83,12 +83,12 @@ func TestListsAddRejectsEmptyName(t *testing.T) {
 	if code != 1 {
 		t.Errorf("empty name: exit %d, want 1 (store's domain error)", code)
 	}
-	if out != "" || !strings.Contains(errOut, "crush: ") {
+	if out != "" || !strings.Contains(errOut, "farol: ") {
 		t.Errorf("empty name: stdout %q stderr %q, want the human error shape", out, errOut)
 	}
 }
 
-// TestCLIListsAddOwner pins H9: `crush lists add --owner pi` provisions a
+// TestCLIListsAddOwner pins H9: `farol lists add --owner pi` provisions a
 // list owned by pi, and omitting the flag keeps the human-managed behaviour
 // (empty owner).
 func TestCLIListsAddOwner(t *testing.T) {

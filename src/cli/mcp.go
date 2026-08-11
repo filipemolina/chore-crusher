@@ -14,7 +14,7 @@ func newMcpCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "mcp",
 		Short: "run the Model Context Protocol server (stdio)",
-		Long: `Run Chore Crusher as an MCP server on stdin/stdout.
+		Long: `Run Farol as an MCP server on stdin/stdout.
 
 Agents can call its tools directly instead of shelling out for every
 operation. The tools mirror the CLI subcommands and return the same JSON
