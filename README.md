@@ -1,4 +1,4 @@
-# Chore Crusher
+# Farol
 
 **A terminal to-do list you can watch, and your coding agent can drive.**
 
@@ -6,7 +6,7 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-v0.2.0-blue)
 
-![Chore Crusher](demo/chore-crusher-banner.svg)
+<p align="center"><img src="./assets/farol-banner.svg" alt="Farol" width="760"></p>
 
 [**Demo**](#demo) • [**Get Started**](#get-started) • [**Usage**](#usage) • [**For Agents**](#for-coding-agents)
 
@@ -14,7 +14,7 @@
 
 ## Demo
 
-![Chore Crusher Demo](demo/demo.gif)
+![Farol Demo](demo/demo.gif)
 
 ## Features
 
@@ -37,7 +37,7 @@
 
 This project started from a real workflow problem. When I work with AI coding agents, I found myself jumping between windows constantly. Open a todo app. Add a task when an idea pops into my head. Wait for the agent to finish what it was doing. Check the todo app. Talk to the agent about the next thing. Then manually check that task off my list. As more tasks piled up, that loop got messy fast.
 
-There has to be a better way to do this (I'm absolutely certain there is). Well, anyways... building this has been fun, and I learned a lot about Go along the way. I plan to keep adding features / squashing bugs because this is something genuinely helpful to me. These are the things I think Chore Crusher actually brings to the table, beyond being a fast terminal todo list:
+There has to be a better way to do this (I'm absolutely certain there is). Well, anyways... building this has been fun, and I learned a lot about Go along the way. I plan to keep adding features / squashing bugs because this is something genuinely helpful to me. These are the things I think Farol actually brings to the table, beyond being a fast terminal todo list:
 
 ## What it does
 
@@ -74,29 +74,29 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 
 ```bash
 # Using Go
-go install github.com/filipemolina/chore-crusher@latest
+go install github.com/filipemolina/farol@latest
 
 # Or build from source
-git clone https://github.com/filipemolina/chore-crusher.git
-cd chore-crusher
-make build  # installs to ~/go/bin/crush
+git clone https://github.com/filipemolina/farol.git
+cd farol
+make build  # installs to ~/go/bin/farol
 
 # Or download a pre-built binary
-# See https://github.com/filipemolina/chore-crusher/releases
+# See https://github.com/filipemolina/farol/releases
 ```
 
 ### Launch
 
 ```bash
-crush              # opens the TUI
-crush --help       # shows all CLI commands
+farol              # opens the TUI
+farol --help       # shows all CLI commands
 ```
 
 ### First run
 
-On first launch, Chore Crusher creates:
-- Data: `~/.local/share/chore-crusher/chore-crusher.db` (SQLite store)
-- Config: `~/.config/chore-crusher/config.yaml` (theme, layout)
+On first launch, Farol creates:
+- Data: `~/.local/share/farol/farol.db` (SQLite store)
+- Config: `~/.config/farol/config.yaml` (theme, layout)
 
 The default list `Inbox` is created automatically under `farol-ember` theme.
 
@@ -126,51 +126,51 @@ The default list `Inbox` is created automatically under `farol-ember` theme.
 
 ### The CLI
 
-Every TUI operation is available via CLI commands (`crush --help` lists them all):
+Every TUI operation is available via CLI commands (`farol --help` lists them all):
 
 ```bash
 # Lists
-crush lists                       # list all lists with counts
-crush lists add "Home"            # create a new list
-crush lists rename <id> "Garden"  # rename a list
-crush lists rm <id>               # delete a list and its tasks
+farol lists                       # list all lists with counts
+farol lists add "Home"            # create a new list
+farol lists rename <id> "Garden"  # rename a list
+farol lists rm <id>               # delete a list and its tasks
 
 # Tasks
-crush tasks <list-id>             # show tasks in a list (tree view)
-crush add <list-id> "Buy paint"   # add a root task
-crush add <list-id> "Mix colors" --parent <task-id>  # add a subtask
-crush show <task-id> --json       # show full task details
-crush <task-id>                   # mark task complete (cascades)
-crush reopen <task-id>            # reopen a complete task
-crush rename <task-id> "New name" # rename a task
-crush mv <task-id> --parent <id>  # re-parent a task (or --root)
-crush rm <task-id>                # delete a task and descendants
+farol tasks <list-id>             # show tasks in a list (tree view)
+farol add <list-id> "Buy paint"   # add a root task
+farol add <list-id> "Mix colors" --parent <task-id>  # add a subtask
+farol show <task-id> --json       # show full task details
+farol <task-id>                   # mark task complete (cascades)
+farol reopen <task-id>            # reopen a complete task
+farol rename <task-id> "New name" # rename a task
+farol mv <task-id> --parent <id>  # re-parent a task (or --root)
+farol rm <task-id>                # delete a task and descendants
 
 # Progress & priority
-crush progress <task-id> --mode percentage --percent 60
-crush progress <task-id> --mode subtasks   # derive % from children
-crush progress <task-id> --mode simple     # plain in_progress flag
-crush priority <task-id> high    # none | low | medium | high
+farol progress <task-id> --mode percentage --percent 60
+farol progress <task-id> --mode subtasks   # derive % from children
+farol progress <task-id> --mode simple     # plain in_progress flag
+farol priority <task-id> high    # none | low | medium | high
 
 # Search
-crush search "paint"              # fuzzy search across titles and notes
-crush search "deck" --json       # JSON output
+farol search "paint"              # fuzzy search across titles and notes
+farol search "deck" --json       # JSON output
 
 # Global
-crush --help                      # full CLI reference
+farol --help                      # full CLI reference
 ```
 
 ### The MCP server (for coding agents)
 
-Run `crush mcp` to start an MCP server that agents can discover and use:
+Run `farol mcp` to start an MCP server that agents can discover and use:
 
 ```bash
 # Claude Code (claude.json)
 {
   "mcpServers": [
     {
-      "name": "chore-crusher",
-      "command": "crush",
+      "name": "farol",
+      "command": "farol",
       "args": ["mcp"],
       "env": { "FAROL_AGENT": "claude" }
     }
@@ -180,8 +180,8 @@ Run `crush mcp` to start an MCP server that agents can discover and use:
 # Cursor (settings.json)
 {
   "mcpServers": {
-    "chore-crusher": {
-      "command": "crush",
+    "farol": {
+      "command": "farol",
       "args": ["mcp"],
       "env": { "FAROL_AGENT": "cursor" }
     }
