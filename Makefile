@@ -20,7 +20,7 @@ build:
 # Run the test suite
 test:
 	go test -count=1 ./...
-	go test -race ./src/mcpserver/ ./src/store/ ./src/cli/
+	go test -race ./src/store/ ./src/cli/
 
 # Build and seed the demo, then record a new demo GIF.
 # Requires VHS (https://github.com/charmbracelet/vhs) and ffmpeg.

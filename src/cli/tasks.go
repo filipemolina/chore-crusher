@@ -271,8 +271,8 @@ func taskCommands() []*cobra.Command {
 // agent and returns the row. An exhausted list is a normal state, not an
 // error: it prints nothing in human mode and {ok:false,reason:...} in --json.
 // The grab is a write, so it claims presence under FAROL_AGENT (best-effort —
-// a conflicting live claim is ignored, matching the MCP autoClaim), keeping
-// the TUI spinner live once the MCP server is gone.
+// a conflicting live claim is ignored, matching the prior autoClaim), keeping
+// the TUI spinner live on the CLI front end.
 func runNext(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
@@ -928,10 +928,9 @@ func runComment(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// runCommentRm mirrors runRm: the CLI is unenforced (docs/DESIGN.md §9,
-// "List ownership, and what the MCP server refuses" — enforcement lives in
-// src/mcpserver alone), so it may delete any comment, and --force is the
-// only confirmation since there is no modal to route through here.
+// runCommentRm mirrors runRm: the store is unenforced (docs/DESIGN.md §9),
+// so the CLI may delete any comment, and --force is the only confirmation
+// since there is no modal to route through here.
 func runCommentRm(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")

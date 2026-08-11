@@ -30,10 +30,10 @@ func liveClaimOf(t *testing.T, dataDir, entityType, entityID, agentID string) bo
 	return false
 }
 
-// TestCLIMutatingCommandsAutoClaim presence-claims the task they write, so
-// the TUI spinner stays live once farol mcp is gone. This is the Phase 1.6
-// parity gate: every mutation that MCP's autoClaim covered must claim under
-// the same FAROL_AGENT identity here (mirrors the MCP server's autoClaim).
+// TestCLIMutatingCommandsAutoClaim presence-claims the task they write, so the
+// TUI spinner stays live. This is the Phase 1.6 parity gate: every mutation
+// must claim under the same FAROL_AGENT identity that the presence spinner
+// renders, so the dashboard tracks real work.
 func TestCLIMutatingCommandsAutoClaim(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")

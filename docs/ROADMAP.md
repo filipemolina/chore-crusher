@@ -99,9 +99,9 @@ list, and humans create tasks for agents to work on**, with the TUI as the live
 dashboard.
 
 **Surface today:** the CLI is the single agent-facing front end. The MCP
-server (`farol mcp`) is deprecated and being removed in favour of the CLI
-(cli-first migration plan); this section is kept as a record of what the MCP
-track shipped. The identity an agent acts under comes from `FAROL_AGENT` when
+server (`farol mcp`) was retired in the cli-first migration in favour of the
+CLI; this section is kept as a record of what the MCP track shipped. The
+identity an agent acts under comes from `FAROL_AGENT` when
 set, and is otherwise generated per process; ownership is cooperative trust,
 not auth. Full contract for the CLI: `docs/DESIGN.md` §9. The planned CLI
 surface trades tool count against *call* count, and call count wins — which is
@@ -187,15 +187,11 @@ partly done: session end already removes that Inbox when it is *empty*. What
 remains is the harder case — an Inbox holding completed work — which needs a
 product decision about what "done with it" means.
 
-**Renaming Lists to Projects** — the "Lists" → "Projects" rename across DB,
-store, CLI, MCP tool names, TUI and docs. Breaking, touches everything, and
-should run **last**.
+### Deferred follow-ups
 
-### Deferred MCP follow-ups
-
-- Optional: show list owner in the TUI; comments gated by `requireWritable`.
-- Do **not** add an `adopt_list` MCP tool unless the hardening CLI path proves
-  insufficient — keep the tool-count ceiling.
+- Optional: show list owner in the TUI; comments gated by owner.
+- Do **not** add an `adopt_list` tool unless the hardening CLI path proves
+  insufficient — keep the command surface lean.
 
 ---
 
@@ -206,17 +202,11 @@ decision it depends on.
 
 ### Product / data model
 
-- **Due dates and a `StatusOverdue` that means something.** The theme
-  registry already reserves the color (`docs/DESIGN.md` §11); nothing reads
-  it until this lands.
 - ~~**Priorities and assignees.**~~ **Shipped** — both landed with the
   assignment-and-priorities work as `Task.priority` and `Task.assignee`,
   along with the tools, CLI commands and TUI badges that read them. The
   "Decisions already taken" note above deferring them was scoped to the
   *first alpha* and stands as a record of that scope.
-- **Sync or export** (git-friendly export a la Backlog.md; a CalDAV bridge).
-  Needs a decision about which, if either, before any code — see
-  `docs/DESIGN.md` §1.
 
 ### TUI and bug-fix plans
 

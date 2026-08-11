@@ -128,7 +128,6 @@ marks the task with that id complete (cascading to descendants).`,
 		newTasksCmd(),
 		newSearchCmd(),
 		newInboxCmd(),
-		newMcpCmd(),
 	)
 	root.AddCommand(taskCommands()...)
 	root.AddCommand(attachmentCommands()...)

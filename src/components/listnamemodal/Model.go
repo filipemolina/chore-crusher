@@ -24,7 +24,7 @@ const (
 
 // Model is the list name input modal (create or rename). Both modes support
 // the collaborative toggle (docs/DESIGN.md §9, "Tag a list as collaborative")
-// — the human-only way to set it; there is no MCP tool. ModeRename seeds the
+// — the human-only way to set it; there is no agent-facing command to set it.
 // toggle from the store at construction so opening rename never silently
 // resets an existing list's flag.
 type Model struct {

@@ -28,7 +28,7 @@ type AgentActivity struct {
 }
 
 // WorkTTL is how long a claim stays "live" after the last ClaimWork. The TUI
-// only shows claims acquired within this window; the MCP server prunes older
+// only shows claims acquired within this window; the app prunes older
 // rows opportunistically. A dead agent's spinner vanishes after this.
 const WorkTTL = 120 * time.Second
 
@@ -222,7 +222,7 @@ func (s *Store) ListWork() ([]AgentActivity, error) {
 	return out, rows.Err()
 }
 
-// PruneStaleWork deletes claims older than WorkTTL. The MCP server calls it
+// PruneStaleWork deletes claims older than WorkTTL. The CLI/TUI call it
 // inside ClaimWork and ReleaseWork (one cheap DELETE) so the table never grows
 // without bound; the TUI never deletes.
 func (s *Store) PruneStaleWork(now int64) (int, error) {
@@ -239,7 +239,7 @@ func (s *Store) PruneStaleWork(now int64) (int, error) {
 }
 
 // ReleaseAgentClaims removes rows from the AgentActivity table for the given agentID.
-// It is called when the MCP server shuts down (the MCP session has ended) so that
+// It is called when an agent session ends so that
 // the exiting agent's own spinners do not linger in the TUI beyond the process's lifetime.
 // Unlike PruneStaleWork, this does not filter by WorkTTL — it clears all of the agent's
 // claims regardless of staleness because the process that made them is going away.

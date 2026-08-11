@@ -1,7 +1,8 @@
 # Contributing
 
 Farol is a keyboard-first task manager for humans and AI agents
-working from one store: a TUI, a CLI, and an MCP server over a single SQLite
+working from one store: a TUI, a CLI, and (for agent integration) the CLI's
+`--json` surface over a single SQLite
 database. This file is for human contributors. If you are an AI coding agent,
 read [`AGENTS.md`](AGENTS.md) instead; it has the operational rules, the
 known hallucination traps in this stack, and the verification habits this
@@ -110,8 +111,6 @@ src/
 ├── keys/             # the one keymap package: see the rule above
 ├── store/            # SQLite schema, migrations, and every read/write function
 ├── cli/              # one file per subcommand group, thin cobra-to-store adapters
-├── mcpserver/        # the MCP server (`farol mcp`): tools mirror the CLI but
-│                     # talk directly to store (docs/DESIGN.md §9)
 ├── banner/           # the figlet wordmark rendered with the active theme
 ├── appstyles/        # Theme type + the 14-theme registry (docs/DESIGN.md §11)
 ├── config/           # ~/.config/farol/config.yaml

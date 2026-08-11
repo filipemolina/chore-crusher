@@ -123,7 +123,7 @@ func (s *Store) TaskIDsWithComments(listID string) (map[string]bool, error) {
 }
 
 // GetComment returns one comment by id. Callers that must decide whether a
-// delete is allowed (the MCP server's "own comments only" rule) read the
+// delete is allowed (the "own comments only" rule) read the
 // author here before calling DeleteComment.
 func (s *Store) GetComment(id string) (Comment, error) {
 	var c Comment

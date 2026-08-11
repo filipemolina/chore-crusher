@@ -49,7 +49,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | **Status model** | `pending`, `in_progress`, `complete` with user % or derived % |
 | **Live agent presence** | Animated spinner lights on task writes. You see exactly what's working. |
 | **4-value priority** | `high` > `medium` > `low` > `none` (drives `next_task` ordering) |
-| **MCP server** | 12 tools + 2 resources + 3 prompts for discoverable agent integration |
+| **Agent CLI** | a single agent-facing front end: every operation is a `farol` subcommand emitting one JSON value with `--json` |
 | **Themes** | 14 themes: four of the app's own (`farol-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
 
 ---
@@ -176,8 +176,10 @@ farol progress <task-id> --mode percentage --percent 50
 farol unassign <task-id>        # release the assignment when done
 ```
 
-The MCP server (`farol mcp`) is deprecated and being removed in favour of this
-CLI-first approach.
+This project ships a CLI-first agent surface: every operation is a `farol`
+subcommand, and `--json` emits one JSON value per call, so an agent drives the
+store without a server process. The MCP server that previously mirrored these
+commands was retired in the cli-first migration.
 
 A `farol skill` command that prints a copy-paste agent skill file is planned;
 until it lands, the command reference above and `farol --help` are the source
@@ -201,7 +203,6 @@ See [`docs/STATUS.md`](docs/STATUS.md) for what each phase changed and why.
   [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 - [Cobra](https://github.com/spf13/cobra)
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite): pure Go, no CGO
-- [Model Context Protocol Go SDK](https://github.com/modelcontextprotocol/go-sdk)
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the architectural rationale.
 

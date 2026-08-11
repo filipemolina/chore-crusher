@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "farol": {
-      "command": "/home/filipe/go/bin/farol",
-      "args": ["mcp"],
-      "env": { "FAROL_AGENT": "pi" }
-    }
-  }
-}

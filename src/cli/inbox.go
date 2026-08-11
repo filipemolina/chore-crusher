@@ -12,12 +12,11 @@ import (
 
 // inboxListJSON is one list block in `farol inbox --json` (docs/DESIGN.md
 // §9): the list's identity and counts plus the top pending tasks an agent
-// would act on. It mirrors the block the MCP farol:///inbox resource emits,
-// so a caller migrating off the server reads the identical shape from the
-// CLI. CreatedBy carries the owning agent tag; Collaborative carries the
-// list's opt-in any-agent-structural-edit flag. The CLI is unenforced, so it
-// reports both rather than acting on them (the gate lives in src/mcpserver
-// alone, and the CLI mirrors it read-only).
+// would act on. The CLI is the single agent-facing front end (the MCP server
+// was retired in the cli-first migration), and this shape is the inbox's
+// canonical JSON. CreatedBy carries the owning agent tag; Collaborative
+// carries the list's opt-in any-agent-structural-edit flag. The store is
+// unenforced, so the CLI reports both rather than acting on them.
 type inboxListJSON struct {
 	ID            string        `json:"id"`
 	Name          string        `json:"name"`

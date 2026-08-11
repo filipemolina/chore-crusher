@@ -72,7 +72,6 @@ rules rather than left implicit:
 - **Do not add a dependency not named in `docs/DESIGN.md`.**
   The stack is Bubble Tea v2 / Lip Gloss v2 / Bubbles v2, Cobra,
   `modernc.org/sqlite`, `gopkg.in/yaml.v3` (the config file),
-  `github.com/modelcontextprotocol/go-sdk` (the MCP server),
   `github.com/sahilm/fuzzy` (the `/` filter and the search picker), and
   `github.com/charmbracelet/x/ansi` (ANSI-aware width measurement and
   truncation). If a task seems to need something else (a different
@@ -333,15 +332,13 @@ should stay rare, because it's timing-based.
 
 ## Working the task list
 
-If you drive the app through its MCP server (`farol mcp`), read the resource
-`farol:///inbox` at the start of every session: your list, every foreign
-list, and their top 20 pending tasks with notes inlined. Keep their status
-current as you work, on your own, without being asked: assign what you take,
-flip it to `in_progress` with a progress percentage, advance the percentage
-at milestones, comment at decision points, and complete it when done. The
-human watches the TUI; the statuses are the report. A per-call `farol mcp`
-releases assignments when the process exits, so hold one persistent server
-process for the whole session.
+Drive the app through its CLI: read the inbox with `farol inbox` at the start
+of every session — your list, every foreign list, and their top 20 pending
+tasks with notes inlined. Keep their status current as you work, on your own,
+without being asked: assign what you take, flip it to `in_progress` with a
+progress percentage, advance the percentage at milestones, comment at decision
+points, and complete it when done. The human watches the TUI; the statuses are
+the report.
 
 ## Reference material
 

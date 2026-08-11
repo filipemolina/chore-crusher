@@ -83,8 +83,9 @@ type List struct {
 	CommentsDisabled bool
 	// Collaborative is an explicit opt-in that lets any agent make
 	// structural edits (add_task, edit_task, delete_task) on this list, not
-	// just the CreatedBy owner (src/mcpserver's requireWritable). Defaults
-	// to false; an untagged list stays foreign to every agent until a human
+	// just the CreatedBy owner. The store is unenforced, so this flag is
+	// advisory: a human may always restructure their own list. Defaults to
+	// false; an untagged list stays foreign to every agent until a human
 	// sets this.
 	Collaborative bool
 }

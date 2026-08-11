@@ -62,8 +62,8 @@ func newListsCmd() *cobra.Command {
 				Args:  cobra.ExactArgs(1),
 				RunE:  runListsAdd,
 			}
-			// --owner provisions the list for an agent up front (the MCP server
-			// refuses structural writes on an untagged list); empty keeps the
+			// --owner provisions the list for an agent up front (the ownership
+			// rule refuses structural writes on an untagged list); empty keeps the
 			// human-managed behaviour where only the human restructures it.
 			addCmd.Flags().String("owner", "", "owning agent tag (e.g. pi); empty keeps the list human-managed")
 			return addCmd

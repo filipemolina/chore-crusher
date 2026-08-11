@@ -135,3 +135,13 @@ behavior during this rename) lives outside this repo at:
 `~/.pi/agent/extensions/PLAN_SWEEP_IMPROVEMENTS.md`
 
 It is not part of this project and should not be committed here.
+
+## MCP server retired
+
+The `src/mcpserver` package and the `farol mcp` command described in the
+"Latest change" entries above were deleted once the CLI reached full parity
+(cli-first migration: `farol inbox` parity 1.7 was the last milestone). The
+release-agent-claims and presence machinery those entries describe now lives
+only in `src/store` and the CLI (`src/cli/presence.go`); the `modelcontextprotocol/go-sdk`
+dependency was dropped. The historical entries above are kept as a record of
+what shipped.

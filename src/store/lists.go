@@ -208,8 +208,8 @@ func (s *Store) SetCollaborative(id string, collaborative bool) error {
 // The lookup is owner-first (WHERE created_by = ?): a list merely *named*
 // "<identity>: ..." but created by the human in the CLI/TUI (created_by
 // empty) is foreign to every agent and must not satisfy this call — silently
-// adopting it would hand the agent a list the server then refuses to write.
-// The my_list MCP tool is the caller-facing wrapper this store method
+// adopting it would hand the agent a list the CLI/TUI then refuses to write.
+// The `farol lists` commands are the caller-facing wrappers this store method
 // supports.
 func (s *Store) GetOrCreateAgentList(identity string) (string, error) {
 	prefix := identity + ": "

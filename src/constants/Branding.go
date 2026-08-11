@@ -11,7 +11,7 @@ var APP_NAME = "farol"
 // placeholder: "New List" described the list's age rather than its contents,
 // read as an unfinished setup step, and could only be corrected through R in
 // the Lists panel, a panel the user may not have found and which is hidden
-// below AUTO_SHOW_LISTS_MIN_WIDTH. "Inbox" matches what the MCP server already
+// below AUTO_SHOW_LISTS_MIN_WIDTH. "Inbox" matches what the agent store already
 // names an agent's own default list ("<tag>: Inbox", store.GetOrCreateAgentList).
 //
 // This is only the auto-created name. A list the user creates with n is named

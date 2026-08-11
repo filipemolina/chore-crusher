@@ -24,17 +24,14 @@ reporting layer bolted onto a TUI-owned database — both talk to the same
 `store` package (§8), and a write from either is visible to the other within
 one poll tick (§7).
 
-The MCP server (`farol mcp`) is deprecated and being removed in favour of the
-CLI. The CLI is the only agent surface that new features should target; the
-MCP server stays wired only until it is deleted, and must not gain new
-behaviour.
-
 It is **not**:
 
 - A sync client. No CalDAV, no Todoist, no Nextcloud Tasks. One local SQLite
-  file is the entire backend. If sync matters later, it is a sync of that
-  file (or an export from it), not a second source of truth — see
-  `docs/ROADMAP.md`'s post-alpha list for where that idea is parked and why.
+  file is the entire backend, and farol will stay single-backend: if sharing
+  ever matters, it is a sync of that file (or an export from it), never a
+  second source of truth. Due dates, CalDAV, and project-management expansion
+  (a "Lists → Projects" rename, Gantt views) are deliberately out of scope
+  here — they belong to a separate, more dedicated project-management app.
 - A project-management tool. There IS an **assignee** and a **priority**
   field (§2, §3) — but as *coordination* primitives for multiple agents,
   not project-management creep: assignment answers "which agent owns this
@@ -60,8 +57,8 @@ List
   position      integer not null   -- manual ordering among lists
   created_by    text not null default ''
                 -- declared owner tag ("pi", "claude", …); empty = owned by
-                -- nobody. Only the MCP server reads it (§9); the CLI and TUI
-                -- write '' and ignore it.
+                -- nobody. The CLI and TUI write '' and ignore it; the agent
+                -- front end reads it (§9) to decide list ownership.
 
 Task
   id             text primary key   -- ULID
@@ -182,7 +179,7 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat; they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the MCP server also calls `store.ReleaseAgentClaims` when the MCP session ends (client disconnect), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected.
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat; they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the agent front end also calls `store.ReleaseAgentClaims` when the agent's session ends (process exit), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected.
 
 **Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) has no TTL and no background sweeper — it changes only when someone explicitly assigns, unassigns or completes the task (§9 `assign_task` / `next_task`), **or when the session holding it ends**. It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. **An assignment lives for the session that made it.** An MCP session's identity is unique to its process unless `FAROL_AGENT` pins it (§9), so a tag that will never return must not hold work forever: on shutdown the server releases its own claims and its own assignments, and removes the Inbox it auto-created if that Inbox is empty. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget.
 
@@ -866,12 +863,12 @@ delete with no prompt at all.
 (§2); `store.DeleteComment` hard-deletes by id, with no soft-delete or
 tombstone. The CLI (`farol comment rm <comment-id> --force`) and the TUI
 (the Details modal's comments zone) are unenforced like every other
-human-facing delete — either may remove any comment. The MCP `comment`
-tool is the one gated surface: its `delete=true` mode
-refuses unless the comment's `author`
-equals the calling session's identity, with the same error shape the list
-ownership gate (`requireWritable`) uses — `comment <id> is owned by <author>
-— you may only delete your own comments`. The `comment` tool also merges
+human-facing delete — either may remove any comment. The store is
+unenforced and the CLI/TUI never gate a comment delete; this is the deliberate
+front-end divergence CONTRIBUTING rule 5 records. The error shape
+`comment <id> is owned by <author> — you may only delete your own comments`
+was the message the old agent-server gate used; it does not apply to the
+CLI/TUI, which may remove any comment. The `comment` tool also merges
 the old `add_comment`; deletion alone stays gated by
 `requireOwnComment`, and posting a comment is never blocked by assignment.
 This is a narrower rule than list
@@ -913,99 +910,9 @@ farol comment rm <comment-id> --force          delete a comment
 farol search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
 farol inbox [--include notes]                  start-of-session context: your list plus every foreign list, each with its top 20 pending tasks and notes inlined
-farol mcp                                      run the MCP server on stdin/stdout
 
 farol --version
 ```
-
-> **Deprecated.** The MCP server is being removed in favour of the CLI
-> (cli-first migration). The CLI is the only agent-facing front end that new
-> work should target; this section is retained only until the server is
-> deleted, and describes behaviour that will go away. New agent features
-> belong on the CLI (the command reference below, the parity gap table in the
-> migration plan, and the `--json` contract).
-
-**`farol mcp`** runs a Model Context Protocol server over stdin/stdout. The
-tools it exposes mirror the CLI subcommands and return the same JSON shapes
-that `--json` would emit on the command line, so an agent host can call
-`farol` operations as native tool calls instead of spawning the CLI per
-operation. The server is a thin adapter over `src/store` in
-`src/mcpserver`, not a layer on `src/cli`.
-
-**The MCP tool surface is exactly twelve tools**, pinned by
-`TestMCPToolSurface` in `src/mcpserver/server_test.go`: `my_list`,
-`list_tasks`, `show_task`, `search_tasks`, `add_task`, `edit_task`,
-`delete_task`, `set_status`, `assign_task`, `next_task`, `comment`,
-`add_list`. This count is deliberate and is not a minimum — it trades tool
-count against call count, and **call count wins** (§2 of the assignment
-plan): `set_status` absorbs `complete_task`/`reopen_task`/`set_progress`,
-`assign_task` replaces `claim_work`, `comment` merges
-`add_comment`/`delete_comment`, and `list_tasks` absorbs `list_changes` via
-its `since` parameter. Nothing is deleted that a caller still needs.
-
-The task read rows (`list_tasks`, `show_task`, `search_tasks`) carry an
-`assignee`, `assigned_at`, `assignee_live` and `priority` field on every
-row, so a task's ownership and importance are visible without a second
-round-trip; `assignee_live` is computed per call from `store.ListWork` and
-is `false` for the stale-assignment tier (§3).
-
-**MCP rows are a superset of the CLI's `--json` shapes** (CONTRIBUTING rule
-6): `my_list` adds `position` and `created_by` to the `lists` rows it
-returns (`mine` + `foreign_lists`). **The read-only resources no longer
-mirror the tools.** Five resources that duplicated a tool row-for-row —
-`farol:///lists`, `farol:///lists/{id}`, `farol:///lists/{id}/tasks`,
-`farol:///tasks/{id}` and `farol:///search/{query}` — were deleted:
-keeping them meant every
-field added to a task had to be added in three places or the surfaces
-drifted, and MCP hosts do not auto-read resources, so they cost maintenance
-and bought nothing at runtime. Only `farol:///inbox` (a composed shape with
-no tool equivalent) and `farol://work` (presence) remain, and
-`TestMCPResourcesListed` pins that set at exactly two with zero templates.
-A new field belongs on the tool. The server-side tests that pin the
-MCP shapes live in `src/mcpserver/server_test.go`. The task read shapes —
-`show_task`/`farol show`, `list_tasks`/`farol tasks`, `search_tasks`/`farol
-search` — carry `list_owner` on every row (the parent list's `created_by`,
-`""` for an unowned list), so an agent holding a task id knows at a glance
-whether its list is writable without a separate `my_list` round-trip
-(CONTRIBUTING rule 6: the CLI `--json` shapes gained the same additive
-field).
-
-**MCP agent-optimised extensions.** The task read shapes gained
-`has_notes` and `notes_len` on every row: `has_notes` is `false` when the
-notes body is empty, so an agent can skip a `show_task` call entirely.
-`list_tasks(list_id, status?, since?, include?)` filters **per task** (not
-per tree root): `status` defaults to `open` (= pending + in_progress) —
-plus `pending`, `in_progress`, `complete`, `all` — and a row kept only as
-ancestor context comes back with `context_only: true`. `since` (unix
-seconds) absorbs the old `list_changes` tool, and passing it **widens the
-default `status` to `all`** — `list_changes` had no status filter, so a
-change feed that defaulted to `open` would be blind to a task being
-completed, the most common change there is. An explicit `status` still
-wins. `include` accepts `notes`,
-`comments`, or both; inlined bodies are **never cut mid-text**: a byte
-budget (`notesBudget`) caps the whole response, an over-budget row is
-dropped whole, and its id goes into the `elided` array of the return
-object `{"tasks": [...], "elided": [...], "budget_exceeded": false}`.
-Only rows that actually carry a body are charged to the budget or named
-in `elided`, since `elided` exists to be re-fetched with `show_task`.
-The old `notes_truncated` flag is gone — mid-sentence truncation was the
-bug being fixed. `show_task(ids)` is the batch equivalent for cross-list
-workflows: up to 50 task ids return their **entire subtree** — every
-descendant's full notes and comments, uncapped. Unresolvable entries are
-returned as `{id, error}`. The `progress` field is
-omitted on rows where the task has no progress, cutting typical row size by
-~25%. `my_list` now returns `{mine: {id,name,pending,complete},
-foreign_lists: [{id,name,pending,complete,created_by}]}`, merging `my_list`
-+ `list_lists` into a single session-opening call. Status and progress
-writes auto-claim the task under the writing agent's identity (best-effort,
-non-stealing) — that is the presence heartbeat of §3, and it is distinct
-from the durable `assign_task` that replaces `claim_work`. Every other task
-write — `add_task`, `comment`, `edit_task` — auto-claims the touched task too;
-`delete_task` does not (the task no longer exists), and `DeleteTask` clears
-any claim rows on the deleted subtree so a removed task cannot keep a spinner
-alive. The
-`farol:///inbox` resource and `farol_inbox` prompt
-deliver all of the above as a single read for start-of-session triage.
 
 **`farol inbox` is the CLI equivalent of the `farol:///inbox` resource**
 (cli-first migration, parity 1.7). It is read-only and non-interactive, so it
@@ -1126,9 +1033,9 @@ The standalone `list_changes` tool no longer exists — the `since` parameter
 is now part of `list_tasks`, by the merge rule above: it returned the same
 rows, filtered.
 
-**List ownership, and what the MCP server refuses.** Every `List` carries a
-`created_by` tag (§2). The MCP server resolves its own identity once at start
-from the `FAROL_AGENT` environment variable; the *human* may set it per server
+**List ownership, and what the agent front end refuses.** Every `List` carries a
+`created_by` tag (§2). The agent front end resolves its own identity once at start
+from the `FAROL_AGENT` environment variable; the *human* may set it per session
 in the MCP client config to get a tag that is stable across runs. **When it is
 unset the identity is generated per process** — `agent-` plus six random hex
 digits — never a shared constant. A constant default was a real bug rather than
@@ -1190,12 +1097,12 @@ differently from one an agent cannot restructure (§12). `my_list`'s
 `foreign_lists` carries `collaborative` next to `created_by`, so an agent can
 tell before it tries rather than discovering it from a refusal.
 
-Enforcement lives in `src/mcpserver` alone (the `requireWritable` helper) —
+Enforcement of the list-ownership gate was, by design, never in the store:
 the store stays a dumb data layer and the CLI and TUI stay unenforced, which
 is the deliberate front-end divergence CONTRIBUTING rule 5 asks to be written
 down. Identity is self-declared and unauthenticated: this is cooperative
 trust between agents, not a security boundary. When comments arrive they join
-the owner-only bucket behind the same `requireWritable` helper.
+the owner-only bucket behind the same gate.
 
 **Output shapes, pinned.** The subcommand list above fixes *which* commands
 and flags exist; this fixes *what each prints*. The shapes below were
@@ -1320,11 +1227,8 @@ src/
 depend on `store` and nothing deeper; neither ever builds a SQL string.
 **`src/cli` and `src/model` are siblings over the same `store`, not layered on
 each other**, which is the structural expression of "neither front end is
-secondary" from §1. `main.go` is the one file that imports the CLI and TUI
+`secondary" from §1. `main.go` is the one file that imports the CLI and TUI
 to decide which to run.
-
-The MCP server (`src/mcpserver`, reached via `farol mcp`) is deprecated and is
-being removed; see the cli-first migration plan. Do not add new code to it.
 
 ## 11. Theming
 
@@ -1414,7 +1318,7 @@ match this app's domain:
 | `StatusComplete` | done |
 | `StatusPending` | not started |
 | `StatusInProgress` | active |
-| `StatusOverdue` | *(reserved; unused until a due-date feature exists — see `docs/ROADMAP.md`)* |
+| `StatusOverdue` | *(reserved; not used in this app — the theme colour is held for a future dedicated project-management app, not farol)* |
 
 The registry holds 14 themes: four of this app's own — `farol-dark`,
 `farol-ember`, `farol-slate`, `farol-day` — plus ten imported community
@@ -1872,7 +1776,7 @@ setup step the user was expected to complete, and the only way to correct it is
 `R` in the Lists panel: a panel a first-run user may not have discovered, and
 one that is hidden entirely below `AUTO_SHOW_LISTS_MIN_WIDTH`. The name a user
 is handed without being asked has to be one worth keeping. It matches what the
-MCP server already names an agent's own default list (`<tag>: Inbox`,
+agent store already names an agent's own default list (`<tag>: Inbox`,
 `store.GetOrCreateAgentList`).
 
 This is only the *auto-created* name, used on first run and whenever every list
