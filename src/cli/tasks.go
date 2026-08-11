@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,10 @@ import (
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/store"
 )
+
+// showBatchCap is the maximum number of task ids a single `farol show` may
+// request, matching the MCP show_task cap (50).
+const showBatchCap = 50
 
 // nextEmptyJSON is the --json shape when a list has no eligible task: an
 // explicit {ok:false} rather than an error, so an agent can branch on it
@@ -127,10 +132,18 @@ func taskCommands() []*cobra.Command {
 	addCmd.Flags().String("notes", "", "notes for the new task")
 
 	showCmd := &cobra.Command{
-		Use:   "show <task-id>",
-		Short: "show a task: title, notes, status, progress, children",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runShow,
+		Use:   "show <task-id> [<task-id> ...]",
+		Short: "show one or more tasks (up to 50): title, notes, status, progress, children",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) < 1 {
+				return fmt.Errorf("requires at least one task id")
+			}
+			if len(args) > showBatchCap {
+				return fmt.Errorf("show accepts at most %d task ids, got %d", showBatchCap, len(args))
+			}
+			return nil
+		},
+		RunE: runShow,
 	}
 
 	renameCmd := &cobra.Command{
@@ -718,50 +731,142 @@ func buildShowJSON(s *store.Store, id string) (showView, error) {
 	return v, nil
 }
 
+// showErrorRow is a per-id error in the `farol show <id>...` batch JSON:
+// an unresolvable id reports {id, error} rather than failing the whole
+// call, matching the MCP show_task contract (one bad id does not sink the
+// rest).
+type showErrorRow struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
+}
+
 func runShow(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	return runStore(cmd, func(s *store.Store) error {
-		id, err := s.ResolveID("task", args[0])
-		if err != nil {
-			return err
+		// Build the result for every requested id. Unresolvable ids become
+		// showErrorRow entries in --json; in human mode they print an error
+		// line and are otherwise skipped.
+		human := strings.Builder{}
+		payload := make([]any, 0, len(args))
+		anyErr := false
+		for _, raw := range args {
+			id, err := s.ResolveID("task", raw)
+			if err != nil {
+				anyErr = true
+				// A single requested id that cannot be resolved is the
+				// classic §9 failure: runStore prints one JSON error on
+				// stdout and exits 1. Only multi-id requests embed the
+				// error per row and succeed (matching MCP show_task's
+				// mixed-array 200).
+				if len(args) == 1 {
+					return err
+				}
+				if jsonMode {
+					payload = append(payload, showErrorRow{ID: raw, Error: err.Error()})
+				} else {
+					fmt.Fprintf(os.Stderr, "farol: %s\n", err)
+				}
+				continue
+			}
+			v, err := buildShowJSON(s, id)
+			if err != nil {
+				anyErr = true
+				if len(args) == 1 {
+					return err
+				}
+				if jsonMode {
+					payload = append(payload, showErrorRow{ID: raw, Error: err.Error()})
+				} else {
+					fmt.Fprintf(os.Stderr, "farol: %s\n", err)
+				}
+				continue
+			}
+			if !jsonMode {
+				renderShowHuman(&human, v)
+			}
+			payload = append(payload, v.payload)
 		}
-		v, err := buildShowJSON(s, id)
-		if err != nil {
-			return err
+		if jsonMode {
+			// Exactly one JSON value on stdout (§9): an array of showJSON
+			// and showErrorRow. A single id still yields a one-element
+			// array, matching the MCP batch contract. Per-id failures live
+			// in the array (showErrorRow), so the call itself succeeds —
+			// like MCP show_task, which returns the mixed array as a 200.
+			b, err := json.Marshal(payload)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(b))
+			return nil
 		}
-		t, childViews, comments, attachments := v.t, v.childViews, v.comments, v.attachments
-		printResult(jsonMode, func() {
-			fmt.Fprintf(os.Stdout, "Title: %s\n", t.Title)
-			fmt.Fprintf(os.Stdout, "ID: %s\n", id)
-			fmt.Fprintf(os.Stdout, "List: %s\n", t.ListID)
-			fmt.Fprintf(os.Stdout, "Status: %s\n", t.Status)
-			fmt.Fprintf(os.Stdout, "Progress: %s\n", progressHuman(v.payload.Progress))
-			fmt.Fprintf(os.Stdout, "Notes:\n")
-			for _, line := range strings.Split(t.Notes, "\n") {
-				fmt.Fprintf(os.Stdout, "  %s\n", line)
-			}
-			if len(childViews) > 0 {
-				fmt.Fprintf(os.Stdout, "Children (%d):\n", len(childViews))
-				for _, cv := range childViews {
-					renderRow(cv)
-				}
-			}
-			if len(comments) > 0 {
-				fmt.Fprintf(os.Stdout, "Comments (%d):\n", len(comments))
-				for _, c := range comments {
-					fmt.Fprintf(os.Stdout, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
-				}
-			}
-			if len(attachments) > 0 {
-				fmt.Fprintf(os.Stdout, "Attachments (%d):\n", len(attachments))
-				for _, a := range attachments {
-					fmt.Fprintf(os.Stdout, "  - %s: %s\n", a.ID, a.Path)
-				}
-			}
-		}, v.payload)
+		fmt.Print(human.String())
+		if anyErr {
+			// Human mode sends errors to stderr (stdout stays empty, §9)
+			// and exits 1.
+			return domainError(fmt.Errorf("one or more task ids could not be resolved"))
+		}
 		return nil
 	})
+}
+
+// renderShowHuman writes one task's human-readable block to w.
+func renderShowHuman(w *strings.Builder, v showView) {
+	t := v.t
+	fmt.Fprintf(w, "Title: %s\n", t.Title)
+	fmt.Fprintf(w, "ID: %s\n", t.ID)
+	fmt.Fprintf(w, "List: %s\n", t.ListID)
+	fmt.Fprintf(w, "Status: %s\n", t.Status)
+	fmt.Fprintf(w, "Progress: %s\n", progressHuman(v.payload.Progress))
+	fmt.Fprintf(w, "Notes:\n")
+	for _, line := range strings.Split(t.Notes, "\n") {
+		fmt.Fprintf(w, "  %s\n", line)
+	}
+	if len(v.childViews) > 0 {
+		fmt.Fprintf(w, "Children (%d):\n", len(v.childViews))
+		for _, cv := range v.childViews {
+			renderRowTo(w, cv)
+		}
+	}
+	if len(v.comments) > 0 {
+		fmt.Fprintf(w, "Comments (%d):\n", len(v.comments))
+		for _, c := range v.comments {
+			fmt.Fprintf(w, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
+		}
+	}
+	if len(v.attachments) > 0 {
+		fmt.Fprintf(w, "Attachments (%d):\n", len(v.attachments))
+		for _, a := range v.attachments {
+			fmt.Fprintf(w, "  - %s: %s\n", a.ID, a.Path)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+// renderRowTo writes one tree row to w (the batch show path prints to a
+// buffer rather than stdout directly).
+func renderRowTo(w *strings.Builder, v taskView) {
+	t := v.row.Task
+	fmt.Fprint(w, strings.Repeat("  ", v.row.Depth))
+	if v.row.HasChildren {
+		fmt.Fprint(w, "▾")
+	} else {
+		fmt.Fprint(w, " ")
+	}
+	fmt.Fprint(w, " ")
+	switch t.Status {
+	case apptypes.StatusComplete:
+		fmt.Fprint(w, "[x]")
+	case apptypes.StatusInProgress:
+		fmt.Fprint(w, "[~]")
+	default:
+		fmt.Fprint(w, "[ ]")
+	}
+	fmt.Fprint(w, " ", t.Title)
+	if !v.prog.DisplayAsSimple {
+		fmt.Fprintf(w, " (%d%%)", *v.prog.Percent)
+	}
+	fmt.Fprintln(w)
 }
 
 // progressHuman renders the show line: a subtasks task with no children

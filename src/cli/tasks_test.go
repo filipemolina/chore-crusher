@@ -175,8 +175,9 @@ func TestShow(t *testing.T) {
 		}
 	}
 
-	var payload showJSON
-	mustJSONCLI(t, data, &payload, "show", tid, "--json")
+	var payloadList []showJSON
+	mustJSONCLI(t, data, &payloadList, "show", tid, "--json")
+	payload := payloadList[0]
 	if payload.Title != "Buy paint" || payload.Notes != "two\nlines" ||
 		payload.Progress.Kind != "subtasks" || payload.Progress.DisplayAsSimple != true {
 		t.Errorf("show --json: %+v", payload)
@@ -195,8 +196,9 @@ func TestCLIShowIncludesChildren(t *testing.T) {
 	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "Choose color", "--parent", parent))
 	grand := strings.TrimSpace(mustCLI(t, data, "add", lid, "Hex code", "--parent", child))
 
-	var payload showJSON
-	mustJSONCLI(t, data, &payload, "show", parent, "--json")
+	var payloadList []showJSON
+	mustJSONCLI(t, data, &payloadList, "show", parent, "--json")
+	payload := payloadList[0]
 
 	if len(payload.Children) != 2 {
 		t.Fatalf("show children = %d, want 2 (child + grandchild): %+v", len(payload.Children), payload.Children)
@@ -290,8 +292,9 @@ func TestTasksJSONCarriesListOwner(t *testing.T) {
 
 	// farol show --json carries list_owner on the task and its children.
 	tid := strings.TrimSpace(mustCLI(t, data, "add", owned, "Child task", "--parent", rows[0].ID))
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if details.ListOwner != "pi" {
 		t.Errorf("show --json list_owner = %q, want pi", details.ListOwner)
 	}
@@ -311,8 +314,9 @@ func TestCommentRoundTrip(t *testing.T) {
 		t.Fatalf("expected two distinct comment ids, got %q and %q", cid1, cid2)
 	}
 
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if len(details.Comments) != 2 {
 		t.Fatalf("show --json comments = %d, want 2", len(details.Comments))
 	}
@@ -343,8 +347,9 @@ func TestCommentAuthorIsOSUsername(t *testing.T) {
 
 	mustCLI(t, data, "comment", tid, "note")
 
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if len(details.Comments) != 1 {
 		t.Fatalf("want 1 comment, got %d", len(details.Comments))
 	}
@@ -410,8 +415,9 @@ func TestCommentRmRequiresForce(t *testing.T) {
 		t.Errorf("comment rm without --force: exit %d stderr %q", code, errOut)
 	}
 
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if len(details.Comments) != 1 {
 		t.Errorf("comment deleted despite missing --force: %+v", details.Comments)
 	}
@@ -433,8 +439,9 @@ func TestCommentRmForce(t *testing.T) {
 		t.Errorf("comment rm --force --json = %+v, want ok:true", ok)
 	}
 
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if len(details.Comments) != 0 {
 		t.Errorf("comment still present after rm --force: %+v", details.Comments)
 	}
@@ -462,8 +469,9 @@ func TestShowIncludesCommentsArray(t *testing.T) {
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if details.Comments == nil {
 		t.Error("show --json should always include comments (even when empty)")
 	}
@@ -491,8 +499,9 @@ func TestAssignJSONShapes(t *testing.T) {
 
 	// The assignment landed: show carries the assignee and a non-null
 	// assigned_at.
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if details.Assignee != "pi" || details.AssignedAt == nil {
 		t.Errorf("show after assign: assignee %q assigned_at %v", details.Assignee, details.AssignedAt)
 	}
@@ -551,8 +560,9 @@ func TestUnassignJSONShapes(t *testing.T) {
 	if !res.OK || res.Assignee != "" {
 		t.Fatalf("unassign --json = %+v, want ok:true assignee:\"\"", res)
 	}
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if details.Assignee != "" || details.AssignedAt != nil {
 		t.Errorf("show after unassign: assignee %q assigned_at %v", details.Assignee, details.AssignedAt)
 	}
@@ -613,8 +623,9 @@ func TestPriorityJSONShapes(t *testing.T) {
 	}
 
 	// The level landed where both read surfaces report it.
-	var details showJSON
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
 	if details.Priority != "high" {
 		t.Errorf("show priority = %q, want high", details.Priority)
 	}
@@ -652,7 +663,8 @@ func TestPriorityJSONShapes(t *testing.T) {
 	if !strings.Contains(errPayload.Error, "--level") {
 		t.Errorf("missing-level error = %q, want it to name --level", errPayload.Error)
 	}
-	mustJSONCLI(t, data, &details, "show", tid, "--json")
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details = detailsList[0]
 	if details.Priority != "high" {
 		t.Errorf("priority after refused writes = %q, want high unchanged", details.Priority)
 	}
@@ -777,7 +789,41 @@ func TestTasksIncludeInvalidRejected(t *testing.T) {
 	}
 }
 
-// TestNextGrabsAndShows pins `farol next`: it atomically assigns the top
+// TestShowBatchPins the MCP show_task parity: `farol show <id>...` accepts
+// up to 50 ids and returns an array of full subtrees; an unresolvable id is
+// a per-element {id,error} row, not a whole-call failure.
+func TestShowBatch(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
+	t2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "two"))
+
+	var details []showJSON
+	mustJSONCLI(t, data, &details, "show", t1, t2, "--json")
+	if len(details) != 2 {
+		t.Fatalf("show batch = %d tasks, want 2", len(details))
+	}
+	if details[0].ID != t1 || details[1].ID != t2 {
+		t.Errorf("batch order wrong: %s, %s", details[0].ID, details[1].ID)
+	}
+
+	// A bad id reports {id,error} inline and the call still succeeds (exit 0),
+	// like MCP show_task — the per-row error is the failure signal, not a
+	// whole-call error that would emit a second JSON value on stdout.
+	code, out, _ := runCLI(t, data, "show", t1, "does-not-exist", "--json")
+	if code != 0 {
+		t.Fatalf("show with bad id: exit %d, want 0 (per-row error carries it)", code)
+	}
+	var rows []any
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("stdout %q is not one JSON array: %v", out, err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("show mixed = %d rows, want 2 (one ok, one error)", len(rows))
+	}
+}
+
 // eligible task (highest priority, then tree order) to FAROL_AGENT and returns
 // its full show payload; an empty/exhausted list is {ok:false,reason:...} in
 // --json, not an error. Pulled from the MCP next_task contract.
