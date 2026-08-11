@@ -30,8 +30,8 @@ post-alpha backlog.
   with a darkened lamp amber `#A06A0E` accent). `DefaultTheme` moved from
   `farol-ember` to `farol-dark`, so a fresh install opens in the brand
   colors; farol-ember stays selectable through `T` and as a saved
-  `theme:` value. Demo media stays pinned to farol-ember (a deliberate
-  recording choice, see `demo/seed.sh`). Tests:
+  `theme:` value. Demo media is pinned to farol-dark (see `demo/seed.sh`)
+  to match the fresh-install default. Tests:
   `TestDefaultThemeIsFarolDark` (appstyles). See `docs/DESIGN.md` §11.
 
 - **Light-theme readability: no glyph ever draws in the terminal's default

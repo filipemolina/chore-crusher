@@ -100,11 +100,11 @@ Escape
 Sleep 800ms
 
 # --- Theme picker: live preview ----------------------------------------------
-# T opens the picker. The picker starts on the active theme (farol-ember after
+# T opens the picker. The picker starts on the active theme (farol-dark after
 # seed.sh), so opening it and holding here is the live preview of the app's
-# documented theme — the README's screenshots are also captured in this view.
+# default theme — the README's screenshots are also captured in this view.
 # Walking the cursor would re-paint the app in unrelated themes, breaking the
-# demo's claim that the rest of the recording is farol-ember. Esc discards the
+# demo's claim that the rest of the recording is farol-dark. Esc discards the
 # preview without persisting.
 Type@1ms "T"
 Sleep 1500ms

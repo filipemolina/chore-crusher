@@ -79,9 +79,9 @@ Type "L"
 Sleep 500ms
 
 # --- Theme picker: live preview --------------------------------------------
-# T opens the picker. The picker starts on the active theme (farol-ember after
-# seed.sh), so the screenshot here is the live preview of farol-ember itself —
-# a closing shot of the demo's documented theme. Pressing Down moves the
+# T opens the picker. The picker starts on the active theme (farol-dark after
+# seed.sh), so the screenshot here is the live preview of farol-dark itself —
+# a closing shot of the demo's default theme. Pressing Down moves the
 # preview to a different theme, which would contradict the rest of the README.
 Type "T"
 Sleep 1500ms
