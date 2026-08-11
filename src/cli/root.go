@@ -127,6 +127,7 @@ marks the task with that id complete (cascading to descendants).`,
 		newListsCmd(),
 		newTasksCmd(),
 		newSearchCmd(),
+		newInboxCmd(),
 		newMcpCmd(),
 	)
 	root.AddCommand(taskCommands()...)

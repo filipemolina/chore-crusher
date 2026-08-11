@@ -84,6 +84,11 @@ func TestSearchJSONCarriesListOwner(t *testing.T) {
 // miss: `search` builds its own row type rather than reusing taskRowJSON, so
 // a field added to the tasks/show rows does not reach search for free.
 func TestSearchJSONCarriesAssignmentAndPriority(t *testing.T) {
+	// Pin the agent tag: agentIdentity() reads FAROL_AGENT from the
+	// environment, and this test asserts the default "agent" tag — without
+	// pinning it, an exported FAROL_AGENT in the calling shell makes the
+	// assertion fail spuriously.
+	t.Setenv("FAROL_AGENT", "agent")
 	data := t.TempDir()
 	l := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Backlog"))
 	id := strings.TrimSpace(mustCLI(t, data, "add", l, "Plan migration"))

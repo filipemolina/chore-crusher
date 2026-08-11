@@ -912,6 +912,7 @@ farol rm <task-id> --force                     delete a task and its descendants
 farol comment rm <comment-id> --force          delete a comment
 farol search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
+farol inbox [--include notes]                  start-of-session context: your list plus every foreign list, each with its top 20 pending tasks and notes inlined
 farol mcp                                      run the MCP server on stdin/stdout
 
 farol --version
@@ -1005,6 +1006,33 @@ any claim rows on the deleted subtree so a removed task cannot keep a spinner
 alive. The
 `farol:///inbox` resource and `farol_inbox` prompt
 deliver all of the above as a single read for start-of-session triage.
+
+**`farol inbox` is the CLI equivalent of the `farol:///inbox` resource**
+(cli-first migration, parity 1.7). It is read-only and non-interactive, so it
+claims no presence. It emits exactly one JSON value on stdout in `--json`
+mode, of the shape:
+
+```json
+{
+  "mine":          { "id", "name", "pending", "complete", "tasks": [...] },
+  "foreign_lists": [ { "id", "name", "pending", "complete",
+                       "created_by", "collaborative", "tasks": [...] }, ... ]
+}
+```
+
+`mine` is the single list whose `created_by` equals `FAROL_AGENT`; its
+`created_by` is dropped (implicit). `foreign_lists` holds every other list.
+Each block's `tasks` is the list's pending work filtered **per task** (a row
+is kept when its own status is `pending` or `in_progress`, not when its root
+is) — distinct from `farol tasks`'s root-based Pending section — capped at the
+top 20, in tree order. The rows carry the same `taskRowJSON` fields as `farol
+tasks --json` (id, parent_id, title, status, progress, depth, list_owner,
+has_notes, notes_len, assignee, assigned_at, assignee_live, priority),
+where `assignee_live` is computed from one `ListWork` read per request. The
+resource inlines notes unconditionally; the CLI keeps that behaviour behind
+`--include notes` so a caller that does not need bodies avoids the bytes. An
+empty inbox prints nothing in human mode and `mine` empty / `foreign_lists`
+empty in JSON — a normal state, not an error.
 
 **`set_status` is the one status/progress write.** It takes 1–50 ids in
 one call and accepts `status?` (`pending` | `in_progress` | `complete`),
