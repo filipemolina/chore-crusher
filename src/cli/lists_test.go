@@ -141,3 +141,50 @@ func TestPrefixResolution(t *testing.T) {
 		t.Errorf("prefix rename/resolve: %+v", payload)
 	}
 }
+
+// TestListsMineForeignFlags pins the CLI equivalent of the MCP my_list
+// mine/foreign split: --mine shows only lists whose created_by matches
+// FAROL_AGENT, --foreign shows only the rest, and --json always carries the
+// created_by field (empty for human-managed lists).
+func TestListsMineForeignFlags(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	pi := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Backlog", "--owner", "pi"))
+	_ = strings.TrimSpace(mustCLI(t, data, "lists", "add", "Reviews", "--owner", "pi"))
+	human := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+
+	var mine []listJSON
+	mustJSONCLI(t, data, &mine, "lists", "--mine", "--json")
+	if len(mine) != 2 {
+		t.Fatalf("lists --mine: got %d, want 2", len(mine))
+	}
+	for _, l := range mine {
+		if l.CreatedBy != "pi" {
+			t.Errorf("lists --mine returned list owned by %q", l.CreatedBy)
+		}
+	}
+
+	var foreign []listJSON
+	mustJSONCLI(t, data, &foreign, "lists", "--foreign", "--json")
+	if len(foreign) != 1 || foreign[0].ID != human {
+		t.Fatalf("lists --foreign: got %+v, want exactly the human list", foreign)
+	}
+
+	var all []listJSON
+	mustJSONCLI(t, data, &all, "lists", "--json")
+	if len(all) != 3 {
+		t.Fatalf("lists: got %d, want 3", len(all))
+	}
+	for _, l := range all {
+		switch l.ID {
+		case human:
+			if l.CreatedBy != "" {
+				t.Errorf("human list should have empty created_by, got %q", l.CreatedBy)
+			}
+		case pi:
+			if l.CreatedBy != "pi" {
+				t.Errorf("pi list should report created_by=pi, got %q", l.CreatedBy)
+			}
+		}
+	}
+}

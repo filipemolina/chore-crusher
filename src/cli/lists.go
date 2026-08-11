@@ -11,12 +11,16 @@ import (
 )
 
 // listJSON is the --json shape of one list row (docs/DESIGN.md §9): the
-// counts ListLists computes, plus the id and name a caller acts on.
+// counts ListLists computes, plus the id and name a caller acts on. CreatedBy
+// mirrors List.created_by — the owning agent tag — so an agent reading the
+// list surface can tell at a glance which lists are its own (the CLI
+// equivalent of the MCP my_list tool's mine/foreign split).
 type listJSON struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Pending   int    `json:"pending"`
 	Complete  int    `json:"complete"`
+	CreatedBy string `json:"created_by"`
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -28,6 +32,7 @@ func listsJSON(ls []store.ListSummary) []listJSON {
 			Name:      l.Name,
 			Pending:   l.PendingCount,
 			Complete:  l.CompleteCount,
+			CreatedBy: l.CreatedBy,
 			CreatedAt: l.CreatedAt,
 		})
 	}
@@ -41,6 +46,13 @@ func newListsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE:  runLists,
 	}
+	// --mine / --foreign replicate the MCP my_list tool's split: --mine shows
+	// only lists this agent owns (created_by == FAROL_AGENT); --foreign shows
+	// only lists owned by another agent (so an agent can find work to pick up).
+	// Both default to false, which prints every list (human and agent alike).
+	cmd.Flags().Bool("mine", false, "show only lists owned by this agent (FAROL_AGENT)")
+	cmd.Flags().Bool("foreign", false, "show only lists owned by another agent")
+	cmd.MarkFlagsMutuallyExclusive("mine", "foreign")
 
 	cmd.AddCommand(
 		func() *cobra.Command {
@@ -78,19 +90,35 @@ func newListsCmd() *cobra.Command {
 func runLists(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	mine, _ := cmd.Flags().GetBool("mine")
+	foreign, _ := cmd.Flags().GetBool("foreign")
 	return runStore(cmd, func(s *store.Store) error {
 		ls, err := s.ListLists()
 		if err != nil {
 			return err
+		}
+		me := agentIdentity()
+		if mine || foreign {
+			kept := ls[:0]
+			for _, l := range ls {
+				ownedByMe := l.CreatedBy == me
+				switch {
+				case mine && ownedByMe:
+					kept = append(kept, l)
+				case foreign && !ownedByMe:
+					kept = append(kept, l)
+				}
+			}
+			ls = kept
 		}
 		printResult(jsonMode, func() {
 			if len(ls) == 0 {
 				return // an empty result prints nothing in human mode (§9)
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tPENDING\tCOMPLETE")
+			fmt.Fprintln(w, "ID	NAME	PENDING	COMPLETE")
 			for _, l := range ls {
-				fmt.Fprintf(w, "%s\t%s\t%d\t%d\n", l.ID, l.Name, l.PendingCount, l.CompleteCount)
+				fmt.Fprintf(w, "%s	%s	%d	%d\n", l.ID, l.Name, l.PendingCount, l.CompleteCount)
 			}
 			w.Flush()
 		}, listsJSON(ls))
