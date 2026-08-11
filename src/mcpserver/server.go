@@ -185,7 +185,7 @@ IDENTITY & OWNERSHIP. You act under the tag "` + identity + `" — CRUSH_AGENT w
 
 ASSIGNMENT — grab a task before you research it. Three separate axes, do not confuse them: status is what the work IS; the TUI spinner is presence, a 120-second claim any write refreshes and the end of your session clears; assignee is ownership with NO TTL and no sweeper — it changes when someone assigns, releases or completes, and it is released for you when THIS session ends. Grabbing first is the point: next_task(list_id) or assign_task(ids=[...]) makes the task yours before you spend tokens on it, so a second agent does not research the same thing in parallel. Every task row you read carries assignee, assigned_at, assignee_live and priority. An assignee with assignee_live false is abandoned work, not free work: it means a session died before it could release, which is the only way an assignment outlives its owner. A write to a task another agent holds (set_status, edit_task, delete_task) is REFUSED; force=true performs it, reassigns the task to you and records a takeover comment. Commenting is never refused — leaving a note on another agent's task is how coordination works. Completing a task auto-unassigns it, every descendant the cascade completes, and every ancestor it promotes. Assignment reserves the subtree: a task whose ancestor or descendant is held by someone else is refused EVEN with force — release the blocker with assign_task(ids=[blocker], release=true, force=true), or ask the human to release the whole list from the TUI.
 
-PRIORITY. Four values, ranked high > medium > low > none (the default). next_task picks by priority first and tree order second, and every task row you read carries the field. Set it with add_task(priority=...) or edit_task(id, priority=...) — a structural edit, so only on a list you own; the human sets it from the TUI or the CLI (crush priority) on theirs. Omitting priority on edit_task leaves the current value alone, so a rename never silently clears a high someone set. Priority does not re-order the tree: it steers what to pick up next, nothing else.
+PRIORITY. Four values, ranked high > medium > low > none (the default). next_task picks by priority first and tree order second, and every task row you read carries the field. Set it with add_task(priority=...) or edit_task(id, priority=...) — a structural edit, so only on a list you own; the human sets it from the TUI or the CLI (farol priority) on theirs. Omitting priority on edit_task leaves the current value alone, so a rename never silently clears a high someone set. Priority does not re-order the tree: it steers what to pick up next, nothing else.
 
 IDs: every id parameter accepts a short unambiguous prefix. Lists are addressed by id, never by name. Tools whose parameter is 'ids' accept 1..50 in one call.
 
@@ -207,8 +207,8 @@ TOOLS (chore_crusher_<name>):
 - delete_attachment(attachment_id) — remove an attachment
 
 RESOURCES — two, and that is the whole resource surface:
-- crush:///inbox — your list, every foreign list, and each one's top 20 pending tasks with notes inlined: a whole session opener in one read
-- crush://work — the live presence claims, i.e. who is at the keyboard right now. Presence, NOT assignment: who OWNS a task is the assignee field on the task row.
+- farol:///inbox — your list, every foreign list, and each one's top 20 pending tasks with notes inlined: a whole session opener in one read
+- farol://work — the live presence claims, i.e. who is at the keyboard right now. Presence, NOT assignment: who OWNS a task is the assignee field on the task row.
 
 KEEP THE BOARD LIVE (do this yourself, unasked):
 - Grab before you research: next_task(list_id) hands you the top eligible task and everything about it in one call; assign_task(ids=[...]) grabs a specific one.
@@ -218,7 +218,7 @@ KEEP THE BOARD LIVE (do this yourself, unasked):
 - Stopping without finishing = assign_task(ids=[...], release=true). Your session end releases it too, but release explicitly: it frees the task the moment you stop, not whenever your process happens to exit.
 - Between tasks: list_tasks(list_id, since=<your last call>) — priorities and comments move while you work.
 
-For the full working loop and a one-read session opener, use the crush_inbox prompt or read the crush:///inbox resource.
+For the full working loop and a one-read session opener, use the farol_inbox prompt or read the farol:///inbox resource.
 
 GOTCHAS: set_status(progress='subtasks') derives from children — on a shared task use percentage. Your assignments outlive your session (only the presence claims are cleared when it ends), so release what you did not finish. Your own auto-created "` + identity + `: ..." Inbox is deleted at session end if it is empty or all-complete, so don't rely on it as long-term storage.`})
 
@@ -1475,7 +1475,7 @@ func taskDetailsJSONFor(s *store.Store, id string, live map[string]bool) (taskDe
 
 // descendantRows reports every descendant of rootID (the task itself
 // excluded) as depth-annotated rows with derived progress per row, using the
-// shared apptypes.DescendantsOf so `crush show` and show_task cannot drift.
+// shared apptypes.DescendantsOf so `farol show` and show_task cannot drift.
 // Depth is relative to rootID: direct children at depth 1. The previous code
 // ran a store-level walk through apptypes.Flatten, but Flatten only emits
 // ParentID==nil rows, so a pure-descendant set (no list root) flattened to
@@ -1593,7 +1593,7 @@ const notesBudget = 40000
 
 // inlineNotes fills the Notes fields on rows from the matching store tasks.
 // Rows without a match (should not happen in practice) are left as-is. This
-// is the unbudgeted form used by crush://inbox, which caps rows at 20 of its
+// is the unbudgeted form used by farol://inbox, which caps rows at 20 of its
 // own and is not a list_tasks response.
 //
 // Skeleton rows are skipped: the inbox filters per task like list_tasks, so it
@@ -1711,13 +1711,13 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
-// addWorkResource registers the crush://work static resource — a read-only
+// addWorkResource registers the farol://work static resource — a read-only
 // mirror of list_work so any MCP host that auto-reads resources surfaces it.
 // The claim_work tool that used to write this set is gone: presence claims
 // now come only from task writes (autoClaim).
 func addWorkResource(server *mcp.Server, s *store.Store) {
 	server.AddResource(&mcp.Resource{
-		URI:         "crush://work",
+		URI:         "farol://work",
 		Name:        "Agent activity",
 		Description: "Which tasks/lists an agent is currently working on, as seen by the TUI.",
 		MIMEType:    "application/json",
@@ -1761,7 +1761,7 @@ func addWorkResource(server *mcp.Server, s *store.Store) {
 	})
 }
 
-// addResources registers crush:///inbox, the one read-only resource that is
+// addResources registers farol:///inbox, the one read-only resource that is
 // not a duplicate of a tool.
 //
 // crush:///lists, crush:///lists/{id}, crush:///lists/{id}/tasks,
@@ -1773,12 +1773,12 @@ func addWorkResource(server *mcp.Server, s *store.Store) {
 // auto-read resources, so they cost maintenance and bought nothing at
 // runtime. Do not re-add them; add the field to the tool instead.
 func addResources(server *mcp.Server, s *store.Store, identity string) {
-	// Static: crush:///inbox — one-shot start-of-session context:
+	// Static: farol:///inbox — one-shot start-of-session context:
 	// your list plus every foreign list, each with up to 20 pending tasks
 	// and their notes inlined, so a session can open in one read instead
 	// of my_list + list_tasks + show_task fan-out.
 	server.AddResource(&mcp.Resource{
-		URI:         "crush:///inbox",
+		URI:         "farol:///inbox",
 		Name:        "Inbox",
 		Description: "Start-of-session context: your list plus every foreign list with the top 20 pending tasks and their notes.",
 		MIMEType:    "application/json",
@@ -1840,16 +1840,16 @@ func addResources(server *mcp.Server, s *store.Store, identity string) {
 // state, so an agent that reads prompts/list can pick one and get a
 // ready-made message.
 func addPrompts(server *mcp.Server, s *store.Store) {
-	// crush_inbox is the canonical one-shot opener (registered below). The old
-	// crush_daily_agenda prompt overlapped it and embedded a second, heavier
+	// farol_inbox is the canonical one-shot opener (registered below). The old
+	// farol_daily_agenda prompt overlapped it and embedded a second, heavier
 	// copy of app state, so it was dropped — one opener prompt is enough.
 	server.AddPrompt(&mcp.Prompt{
-		Name:        "crush_inbox",
-		Description: "One-shot start-of-session triage: read the crush:///inbox resource and pick the next task. Carries the full working loop so the agent does not need the heavy blob every session.",
+		Name:        "farol_inbox",
+		Description: "One-shot start-of-session triage: read the farol:///inbox resource and pick the next task. Carries the full working loop so the agent does not need the heavy blob every session.",
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		msg := "Read the resource crush:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. Keep their status current as you work, on your own, without being asked.\n\n" +
+		msg := "Read the resource farol:///inbox for your list, every foreign list, and their top 20 pending tasks with notes inlined. Keep their status current as you work, on your own, without being asked.\n\n" +
 			"WORKING LOOP (run it automatically, without being told):\n" +
-			"1. Open the session in one read: crush:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.\n" +
+			"1. Open the session in one read: farol:///inbox (or my_list + list_tasks with include=['notes']). Skip show_task where has_notes is false.\n" +
 			"2. Get your tasks from Farol at the start of every session and refresh them as you go; read from it rather than working from memory.\n" +
 			"3. Grab the task BEFORE you research it: next_task(list_id) atomically assigns you the top eligible task — highest priority (high > medium > low > none), then tree order — and returns its whole subtree, notes and comments in one call; assign_task(ids=[...]) grabs a specific one the same way. Owning it first is what stops a second agent burning tokens on the same work.\n" +
 			"4. Before working a task on a list you do not own, read the WHOLE list first (related / prerequisite / converging tasks), and read that task's notes AND comments (show_task returns both).\n" +
@@ -1868,7 +1868,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 	})
 
 	server.AddPrompt(&mcp.Prompt{
-		Name:        "crush_breakdown",
+		Name:        "farol_breakdown",
 		Description: "Break a task into subtasks. Give the task's id (prefix ok) and the agent walks the task and asks for sub-bullets.",
 		Arguments: []*mcp.PromptArgument{{
 			Name:        "task_id",
@@ -1878,7 +1878,7 @@ func addPrompts(server *mcp.Server, s *store.Store) {
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		arg := req.Params.Arguments["task_id"]
 		if strings.TrimSpace(arg) == "" {
-			return nil, fmt.Errorf("crush_breakdown requires a task_id argument")
+			return nil, fmt.Errorf("farol_breakdown requires a task_id argument")
 		}
 		id, err := s.ResolveID("task", arg)
 		if err != nil {

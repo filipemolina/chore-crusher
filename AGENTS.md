@@ -334,7 +334,7 @@ should stay rare, because it's timing-based.
 ## Working the task list
 
 If you drive the app through its MCP server (`crush mcp`), read the resource
-`crush:///inbox` at the start of every session: your list, every foreign
+`farol:///inbox` at the start of every session: your list, every foreign
 list, and their top 20 pending tasks with notes inlined. Keep their status
 current as you work, on your own, without being asked: assign what you take,
 flip it to `in_progress` with a progress percentage, advance the percentage

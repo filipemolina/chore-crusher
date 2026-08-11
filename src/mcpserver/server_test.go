@@ -152,7 +152,7 @@ func mustUnmarshal(t *testing.T, s string, v any) {
 }
 
 // readResourceText reads a resource and returns its single text body. Only
-// crush:///inbox and crush://work remain; crush://work still backfills the
+// farol:///inbox and farol://work remain; farol://work still backfills the
 // removed list_work tool.
 func readResourceText(t *testing.T, session *mcp.ClientSession, uri string) string {
 	t.Helper()
@@ -194,11 +194,11 @@ func listsJSON(t *testing.T, session *mcp.ClientSession, identity string) string
 	return string(b)
 }
 
-// workJSON replaces the removed list_work tool: the crush://work resource
+// workJSON replaces the removed list_work tool: the farol://work resource
 // serves the identical row shape.
 func workJSON(t *testing.T, session *mcp.ClientSession) string {
 	t.Helper()
-	return readResourceText(t, session, "crush://work")
+	return readResourceText(t, session, "farol://work")
 }
 
 // claimWork seeds a presence claim directly in the store, under the
@@ -235,7 +235,7 @@ func releaseWork(t *testing.T, entityType, entityID, agent string) {
 // mcpToolSurface is the exact tool surface docs/DESIGN.md §9 pins, and
 // removedToolNames is every tool name the consolidation steps deleted. Both
 // lists are shared by the three assertions that need them — the registered
-// surface, the Instructions blob and the crush_inbox prompt — because a
+// surface, the Instructions blob and the farol_inbox prompt — because a
 // consolidation step that updated only some of the copies would leave the
 // others passing against a surface that no longer exists. One list per fact.
 var (
@@ -254,7 +254,7 @@ var (
 	// The resource surface is the same fact in the same shape: two survivors
 	// and five deletions. The agent-facing text has to name the survivors and
 	// must not send a session at a URI the server stopped serving.
-	mcpResourceSurface  = []string{"crush:///inbox", "crush://work"}
+	mcpResourceSurface  = []string{"farol:///inbox", "farol://work"}
 	removedResourceURIs = []string{
 		"crush:///lists", "crush:///tasks/", "crush:///search",
 	}
@@ -465,14 +465,14 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	if instructions == "" {
 		t.Fatal("Instructions is empty")
 	}
-	// The blob stays slim: it points at the crush_inbox prompt for the
+	// The blob stays slim: it points at the farol_inbox prompt for the
 	// full loop instead of embedding it. Assert it names the loop and the
-	// opener, and that the loop itself lives in the crush_inbox prompt.
+	// opener, and that the loop itself lives in the farol_inbox prompt.
 	lower := strings.ToLower(instructions)
 	for _, want := range []string{
 		"working loop",
-		"crush_inbox",
-		"crush:///inbox",
+		"farol_inbox",
+		"farol:///inbox",
 		"set_status",
 		// The loop is now grab-first: the blob has to say that
 		// assignment is durable ownership, distinct from the presence
@@ -506,9 +506,9 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 		}
 	}
 
-	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "crush_inbox"})
+	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "farol_inbox"})
 	if err != nil {
-		t.Fatalf("GetPrompt crush_inbox: %v", err)
+		t.Fatalf("GetPrompt farol_inbox: %v", err)
 	}
 	if len(res.Messages) != 1 {
 		t.Fatalf("want 1 message, got %d", len(res.Messages))
@@ -523,7 +523,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 		"keep their status current",
 		"set_status",
 		"percentage",
-		"crush:///inbox",
+		"farol:///inbox",
 		"before the next task",
 		// The prompt is the call-by-call procedure, so it carries the loop
 		// the blob only summarises: grab first, release what you abandon,
@@ -535,7 +535,7 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 		"subtree reservation",
 	} {
 		if !strings.Contains(loop, want) {
-			t.Fatalf("crush_inbox prompt missing working-loop element %q;\nfull text:\n%s", want, tc.Text)
+			t.Fatalf("farol_inbox prompt missing working-loop element %q;\nfull text:\n%s", want, tc.Text)
 		}
 	}
 
@@ -547,12 +547,12 @@ func TestMCPInstructionsHasWorkingLoop(t *testing.T) {
 	// here would have shipped green.
 	for _, name := range removedToolNames {
 		if strings.Contains(loop, name) {
-			t.Fatalf("crush_inbox prompt still names removed tool %q;\nfull text:\n%s", name, tc.Text)
+			t.Fatalf("farol_inbox prompt still names removed tool %q;\nfull text:\n%s", name, tc.Text)
 		}
 	}
 	for _, uri := range removedResourceURIs {
 		if strings.Contains(loop, uri) {
-			t.Fatalf("crush_inbox prompt still names removed resource %q;\nfull text:\n%s", uri, tc.Text)
+			t.Fatalf("farol_inbox prompt still names removed resource %q;\nfull text:\n%s", uri, tc.Text)
 		}
 	}
 }
@@ -1445,16 +1445,16 @@ func TestMCPWorkResource(t *testing.T) {
 	// add_task auto-claims under "agent"; release it so "claude" can claim below.
 	releaseWork(t, "task", task["id"], "agent")
 
-	// Claim and verify the crush://work resource reports it. The resource is
+	// Claim and verify the farol://work resource reports it. The resource is
 	// only a reader now that claim_work is gone (step 9).
 	claimWork(t, "task", task["id"], "claude")
 
 	// Read the resource.
 	res, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{
-		URI: "crush://work",
+		URI: "farol://work",
 	})
 	if err != nil {
-		t.Fatalf("ReadResource crush://work: %v", err)
+		t.Fatalf("ReadResource farol://work: %v", err)
 	}
 	if len(res.Contents) != 1 {
 		t.Fatalf("expected 1 content, got %d", len(res.Contents))
@@ -1469,7 +1469,7 @@ func TestMCPWorkResource(t *testing.T) {
 	}
 	mustUnmarshal(t, res.Contents[0].Text, &resourceWork)
 	if len(resourceWork) != 1 || resourceWork[0].EntityID != task["id"] || resourceWork[0].AgentID != "claude" {
-		t.Fatalf("crush://work = %+v", resourceWork)
+		t.Fatalf("farol://work = %+v", resourceWork)
 	}
 }
 
@@ -1491,7 +1491,7 @@ func TestMCPResourcesListed(t *testing.T) {
 	for _, r := range res.Resources {
 		found[r.URI] = true
 	}
-	want := map[string]bool{"crush:///inbox": true, "crush://work": true}
+	want := map[string]bool{"farol:///inbox": true, "farol://work": true}
 	if len(found) != len(want) {
 		t.Fatalf("resources = %+v, want exactly %v", res.Resources, want)
 	}
@@ -1562,9 +1562,9 @@ func TestInboxResourceReturnsMineAndForeign(t *testing.T) {
 	t.Cleanup(func() { piSession.Close() })
 	callTool(t, piSession, "my_list", nil) // force pi's own list to exist
 
-	res, err := piSession.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "crush:///inbox"})
+	res, err := piSession.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "farol:///inbox"})
 	if err != nil {
-		t.Fatalf("ReadResource crush:///inbox: %v", err)
+		t.Fatalf("ReadResource farol:///inbox: %v", err)
 	}
 	var got map[string]any
 	mustUnmarshal(t, res.Contents[0].Text, &got)
@@ -1616,7 +1616,7 @@ func TestMCPPromptsListed(t *testing.T) {
 	for _, p := range res.Prompts {
 		found[p.Name] = true
 	}
-	for _, name := range []string{"crush_inbox", "crush_breakdown"} {
+	for _, name := range []string{"farol_inbox", "farol_breakdown"} {
 		if !found[name] {
 			t.Fatalf("prompt %q not listed: %+v", name, res.Prompts)
 		}
@@ -1637,11 +1637,11 @@ func TestMCPBreakdownPrompt(t *testing.T) {
 	}), &task)
 
 	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
-		Name:      "crush_breakdown",
+		Name:      "farol_breakdown",
 		Arguments: map[string]string{"task_id": task["id"]},
 	})
 	if err != nil {
-		t.Fatalf("GetPrompt crush_breakdown: %v", err)
+		t.Fatalf("GetPrompt farol_breakdown: %v", err)
 	}
 	if len(res.Messages) != 1 {
 		t.Fatalf("want 1 message, got %d", len(res.Messages))
@@ -3803,7 +3803,7 @@ func TestInboxAssigneeLiveAcrossLists(t *testing.T) {
 		Mine    block   `json:"mine"`
 		Foreign []block `json:"foreign_lists"`
 	}
-	mustUnmarshal(t, readResourceText(t, piSession, "crush:///inbox"), &inbox)
+	mustUnmarshal(t, readResourceText(t, piSession, "farol:///inbox"), &inbox)
 
 	seen := map[string]row{}
 	for _, b := range append([]block{inbox.Mine}, inbox.Foreign...) {
@@ -3950,7 +3950,7 @@ func TestListTasksElidedNamesOnlyRowsWithBodies(t *testing.T) {
 }
 
 // TestInboxSkeletonRowsCarryNoNotes pins the skeleton rule on the one
-// remaining resource: list_tasks' per-task filter also drives crush:///inbox,
+// remaining resource: list_tasks' per-task filter also drives farol:///inbox,
 // so the inbox now
 // produces context_only skeleton rows too. A skeleton is tree scaffolding, not
 // content — it must never carry an inlined body on any surface.
@@ -3966,7 +3966,7 @@ func TestInboxSkeletonRowsCarryNoNotes(t *testing.T) {
 		"list_id": list["id"], "title": "child", "parent": parent["id"],
 	})
 
-	body := readResourceText(t, session, "crush:///inbox")
+	body := readResourceText(t, session, "farol:///inbox")
 	var inbox struct {
 		Mine struct {
 			Tasks []map[string]any `json:"tasks"`
@@ -4131,7 +4131,7 @@ func TestMCPGrabClaimsPresence(t *testing.T) {
 					"holder reads as abandoned (docs/DESIGN.md §3)", tc.name)
 			}
 
-			// And the claim is a real row on crush://work, under alice.
+			// And the claim is a real row on farol://work, under alice.
 			var work []struct {
 				AgentID  string `json:"agent_id"`
 				EntityID string `json:"entity_id"`
@@ -4144,7 +4144,7 @@ func TestMCPGrabClaimsPresence(t *testing.T) {
 				}
 			}
 			if !found {
-				t.Fatalf("%s: no crush://work claim by alice on the grabbed task, got %+v",
+				t.Fatalf("%s: no farol://work claim by alice on the grabbed task, got %+v",
 					tc.name, work)
 			}
 		})

@@ -944,8 +944,8 @@ mirror the tools.** Five resources that duplicated a tool row-for-row —
 keeping them meant every
 field added to a task had to be added in three places or the surfaces
 drifted, and MCP hosts do not auto-read resources, so they cost maintenance
-and bought nothing at runtime. Only `crush:///inbox` (a composed shape with
-no tool equivalent) and `crush://work` (presence) remain, and
+and bought nothing at runtime. Only `farol:///inbox` (a composed shape with
+no tool equivalent) and `farol://work` (presence) remain, and
 `TestMCPResourcesListed` pins that set at exactly two with zero templates.
 A new field belongs on the tool. The server-side tests that pin the
 MCP shapes live in `src/mcpserver/server_test.go`. The task read shapes —
@@ -990,7 +990,7 @@ write — `add_task`, `comment`, `edit_task` — auto-claims the touched task to
 `delete_task` does not (the task no longer exists), and `DeleteTask` clears
 any claim rows on the deleted subtree so a removed task cannot keep a spinner
 alive. The
-`crush:///inbox` resource and `crush_inbox` prompt
+`farol:///inbox` resource and `farol_inbox` prompt
 deliver all of the above as a single read for start-of-session triage.
 
 **`set_status` is the one status/progress write.** It takes 1–50 ids in
