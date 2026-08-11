@@ -33,7 +33,7 @@ Set TypingSpeed 45ms
 # checkout. Hide every frame of setup — the GIF starts at the TUI on the
 # seeded "Home" list.
 Hide
-Type "cd /home/filipe/Documents/projects/chore-crusher && ./demo/seed.sh && clear"
+Type "cd /home/filipe/Documents/projects/farol && ./demo/seed.sh && clear"
 Enter
 Sleep 3s
 # Export the same throwaway XDG dirs inside the visible shell so the TUI reads
