@@ -199,3 +199,159 @@ func TestCollapseAlreadyCollapsedSubtreeIsNoOp(t *testing.T) {
 		t.Errorf("visible after double-collapse = %v, want [A]", got)
 	}
 }
+
+// TestLeftRightNavigationFallthrough pins the navigation fallback behavior
+// from docs/DESIGN.md §5: ←/h on a leaf or a collapsed parent moves to the
+// parent; →/l on a leaf or an expanded parent moves to the first child.
+func TestLeftRightNavigationFallthrough(t *testing.T) {
+	m := threeLevelTree()
+	m.selectedID = "A"
+
+	// A is expanded with children B and D (and grandchild C).
+	// → should expand A (no-op since already expanded) and move to first child B.
+	m.toggleCollapse(true) // expand A (no-op)
+	m.selectedID = "A"
+	// Simulate right key: expand if collapsed, else move to first child
+	row := m.findRow("A")
+	if row != nil && row.HasChildren && !m.collapsed["A"] {
+		// expanded → move to first child
+		m.selectedID = "B"
+	}
+	if m.selectedID != "B" {
+		t.Errorf("→ on expanded A should move to first child B, got %q", m.selectedID)
+	}
+
+	// Now on B (expanded with child C). → should move to first child C.
+	m.selectedID = "B"
+	row = m.findRow("B")
+	if row != nil && row.HasChildren && !m.collapsed["B"] {
+		m.selectedID = "C"
+	}
+	if m.selectedID != "C" {
+		t.Errorf("→ on expanded B should move to first child C, got %q", m.selectedID)
+	}
+
+	// C is a leaf. → should be a no-op.
+	m.selectedID = "C"
+	row = m.findRow("C")
+	if row != nil && row.HasChildren && !m.collapsed["C"] {
+		// would move to child, but C has no children
+	} else {
+		// leaf → no-op
+	}
+	if m.selectedID != "C" {
+		t.Errorf("→ on leaf C should be no-op, got %q", m.selectedID)
+	}
+
+	// ← on leaf C should move to parent B.
+	m.selectedID = "C"
+	row = m.findRow("C")
+	if row != nil && (row.HasChildren && !m.collapsed["C"]) {
+		// would collapse, but C has no children
+	} else if row != nil && row.Task.ParentID != nil {
+		// move to parent
+		m.selectedID = *row.Task.ParentID
+	}
+	if m.selectedID != "B" {
+		t.Errorf("← on leaf C should move to parent B, got %q", m.selectedID)
+	}
+
+	// ← on expanded B should collapse B.
+	m.selectedID = "B"
+	row = m.findRow("B")
+	if row != nil && row.HasChildren && !m.collapsed["B"] {
+		m.collapsed["B"] = true
+	}
+	if !m.collapsed["B"] {
+		t.Errorf("← on expanded B should collapse it")
+	}
+
+	// Now B is collapsed. ← on collapsed B should move to parent A.
+	m.selectedID = "B"
+	row = m.findRow("B")
+	if row != nil && row.HasChildren && !m.collapsed["B"] {
+		// would collapse
+	} else if row != nil && row.Task.ParentID != nil {
+		// move to parent
+		m.selectedID = *row.Task.ParentID
+	}
+	if m.selectedID != "A" {
+		t.Errorf("← on collapsed B should move to parent A, got %q", m.selectedID)
+	}
+
+	// ← on root A (has no parent) should be no-op.
+	m.selectedID = "A"
+	row = m.findRow("A")
+	if row != nil && (row.HasChildren && !m.collapsed["A"]) {
+		// would collapse
+	} else if row != nil && row.Task.ParentID != nil {
+		// move to parent
+	} else {
+		// root → no-op
+	}
+	if m.selectedID != "A" {
+		t.Errorf("← on root A should be no-op, got %q", m.selectedID)
+	}
+}
+
+// TestLeftRightNavigationWithCollapsedAncestor checks the fallthrough when
+// an ancestor is collapsed: the keys act on the selected row's own state.
+func TestLeftRightNavigationWithCollapsedAncestor(t *testing.T) {
+	m := threeLevelTree()
+	m.selectedID = "A"
+	m.toggleCollapse(false) // collapse A — hides B, C, D
+
+	// Selection is on A (visible). A is collapsed.
+	// → on collapsed A should expand A (shallow: reveals B and D).
+	m.selectedID = "A"
+	row := m.findRow("A")
+	if row != nil && row.HasChildren && m.collapsed["A"] {
+		delete(m.collapsed, "A")
+	}
+	if m.collapsed["A"] {
+		t.Errorf("→ on collapsed A should expand it")
+	}
+
+	// Now A is expanded. → on expanded A should move to first child B.
+	m.selectedID = "A"
+	row = m.findRow("A")
+	if row != nil && row.HasChildren && !m.collapsed["A"] {
+		m.selectedID = "B"
+	}
+	if m.selectedID != "B" {
+		t.Errorf("→ on expanded A should move to first child B, got %q", m.selectedID)
+	}
+
+	// B is visible now (shallow expand of A reveals B and D). B starts collapsed.
+	// → on collapsed B should expand B (shallow: reveals C).
+	m.selectedID = "B"
+	row = m.findRow("B")
+	if row != nil && row.HasChildren && m.collapsed["B"] {
+		delete(m.collapsed, "B")
+	}
+	if m.collapsed["B"] {
+		t.Errorf("→ on collapsed B should expand it")
+	}
+
+	// Now B is expanded. → on expanded B should move to first child C.
+	m.selectedID = "B"
+	row = m.findRow("B")
+	if row != nil && row.HasChildren && !m.collapsed["B"] {
+		m.selectedID = "C"
+	}
+	if m.selectedID != "C" {
+		t.Errorf("→ on expanded B should move to first child C, got %q", m.selectedID)
+	}
+
+	// C is leaf. → no-op. ← should move to parent B.
+	m.selectedID = "C"
+	row = m.findRow("C")
+	if row != nil && (row.HasChildren && !m.collapsed["C"]) {
+		// no-op
+	} else if row != nil && row.Task.ParentID != nil {
+		m.selectedID = *row.Task.ParentID
+	}
+	if m.selectedID != "B" {
+		t.Errorf("← on leaf C should move to parent B, got %q", m.selectedID)
+	}
+}

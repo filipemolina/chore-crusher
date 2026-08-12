@@ -915,6 +915,10 @@ farol inbox [--include notes]                  start-of-session context: your li
 
 farol work                                     live presence claims (the CLI equivalent of the retired farol:///work resource): who is working on which task/list right now
 
+farol claim <task-id|list-id> [--kind working|inspecting]   claim presence on an entity (lights the TUI spinner)
+farol release <task-id|list-id> [--all]         release presence on an entity, or --all to clear every claim this agent holds
+farol skill                                    print the agent command reference (markdown)
+
 farol --version
 ```
 
@@ -973,6 +977,29 @@ task an agent is on without re-reading each entity by id — the resource carrie
 only ids, so the table is the ergonomic a static JSON blob could not offer. An
 empty claim set prints nothing in human mode and `[]` in JSON — a normal state,
 not an error.
+
+**`farol claim` / `farol release` are the explicit presence controls** (cli-first
+migration, Phase 2). They are the manual forms of the auto-claim every write
+already performs (§3): `claim <task-id|list-id> [--kind working|inspecting]`
+calls `store.ClaimWork` under `FAROL_AGENT`; `release <task-id|list-id>` calls
+`store.ReleaseWork` (a no-op when the agent does not hold the claim, or the
+claim already expired). `release --all` clears every claim this agent holds via
+`store.ReleaseAgentClaims`, the per-process session-end cleanup the retired MCP
+server performed. Presence is orthogonal to assignment (§3): a claim lights the
+TUI spinner but does not move a task to `in_progress` and is not ownership. A
+claim held by another agent returns `ErrActivityConflict` — a domain error,
+never a stolen claim (the refuse-with-no-steal rule). Both resolve the id prefix
+against the task table first, then the list table. Human mode prints a one-line
+confirmation; `--json` emits one value (`{"ok":true,"id",...}` for claim,
+`{"ok":true,"cleared":N}` for release, where `cleared:0` is a normal state).
+
+**`farol skill` emits the agent reference** (cli-first migration, Phase 2): the
+CLI replacement for the retired `farol_inbox` / `farol_breakdown` MCP prompts.
+It prints markdown prose to stdout — the `FAROL_AGENT` identity contract, the
+start-of-session reads, the write surface, the presence-vs-assignment
+distinction, the list-ownership gate, and the `--json` contract — and, under
+`--json`, the same prose wrapped as a single `{"skill": "..."}` value (one JSON
+value, per §9). It is a doc command, not a store read.
 
 **`set_status` is the one status/progress write.** It takes 1–50 ids in
 one call and accepts `status?` (`pending` | `in_progress` | `complete`),

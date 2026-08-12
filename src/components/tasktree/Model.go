@@ -400,9 +400,21 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Tree.PageDown):
 			m.moveSelection(m.bodyHeight())
 		case key.Matches(msg, keys.Tree.Collapse):
-			m.toggleCollapse(false)
+			// ←/h: if expanded with children, collapse (cursor stays);
+			// otherwise move to parent (no-op at root)
+			if row := m.findRow(m.selectedID); row != nil && row.HasChildren && !m.collapsed[row.Task.ID] {
+				m.toggleCollapse(false)
+			} else if row != nil && row.Task.ParentID != nil {
+				m.selectedID = *row.Task.ParentID
+			}
 		case key.Matches(msg, keys.Tree.Expand):
-			m.toggleCollapse(true)
+			// →/l: if collapsed with children, expand (cursor stays);
+			// otherwise move to first child (no-op at leaf)
+			if row := m.findRow(m.selectedID); row != nil && row.HasChildren && m.collapsed[row.Task.ID] {
+				m.toggleCollapse(true)
+			} else if row := m.firstVisibleChild(m.selectedID); row != "" {
+				m.selectedID = row
+			}
 		case key.Matches(msg, keys.Tree.Toggle):
 			return m, m.beginStructure(m.toggleComplete())
 		case key.Matches(msg, keys.Tree.OpenDetails):
@@ -952,6 +964,32 @@ func (m *Model) findRow(taskID string) *apptypes.Row {
 		}
 	}
 	return nil
+}
+
+// firstVisibleChild returns the ID of the first visible child of the given
+// task, or "" if it has no visible children (leaf, or all children hidden by
+// collapse). This respects the current collapse state: a collapsed node has no
+// visible children.
+func (m *Model) firstVisibleChild(taskID string) string {
+	row := m.findRow(taskID)
+	if row == nil || !row.HasChildren || m.collapsed[taskID] {
+		return ""
+	}
+	// In depth-first preorder, the first child is the next row with depth
+	// exactly one greater than the parent's.
+	parentDepth := row.Depth
+	for _, r := range m.rows {
+		if r.Depth == parentDepth+1 && r.Task.ParentID != nil && *r.Task.ParentID == taskID {
+			// Check if this child is visible (not hidden by an ancestor collapse)
+			if !m.isParentCollapsed(r) {
+				return r.Task.ID
+			}
+		}
+		if r.Depth <= parentDepth {
+			break
+		}
+	}
+	return ""
 }
 
 // selectedDepth returns the depth of the currently selected task, or 0 when

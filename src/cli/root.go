@@ -129,6 +129,9 @@ marks the task with that id complete (cascading to descendants).`,
 		newSearchCmd(),
 		newInboxCmd(),
 		newWorkCmd(),
+		newClaimCmd(),
+		newReleaseCmd(),
+		newSkillCmd(),
 	)
 	root.AddCommand(taskCommands()...)
 	root.AddCommand(attachmentCommands()...)
