@@ -523,6 +523,21 @@ a confirm modal). The tree emits `DeleteTaskMsg`; AppModel opens a confirm modal
 accepting runs `store.DeleteTask` and refreshes the rows. List delete
 (`L` panel, `d`) follows the same confirm-modal pattern.
 
+**`e` exports the store or the highlighted list** to a JSON file (the same
+store-level `Export` the CLI uses, §9). When the Lists panel is focused and a
+list is highlighted, `e` opens the export modal defaulted to "this list"; when
+no list is highlighted (or toggled via tab+space), it defaults to "whole store".
+The user types a destination path and confirms; the modal marshals the
+`ExportDocument` and writes the file. Failures route through `lastError`, the
+same channel a failed delete uses.
+
+**`i` imports lists from a JSON file** (the same `ImportList` the CLI uses, §9).
+It opens an import modal that takes a source file path; on confirm it parses
+the versioned document and recreates each list additively with fresh ids,
+matching the CLI's `farol import <file>`. The imported lists appear in the
+Lists panel on refresh; existing data is never overwritten. Bad path, an
+unparseable file, or a version mismatch surfaces through `lastError`.
+
 **`q` quits, and `ctrl+c` always quits.** `q` is the ordinary exit and
 `ctrl+c` the escape hatch that yields to nothing — so both are advertised as
 "quit" rather than one of them as "force quit", which made the only documented
