@@ -1,10 +1,14 @@
 package model
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/cursor"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/farol/src/cmds"
 	"github.com/filipemolina/farol/src/constants"
 )
@@ -340,5 +344,176 @@ func TestCancelledListCreationLeavesPanelOpen(t *testing.T) {
 		if l.List.Name == "Abandoned" {
 			t.Error("a cancelled creation should not have created the list at all")
 		}
+	}
+}
+
+// --- Export / Import modal wiring ---
+
+// TestPressEOpensExportModal verifies that pressing 'e' in the Lists panel
+// opens the export modal with whole-store mode (when no list is highlighted)
+// or this-list mode (when a list is highlighted).
+func TestPressEOpensExportModal(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "e", Code: 'e'})
+
+	if m.activeModal == nil {
+		t.Fatal("pressing 'e' should have opened the export modal")
+	}
+	// Verify it's actually an export modal by checking its View
+	view := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(view, "Export") {
+		t.Errorf("modal view should contain \"Export\", got: %q", view)
+	}
+}
+
+// TestPressIOpensImportModal verifies that pressing 'i' in the Lists panel
+// opens the import modal.
+func TestPressIOpensImportModal(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "i", Code: 'i'})
+
+	if m.activeModal == nil {
+		t.Fatal("pressing 'i' should have opened the import modal")
+	}
+	view := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(view, "Import") {
+		t.Errorf("modal view should contain \"Import\", got: %q", view)
+	}
+}
+
+// TestExportImportKeysInertWhenPanelNotFocused verifies that 'e' and 'i'
+// do nothing when the Lists panel is not focused (matching the guard used
+// for Lists.New/Rename/Delete).
+func TestExportImportKeysInertWhenPanelNotFocused(t *testing.T) {
+	m := seedOneList(t)
+	// Tasks panel is focused initially, not Lists
+	if m.focusedZone == constants.COMPONENT_LISTS_PANEL && m.listsPanelVisible {
+		t.Fatal("precondition: Lists should not be focused")
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "e", Code: 'e'})
+	if m.activeModal != nil {
+		t.Error("'e' should be inert when Lists panel is not focused")
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "i", Code: 'i'})
+	if m.activeModal != nil {
+		t.Error("'i' should be inert when Lists panel is not focused")
+	}
+}
+
+// TestExportImportRoundTripThroughTUI verifies the full flow: pressing 'e'
+// opens the export modal, typing a path and submitting writes a file; then
+// opening the import modal and feeding it that file recreates the list.
+func TestExportImportRoundTripThroughTUI(t *testing.T) {
+	m := seedOneList(t)
+	lists, _ := m.store.ListLists()
+	srcID := lists[0].List.ID
+
+	// Create a task so the list has content
+	if _, err := m.store.CreateTask(srcID, "Task one", nil, ""); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	m = refresh(t, m, cmds.RefreshLists(m.store)())
+
+	m = openListsFocused(t, m)
+
+	// Press 'e' to open export modal
+	m = refresh(t, m, tea.KeyPressMsg{Text: "e", Code: 'e'})
+	if m.activeModal == nil {
+		t.Fatal("'e' should have opened the export modal")
+	}
+
+	// Type a temp path and submit
+	expPath := filepath.Join(t.TempDir(), "export.json")
+	m = typeText(t, m, expPath)
+	m = refresh(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
+
+	// The export modal's follow command should have written the file
+	// and closed the modal (we can verify the file exists)
+	if _, err := os.Stat(expPath); err != nil {
+		t.Fatalf("export file not created at %q: %v", expPath, err)
+	}
+
+	// Now open the import modal
+	m = refresh(t, m, tea.KeyPressMsg{Text: "i", Code: 'i'})
+	if m.activeModal == nil {
+		t.Fatal("'i' should have opened the import modal")
+	}
+
+	// Type the path and submit
+	m = typeText(t, m, expPath)
+	m = refresh(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
+
+	// Verify the list was recreated (additive - original plus imported)
+	after, err := m.store.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(after) != len(lists)+1 {
+		t.Errorf("after import, lists count = %d, want %d (original + imported)", len(after), len(lists)+1)
+	}
+
+	// Find the imported list (different ID from srcID)
+	var found bool
+	for _, l := range after {
+		if l.List.Name == lists[0].List.Name && l.List.ID != srcID {
+			found = true
+			// Verify tasks were recreated (seedOneList + the one we added = 2)
+			tasks, err := m.store.ListTasks(l.List.ID)
+			if err != nil {
+				t.Fatalf("ListTasks on imported list: %v", err)
+			}
+			if len(tasks) != 2 {
+				t.Errorf("imported list has %d tasks, want 2", len(tasks))
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("imported copy of the list not found")
+	}
+
+	// Modal should be closed after the follow command
+	if m.activeModal != nil {
+		t.Error("modal should be closed after import completes")
+	}
+}
+
+// TestOpenExportModalMsgOpensExportModal verifies that the cmds message
+// OpenExportModalMsg opens the export modal.
+func TestOpenExportModalMsgOpensExportModal(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+
+	m = refresh(t, m, cmds.OpenExportModal()())
+
+	if m.activeModal == nil {
+		t.Fatal("OpenExportModalMsg should have opened the export modal")
+	}
+	view := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(view, "Export") {
+		t.Errorf("modal view should contain \"Export\", got: %q", view)
+	}
+}
+
+// TestOpenImportModalMsgOpensImportModal verifies that the cmds message
+// OpenImportModalMsg opens the import modal.
+func TestOpenImportModalMsgOpensImportModal(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+
+	m = refresh(t, m, cmds.OpenImportModal()())
+
+	if m.activeModal == nil {
+		t.Fatal("OpenImportModalMsg should have opened the import modal")
+	}
+	view := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(view, "Import") {
+		t.Errorf("modal view should contain \"Import\", got: %q", view)
 	}
 }

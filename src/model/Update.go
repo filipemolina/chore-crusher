@@ -11,6 +11,7 @@ import (
 	"github.com/filipemolina/farol/src/cmds"
 	"github.com/filipemolina/farol/src/components/confirmmodal"
 	"github.com/filipemolina/farol/src/components/helpoverlay"
+	"github.com/filipemolina/farol/src/components/importexportmodal"
 	"github.com/filipemolina/farol/src/components/listnamemodal"
 	"github.com/filipemolina/farol/src/components/searchpicker"
 	"github.com/filipemolina/farol/src/components/themepickermodal"
@@ -269,6 +270,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return cmds.RefreshLists(m.store)()
 				})
 			}
+
+		// Export / import open the matching modal. They act on (or add to) the
+		// lists panel, so they share the focused-Lists-panel guard the other
+		// list CRUD keys use (docs/DESIGN.md §9, export/import).
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Export):
+			m.activeModal = importexportmodal.NewExport(m.store, m.highlightedListIDptr())
+
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Import):
+			m.activeModal = importexportmodal.NewImport(m.store)
+
 		}
 
 	// This is executed once when the app loads and after every resize.
@@ -408,6 +419,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmds.OpenSearchPickerMsg:
 		m.activeModal = searchpicker.New(m.store, m.terminalHeight)
+
+	case cmds.OpenExportModalMsg:
+		m.activeModal = importexportmodal.NewExport(m.store, m.highlightedListIDptr())
+
+	case cmds.OpenImportModalMsg:
+		m.activeModal = importexportmodal.NewImport(m.store)
 
 	// The global picker jumped to a task, possibly in another list: switch
 	// the active list to the result's list (when different) and move the tree
@@ -767,6 +784,16 @@ func (m AppModel) highlightedListID() string {
 		return ""
 	}
 	return lists.SelectedListID()
+}
+
+// highlightedListIDptr returns the highlighted list id as a *string, for the
+// export modal which treats nil as "whole store". It returns nil (not a
+// pointer to "") when nothing is highlighted.
+func (m AppModel) highlightedListIDptr() *string {
+	if id := m.highlightedListID(); id != "" {
+		return &id
+	}
+	return nil
 }
 
 // ChangeFocus moves focus delta steps through the computed cycle (tab +1,
