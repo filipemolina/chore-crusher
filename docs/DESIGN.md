@@ -888,8 +888,10 @@ farol lists rm <list-id> --force               delete a list and its tasks
 
 farol tasks <list-id> [--status pending|in_progress|complete|all] [--flat]
                                                    list tasks (tree by default)
-farol add <list-id> <title> [--parent <task-id>] [--notes <text>]
-                                                   add a task; prints its id
+farol add <list-id> <title> [--parent <task-id>] [--notes <text>] [--force]
+                                                     add a task; prints its id
+                                                     (--force allows adding to a list
+                                                      owned by another agent or by nobody)
 farol show <task-id>                           title, notes, status, progress, children
 farol rename <task-id> <title>                 rename a task
 farol notes <task-id> <text>                   replace a task's notes (whole text, not append)
@@ -1097,12 +1099,21 @@ differently from one an agent cannot restructure (§12). `my_list`'s
 `foreign_lists` carries `collaborative` next to `created_by`, so an agent can
 tell before it tries rather than discovering it from a refusal.
 
-Enforcement of the list-ownership gate was, by design, never in the store:
-the store stays a dumb data layer and the CLI and TUI stay unenforced, which
-is the deliberate front-end divergence CONTRIBUTING rule 5 asks to be written
-down. Identity is self-declared and unauthenticated: this is cooperative
-trust between agents, not a security boundary. When comments arrive they join
-the owner-only bucket behind the same gate.
+Enforcement of the list-ownership gate now lives in the CLI, not the store:
+the store stays a dumb data layer, but each structural task write
+(`farol add`, `rename`, `notes`, `mv`, `priority`, `rm`) resolves the
+owning list and refuses the write when `created_by` is neither the current
+agent (`FAROL_AGENT`) nor the `collaborative` flag — with the exact refusal
+message the retired MCP server used (`list <id> is owned by <owner> — you
+may read it and update task status/progress only`). Every structural command
+carries a `--force` flag that overrides the refusal, mirroring the server's
+refuse-with-override rule. **Status/progress writes, assignment, comment
+add/delete, and all reads remain ungated** (the same split the server had):
+any agent may update a task's status/progress and assign/unassign, because
+those are the cooperative writes every front end relies on. Identity is
+self-declared and unauthenticated: this is cooperative trust between agents,
+not a security boundary. When comments arrive they join the owner-only bucket
+behind the same gate.
 
 **Output shapes, pinned.** The subcommand list above fixes *which* commands
 and flags exist; this fixes *what each prints*. The shapes below were

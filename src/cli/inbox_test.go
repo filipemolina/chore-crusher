@@ -20,7 +20,7 @@ func TestInboxMyForeignSplit(t *testing.T) {
 	mineID := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Board", "--owner", "pi"))
 	foreignID := strings.TrimSpace(mustCLI(t, data, "lists", "add", "claude: Board", "--owner", "claude"))
 	mustCLI(t, data, "add", mineID, "mine task")
-	mustCLI(t, data, "add", foreignID, "foreign task")
+	mustCLI(t, data, "add", foreignID, "foreign task", "--force")
 
 	var inbox inboxJSON
 	mustJSONCLI(t, data, &inbox, "inbox", "--json")

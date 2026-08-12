@@ -83,6 +83,25 @@ post-alpha backlog.
   `TestMCPPendingClaimsClearedOnSessionEnd` (MCP integration, retargeted),
   `TestMCPAgentLivePresenceSurvivesOtherAgentSessionEnd` (MCP integration).
 
+- **CLI now enforces list ownership on structural writes** (closing the
+  parity-1 policy gap between the CLI and the retired MCP server). `farol
+  add`, `rename`, `notes`, `mv`, `priority`, and `rm` each resolve the owning
+  list and refuse the write when its `created_by` is neither the current
+  agent (`FAROL_AGENT`) nor the list's `collaborative` flag — with the exact
+  refusal message the server used (`list <id> is owned by <owner> — you may
+  read it and update task status/progress only`). Every structural command
+  gained a `--force` flag that overrides the refusal, mirroring the server's
+  refuse-with-override rule. Status/progress writes, assignment,
+  comment add/delete, and all reads stay ungated, exactly as the server had
+  them: any agent may update status/progress and assign/unassign
+  cooperatively. `docs/DESIGN.md` §9's ownership section now records the CLI
+  as the enforcement site (previously it described the gate as never
+  enforced on the CLI/TUI); `src/cli/ownership.go` holds the shared guard,
+  and the CLI tests were repointed to create agent-owned lists (or pass
+  `--force` where a list must stay unowned). Tests: `go test ./src/cli/...`
+  green, including the rewritten `TestCLICanRenameForeignOwnedList` which now
+  pins the refusal-without-`--force` and the override-with-`--force`.
+
 - Implemented the MCP server wrapper (`src/mcpserver`). `crush mcp` exposes
   every CLI operation as an MCP tool over stdin/stdout: lists, tasks, add,
   complete/reopen/toggle, rename, notes, progress, move, delete, and search.

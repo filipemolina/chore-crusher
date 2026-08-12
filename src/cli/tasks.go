@@ -130,6 +130,7 @@ func taskCommands() []*cobra.Command {
 	}
 	addCmd.Flags().String("parent", "", "parent task id (prefix accepted)")
 	addCmd.Flags().String("notes", "", "notes for the new task")
+	addCmd.Flags().Bool("force", false, "allow adding to a list owned by another agent or by nobody")
 
 	showCmd := &cobra.Command{
 		Use:   "show <task-id> [<task-id> ...]",
@@ -152,6 +153,7 @@ func taskCommands() []*cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE:  runRename,
 	}
+	renameCmd.Flags().Bool("force", false, "allow renaming a task on a list owned by another agent or by nobody")
 
 	notesCmd := &cobra.Command{
 		Use:   "notes <task-id> <text>",
@@ -159,6 +161,7 @@ func taskCommands() []*cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE:  runNotes,
 	}
+	notesCmd.Flags().Bool("force", false, "allow changing notes on a list owned by another agent or by nobody")
 
 	reopenCmd := &cobra.Command{
 		Use:   "reopen <task-id>",
@@ -200,6 +203,7 @@ func taskCommands() []*cobra.Command {
 	}
 	mvCmd.Flags().String("parent", "",
 		"new parent task id (prefix accepted); an empty value moves the task to the list root")
+	mvCmd.Flags().Bool("force", false, "allow re-parenting a task on a list owned by another agent or by nobody")
 
 	commentCmd := &cobra.Command{
 		Use:   "comment <task-id> <note>",
@@ -251,6 +255,7 @@ func taskCommands() []*cobra.Command {
 		RunE:  runPriority,
 	}
 	priorityCmd.Flags().String("level", "", "none, low, medium, or high (required)")
+	priorityCmd.Flags().Bool("force", false, "allow re-prioritising a task on a list owned by another agent or by nobody")
 
 	nextCmd := &cobra.Command{
 		Use:   "next <list-id>",
@@ -563,12 +568,26 @@ func renderFlat(views []taskView) {
 	}
 }
 
+// runAdd adds a task to a list. The list it targets is a structural write
+// (docs/DESIGN.md §9), so a list owned by another agent (or an untagged,
+// human-managed list) is refused unless --force — the same ownership guard
+// the retired MCP server applied to add_task.
 func runAdd(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	force, _ := cmd.Flags().GetBool("force")
 	parentPrefix, _ := cmd.Flags().GetString("parent")
 	notes, _ := cmd.Flags().GetString("notes")
 	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("list", args[0])
+		if err != nil {
+			return err
+		}
+		if !force {
+			if err := ownershipError(s, id); err != nil {
+				return err
+			}
+		}
 		var parent *string
 		if parentPrefix != "" {
 			resolved, err := s.ResolveID("task", parentPrefix)
@@ -577,12 +596,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 			parent = &resolved
 		}
-		id, err := s.CreateTask(args[0], args[1], parent, notes)
+		taskID, err := s.CreateTask(id, args[1], parent, notes)
 		if err != nil {
 			return err
 		}
-		autoClaimTask(s, id)
-		printResult(jsonMode, func() { fmt.Println(id) }, idJSON{id})
+		autoClaimTask(s, taskID)
+		printResult(jsonMode, func() { fmt.Println(taskID) }, idJSON{taskID})
 		return nil
 	})
 }
@@ -949,13 +968,23 @@ func runCommentRm(cmd *cobra.Command, args []string) error {
 	})
 }
 
+// runRename renames a task. Re-titleing is a structural edit (docs/DESIGN.md
+// §9), so it is refused on a list the current agent does not own unless
+// --force — the same re-ranking/rename guard the retired MCP server applied
+// to edit_task.
 func runRename(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	force, _ := cmd.Flags().GetBool("force")
 	return runStore(cmd, func(s *store.Store) error {
 		id, err := s.ResolveID("task", args[0])
 		if err != nil {
 			return err
+		}
+		if !force {
+			if err := taskOwnershipError(s, id); err != nil {
+				return err
+			}
 		}
 		if err := s.RenameTask(id, args[1]); err != nil {
 			return err
@@ -966,13 +995,22 @@ func runRename(cmd *cobra.Command, args []string) error {
 	})
 }
 
+// runNotes replaces a task's notes. The retired MCP server treated
+// set-notes as a structural edit, so it is refused on a foreign-owned list
+// unless --force (docs/DESIGN.md §9).
 func runNotes(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	force, _ := cmd.Flags().GetBool("force")
 	return runStore(cmd, func(s *store.Store) error {
 		id, err := s.ResolveID("task", args[0])
 		if err != nil {
 			return err
+		}
+		if !force {
+			if err := taskOwnershipError(s, id); err != nil {
+				return err
+			}
 		}
 		if err := s.SetNotes(id, args[1]); err != nil {
 			return err
@@ -1065,14 +1103,24 @@ func runProgress(cmd *cobra.Command, args []string) error {
 // runMv wires `farol mv` to store.Reparent. The --parent flag carries the
 // new parent's id (prefix accepted); an empty --parent — the flag's default,
 // so omitting it entirely — is how a caller asks to move a task to the list
-// root, recorded in docs/DESIGN.md §9.
+// root, recorded in docs/DESIGN.md §9. Re-parenting is a structural edit, so
+// it is refused on a list the current agent does not own unless --force. The
+// guard runs on the task's own list (the list it would move within); a
+// cross-list parent would still be rejected by store.Reparent's own check,
+// but ownership is reported first, matching the server's edit_task ordering.
 func runMv(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	force, _ := cmd.Flags().GetBool("force")
 	return runStore(cmd, func(s *store.Store) error {
 		id, err := s.ResolveID("task", args[0])
 		if err != nil {
 			return err
+		}
+		if !force {
+			if err := taskOwnershipError(s, id); err != nil {
+				return err
+			}
 		}
 		parentPrefix, _ := cmd.Flags().GetString("parent")
 		var parent *string
@@ -1180,10 +1228,13 @@ func runUnassign(cmd *cobra.Command, args []string) error {
 // defaulting it to none: store.SetPriority refuses the zero value, so an
 // omitted flag must surface as a failure, not a silent re-prioritisation
 // The level's value itself is store.SetPriority's validation, like
-// runProgress's mode.
+// runProgress's mode. Re-prioritising is a structural steer about what gets
+// picked up next, so it is refused on a list the current agent does not own
+// unless --force (docs/DESIGN.md §9).
 func runPriority(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
+	force, _ := cmd.Flags().GetBool("force")
 	level, _ := cmd.Flags().GetString("level")
 	if level == "" {
 		err := fmt.Errorf("--level is required: none, low, medium, or high")
@@ -1195,6 +1246,11 @@ func runPriority(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		if !force {
+			if err := taskOwnershipError(s, id); err != nil {
+				return err
+			}
+		}
 		if err := s.SetPriority(id, store.Priority(level)); err != nil {
 			return err
 		}
@@ -1205,7 +1261,10 @@ func runPriority(cmd *cobra.Command, args []string) error {
 }
 
 // runRm mirrors runListsRm: no store call at all without --force — the flag
-// is the CLI's confirmation (docs/DESIGN.md §9).
+// is the CLI's confirmation (docs/DESIGN.md §9). Deleting a task is a
+// structural write, so it is also refused on a list the current agent does
+// not own unless --force — a single --force covers both the confirmation and
+// the ownership override, matching the server's delete_task.
 func runRm(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
@@ -1219,6 +1278,11 @@ func runRm(cmd *cobra.Command, args []string) error {
 		id, err := s.ResolveID("task", args[0])
 		if err != nil {
 			return err
+		}
+		if !force {
+			if err := taskOwnershipError(s, id); err != nil {
+				return err
+			}
 		}
 		// Claim presence before the delete: ClaimWork validates that the
 		// entity still exists, so we light the spinner while the row is

@@ -104,14 +104,23 @@ func TestCLIListsAddOwner(t *testing.T) {
 	}
 }
 
-// TestCLICanRenameForeignOwnedList pins the CLI's deliberate lack of
-// ownership enforcement — renaming a list owned by another
-// agent succeeds here, where the MCP's rename_list would refuse.
+// TestCLICanRenameForeignOwnedList pins the CLI's ownership guard: renaming
+// a task on a list owned by another agent is refused unless --force (the
+// same refusal the retired MCP rename_list applied). Without --force the
+// rename is refused; with it, the rename succeeds.
 func TestCLICanRenameForeignOwnedList(t *testing.T) {
 	data := t.TempDir()
 	id := strings.TrimSpace(mustCLI(t, data, "lists", "add", "claude: Backlog", "--owner", "claude"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", id, "task", "--force"))
 
-	mustCLI(t, data, "lists", "rename", id, "claude: Renamed")
+	// Without --force the structural write is refused.
+	code, _, errOut := runCLI(t, data, "rename", tid, "claude: Renamed")
+	if code != 1 || !strings.Contains(errOut, "owned by claude") {
+		t.Fatalf("rename without --force: exit %d stderr %q, want refusal naming the owner", code, errOut)
+	}
+
+	// With --force the rename lands.
+	mustCLI(t, data, "rename", tid, "claude: Renamed", "--force")
 
 	s, err := store.Open(config.DBPath())
 	if err != nil {
@@ -122,8 +131,16 @@ func TestCLICanRenameForeignOwnedList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetList: %v", err)
 	}
-	if l.Name != "claude: Renamed" {
-		t.Fatalf("CLI rename on a foreign-owned list = %q, want it to succeed (unenforced)", l.Name)
+	if l.Name != "claude: Backlog" {
+		t.Fatalf("list name changed unexpectedly: %q, want it untouched", l.Name)
+	}
+	// The task rename is what --force permitted; verify it landed.
+	rows, err := s.ListTasks(id)
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Title != "claude: Renamed" {
+		t.Fatalf("task rename with --force = %+v, want title claude: Renamed", rows)
 	}
 }
 
@@ -132,9 +149,9 @@ func TestCLICanRenameForeignOwnedList(t *testing.T) {
 func TestPrefixResolution(t *testing.T) {
 	data := t.TempDir()
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
-	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint", "--force"))
 
-	mustCLI(t, data, "rename", tid[:8], "Renamed task")
+	mustCLI(t, data, "rename", tid[:8], "Renamed task", "--force")
 	var payload listTasksResult
 	mustJSONCLI(t, data, &payload, "tasks", lid[:6], "--json")
 	rows := payload.Tasks

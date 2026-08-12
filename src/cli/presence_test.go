@@ -37,7 +37,7 @@ func liveClaimOf(t *testing.T, dataDir, entityType, entityID, agentID string) bo
 func TestCLIMutatingCommandsAutoClaim(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 
 	cases := []struct {
 		name string
@@ -85,7 +85,7 @@ func TestCLIMutatingCommandsAutoClaim(t *testing.T) {
 func TestCLIRmClaimsBeforeDelete(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "doomed"))
 
 	code, _, errOut := runCLI(t, data, "rm", tid, "--force")
@@ -105,7 +105,7 @@ func TestCLIRmClaimsBeforeDelete(t *testing.T) {
 func TestCLINextDoesNotDoubleClaim(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "grab me"))
 
 	mustJSONCLI(t, data, &showJSON{}, "next", lid, "--json")

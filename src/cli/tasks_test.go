@@ -13,7 +13,8 @@ import (
 
 func TestTaskTreeAndCascade(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	parent := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
 	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "Choose color", "--parent", parent))
 
@@ -68,7 +69,8 @@ func TestTaskTreeAndCascade(t *testing.T) {
 
 func TestProgressValidationAndDisplay(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	// The mode/percent combination rules are store's validation
@@ -110,7 +112,8 @@ func TestProgressValidationAndDisplay(t *testing.T) {
 
 func TestSubtasksDerivationThroughCLI(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	parent := strings.TrimSpace(mustCLI(t, data, "add", lid, "parent"))
 	c1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "child 1", "--parent", parent))
 	c2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "child 2", "--parent", parent))
@@ -136,7 +139,8 @@ func TestSubtasksDerivationThroughCLI(t *testing.T) {
 
 func TestTasksStatusFilter(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	mustCLI(t, data, "add", lid, "pending task")
 	started := strings.TrimSpace(mustCLI(t, data, "add", lid, "started task"))
 	mustCLI(t, data, "progress", started, "--mode", "simple")
@@ -160,7 +164,8 @@ func TestTasksStatusFilter(t *testing.T) {
 
 func TestShow(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
 	mustCLI(t, data, "notes", tid, "two\nlines")
 	mustCLI(t, data, "progress", tid, "--mode", "subtasks")
@@ -191,7 +196,8 @@ func TestShow(t *testing.T) {
 // was always empty and the CLI diverged from the MCP's show_task.
 func TestCLIShowIncludesChildren(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	parent := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
 	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "Choose color", "--parent", parent))
 	grand := strings.TrimSpace(mustCLI(t, data, "add", lid, "Hex code", "--parent", child))
@@ -213,7 +219,8 @@ func TestCLIShowIncludesChildren(t *testing.T) {
 
 func TestRmRequiresForce(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	code, _, errOut := runCLI(t, data, "rm", tid)
@@ -232,7 +239,8 @@ func TestRmRequiresForce(t *testing.T) {
 
 func TestMoveReparents(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	root := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
 	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "Choose color", "--parent", root))
 	other := strings.TrimSpace(mustCLI(t, data, "add", lid, "Clean gutters"))
@@ -279,6 +287,7 @@ func TestMoveReparents(t *testing.T) {
 // the MCP add_list(created_by=...) path.
 func TestTasksJSONCarriesListOwner(t *testing.T) {
 	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
 	owned := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Sprint", "--owner", "pi"))
 	mustCLI(t, data, "add", owned, "Write tests")
 
@@ -305,7 +314,8 @@ func TestTasksJSONCarriesListOwner(t *testing.T) {
 // `farol show --json` includes it in the comments array, oldest first.
 func TestCommentRoundTrip(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	cid1 := strings.TrimSpace(mustCLI(t, data, "comment", tid, "first"))
@@ -342,7 +352,8 @@ func TestCommentRoundTrip(t *testing.T) {
 // not an empty string or a hardcoded placeholder.
 func TestCommentAuthorIsOSUsername(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	mustCLI(t, data, "comment", tid, "note")
@@ -367,7 +378,8 @@ func TestCommentAuthorIsOSUsername(t *testing.T) {
 // (exit 1).
 func TestCommentRefusedOnDisabledList(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	// No CLI toggle exists yet (deferred per the plan); disable via the
@@ -406,7 +418,8 @@ func TestCommentRefusedOnMissingTask(t *testing.T) {
 // all without --force, and the comment survives.
 func TestCommentRmRequiresForce(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 	cid := strings.TrimSpace(mustCLI(t, data, "comment", tid, "note"))
 
@@ -429,7 +442,8 @@ func TestCommentRmRequiresForce(t *testing.T) {
 // emits {"error":"..."}.
 func TestCommentRmForce(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 	cid := strings.TrimSpace(mustCLI(t, data, "comment", tid, "note"))
 
@@ -466,7 +480,8 @@ func TestCommentRmForce(t *testing.T) {
 // get the key — additive per docs/DESIGN.md §9.
 func TestShowIncludesCommentsArray(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	var detailsList []showJSON
@@ -488,7 +503,7 @@ func TestShowIncludesCommentsArray(t *testing.T) {
 func TestAssignJSONShapes(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	var res assignResultJSON
@@ -536,7 +551,7 @@ func TestAssignJSONShapes(t *testing.T) {
 func TestUnassignJSONShapes(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 	mustCLI(t, data, "assign", tid)
 
@@ -579,7 +594,7 @@ func TestUnassignJSONShapes(t *testing.T) {
 func TestUnassignListJSONShape(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
 	t2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "two"))
 	mustCLI(t, data, "add", lid, "unassigned")
@@ -613,7 +628,8 @@ func TestUnassignListJSONShape(t *testing.T) {
 // --level failing as an error rather than defaulting to none.
 func TestPriorityJSONShapes(t *testing.T) {
 	data := t.TempDir()
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	var res priorityResultJSON
@@ -675,7 +691,7 @@ func TestPriorityJSONShapes(t *testing.T) {
 func TestTasksRowsCarryAssignment(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
 
 	var res listTasksResult
@@ -700,7 +716,7 @@ func TestTasksRowsCarryAssignment(t *testing.T) {
 func TestTasksRowSupersetAndInclude(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	withNotes := strings.TrimSpace(mustCLI(t, data, "add", lid, "has notes"))
 	mustCLI(t, data, "notes", withNotes, "some body text here")
 	plain := strings.TrimSpace(mustCLI(t, data, "add", lid, "plain"))
@@ -748,7 +764,7 @@ func TestTasksRowSupersetAndInclude(t *testing.T) {
 func TestTasksSinceFilter(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	old := strings.TrimSpace(mustCLI(t, data, "add", lid, "old task"))
 	cutoff := time.Now().Unix()
 	// Sleep long enough that the next write is strictly after cutoff.
@@ -777,7 +793,7 @@ func TestTasksSinceFilter(t *testing.T) {
 func TestTasksIncludeInvalidRejected(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	mustCLI(t, data, "add", lid, "task")
 
 	code, out, _ := runCLI(t, data, "tasks", lid, "--include", "bogus", "--json")
@@ -795,7 +811,7 @@ func TestTasksIncludeInvalidRejected(t *testing.T) {
 func TestShowBatch(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
 	t2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "two"))
 
@@ -830,7 +846,7 @@ func TestShowBatch(t *testing.T) {
 func TestNextGrabsAndShows(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	tLow := strings.TrimSpace(mustCLI(t, data, "add", lid, "low prio"))
 	tHigh := strings.TrimSpace(mustCLI(t, data, "add", lid, "high prio"))
 	mustCLI(t, data, "priority", tLow, "--level", "low")
@@ -871,7 +887,7 @@ func TestNextGrabsAndShows(t *testing.T) {
 func TestNextHumanEmptyPrintsNothing(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
-	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l"))
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	code, out, _ := runCLI(t, data, "next", lid)
 	if code != 0 {
 		t.Fatalf("exhausted next: exit %d, want 0", code)

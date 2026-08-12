@@ -9,9 +9,9 @@ func TestSearch(t *testing.T) {
 	data := t.TempDir()
 	l1 := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home renovation"))
 	l2 := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Garden"))
-	t1 := strings.TrimSpace(mustCLI(t, data, "add", l1, "Buy paint"))
-	mustCLI(t, data, "add", l1, "Weed the garden")
-	mustCLI(t, data, "add", l2, "Paint the fence")
+	t1 := strings.TrimSpace(mustCLI(t, data, "add", l1, "Buy paint", "--force"))
+	mustCLI(t, data, "add", l1, "Weed the garden", "--force")
+	mustCLI(t, data, "add", l2, "Paint the fence", "--force")
 
 	// Title matches across lists, each with its list name in context.
 	out := mustCLI(t, data, "search", "paint")
@@ -27,7 +27,7 @@ func TestSearch(t *testing.T) {
 	}
 
 	// Notes-only matches still surface (a real hit, weaker than a title one).
-	mustCLI(t, data, "notes", t1, "replace the kitchen sink")
+	mustCLI(t, data, "notes", t1, "replace the kitchen sink", "--force")
 	out = mustCLI(t, data, "search", "kitchen")
 	if !strings.Contains(out, "Buy paint") {
 		t.Errorf("search kitchen: %q, want the notes-only match", out)
@@ -66,6 +66,7 @@ func TestSearch(t *testing.T) {
 // parent list's created_by, exposed alongside list_id and list_name).
 func TestSearchJSONCarriesListOwner(t *testing.T) {
 	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
 	owned := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Backlog", "--owner", "pi"))
 	mustCLI(t, data, "add", owned, "Plan migration")
 
@@ -90,8 +91,8 @@ func TestSearchJSONCarriesAssignmentAndPriority(t *testing.T) {
 	// assertion fail spuriously.
 	t.Setenv("FAROL_AGENT", "agent")
 	data := t.TempDir()
-	l := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Backlog"))
-	id := strings.TrimSpace(mustCLI(t, data, "add", l, "Plan migration"))
+	l := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Backlog", "--owner", "agent"))
+	id := strings.TrimSpace(mustCLI(t, data, "add", l, "Plan migration", "--force"))
 	mustCLI(t, data, "assign", id)
 	mustCLI(t, data, "priority", id, "--level", "high")
 
@@ -114,7 +115,7 @@ func TestSearchJSONCarriesAssignmentAndPriority(t *testing.T) {
 func TestSearchJSONUnassignedRowsAreExplicit(t *testing.T) {
 	data := t.TempDir()
 	l := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Backlog"))
-	mustCLI(t, data, "add", l, "Plan migration")
+	mustCLI(t, data, "add", l, "Plan migration", "--force")
 
 	var payload []searchResultJSON
 	mustJSONCLI(t, data, &payload, "search", "migration", "--json")
