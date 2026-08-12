@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/farol/src/cmds"
 	"github.com/filipemolina/farol/src/store"
 )
@@ -59,9 +60,14 @@ func typePath(t *testing.T, m Model, path string) Model {
 	return m
 }
 
+// testTermWidth is the terminal width used in tests: wide enough that the
+// input width (termWidth - 6, capped at 50) lands at 50, a deterministic
+// value the placeholder test asserts against.
+const testTermWidth = 120
+
 func TestNewExportSeedsWholeStoreWhenNoList(t *testing.T) {
 	s := openTestStore(t)
-	m := NewExport(s, nil).(Model)
+	m := NewExport(s, nil, testTermWidth).(Model)
 	if !m.wholeStore {
 		t.Error("wholeStore = false, want true when no list is highlighted")
 	}
@@ -73,7 +79,7 @@ func TestNewExportSeedsThisListWhenListGiven(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateList: %v", err)
 	}
-	m := NewExport(s, &id).(Model)
+	m := NewExport(s, &id, testTermWidth).(Model)
 	if m.wholeStore {
 		t.Error("wholeStore = true, want false when a list is highlighted")
 	}
@@ -84,7 +90,7 @@ func TestNewExportSeedsThisListWhenListGiven(t *testing.T) {
 
 func TestExportSubmitWithEmptyPathWritesNothing(t *testing.T) {
 	s := openTestStore(t)
-	m := NewExport(s, nil).(Model)
+	m := NewExport(s, nil, testTermWidth).(Model)
 	_, cmd := step(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
 	if cmd != nil {
 		t.Error("submit with empty path should produce no command")
@@ -93,7 +99,7 @@ func TestExportSubmitWithEmptyPathWritesNothing(t *testing.T) {
 
 func TestExportCancelReturnsCloseModalMsg(t *testing.T) {
 	s := openTestStore(t)
-	m := NewExport(s, nil).(Model)
+	m := NewExport(s, nil, testTermWidth).(Model)
 	_, cmd := step(t, m, tea.KeyPressMsg{Text: "esc", Code: tea.KeyEsc})
 	if cmd == nil {
 		t.Fatal("esc should produce a CloseModal command")
@@ -115,7 +121,7 @@ func TestExportSubmitWritesWholeStoreFile(t *testing.T) {
 	}
 
 	outPath := filepath.Join(t.TempDir(), "exp.json")
-	m := NewExport(s, nil).(Model)
+	m := NewExport(s, nil, testTermWidth).(Model)
 	m = typePath(t, m, outPath)
 	_, cmd := step(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
 	runSubmit(t, cmd)
@@ -144,7 +150,7 @@ func TestExportFollowSingleList(t *testing.T) {
 		}
 	}
 	onePath := filepath.Join(t.TempDir(), "one.json")
-	m := NewExport(s, &groceriesID).(Model)
+	m := NewExport(s, &groceriesID, testTermWidth).(Model)
 	runSubmit(t, cmds.CloseModal(m.exportFollowCmd(onePath)))
 
 	doc := readExportDoc(t, onePath)
@@ -155,7 +161,7 @@ func TestExportFollowSingleList(t *testing.T) {
 
 func TestExportTabTogglesFocusAndSpaceFlipsWholeStore(t *testing.T) {
 	s := openTestStore(t)
-	m := NewExport(s, nil).(Model)
+	m := NewExport(s, nil, testTermWidth).(Model)
 	if !m.wholeStore {
 		t.Fatal("precondition: wholeStore should start true with no list")
 	}
@@ -190,13 +196,27 @@ func TestExportTabTogglesFocusAndSpaceFlipsWholeStore(t *testing.T) {
 
 func TestExportViewContainsTitleAndToggleGlyph(t *testing.T) {
 	s := openTestStore(t)
-	m := NewExport(s, nil).(Model)
+	m := NewExport(s, nil, testTermWidth).(Model)
 	v := m.View().Content
 	if !strings.Contains(v, "Export") {
 		t.Error("View should contain the modal title \"Export\"")
 	}
 	if !strings.Contains(v, "◻") && !strings.Contains(v, "◼") {
 		t.Error("View should contain the whole-store toggle glyph ◻/◼")
+	}
+}
+
+// TestExportViewShowsFullPlaceholder verifies the path input's placeholder
+// renders in full. The bubbles v2 textinput's placeholderView truncates to
+// the first character when Width is 0, leaking a stray 'p' (first rune of
+// "path/to/file.json") as the cursor char. Setting Width from terminalWidth
+// in View fixes this — the full placeholder must appear in the rendered output.
+func TestExportViewShowsFullPlaceholder(t *testing.T) {
+	s := openTestStore(t)
+	m := NewExport(s, nil, testTermWidth).(Model)
+	v := ansi.Strip(m.View().Content)
+	if !strings.Contains(v, "path/to/file.json") {
+		t.Error("View should contain the full placeholder \"path/to/file.json\", not just 'p'")
 	}
 }
 

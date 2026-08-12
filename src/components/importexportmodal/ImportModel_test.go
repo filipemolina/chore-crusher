@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/farol/src/cmds"
 	"github.com/filipemolina/farol/src/store"
 )
 
 func TestImportSubmitWithEmptyPathWritesNothing(t *testing.T) {
 	s := openTestStore(t)
-	m := NewImport(s).(ImportModel)
+	m := NewImport(s, testTermWidth).(ImportModel)
 	_, cmd := stepImport(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
 	if cmd != nil {
 		t.Error("submit with empty path should produce no command")
@@ -23,7 +24,7 @@ func TestImportSubmitWithEmptyPathWritesNothing(t *testing.T) {
 
 func TestImportCancelReturnsCloseModalMsg(t *testing.T) {
 	s := openTestStore(t)
-	m := NewImport(s).(ImportModel)
+	m := NewImport(s, testTermWidth).(ImportModel)
 	_, cmd := stepImport(t, m, tea.KeyPressMsg{Text: "esc", Code: tea.KeyEsc})
 	if cmd == nil {
 		t.Fatal("esc should produce a CloseModal command")
@@ -37,7 +38,7 @@ func TestImportCancelReturnsCloseModalMsg(t *testing.T) {
 // a non-existent file; the result must be a RefreshListsMsg carrying Err.
 func TestImportBadPathRoutesErrorThroughLastError(t *testing.T) {
 	s := openTestStore(t)
-	m := NewImport(s).(ImportModel)
+	m := NewImport(s, testTermWidth).(ImportModel)
 	msg := runImportFollow(t, m.importFollowCmd(filepath.Join(t.TempDir(), "nope.json")))
 	rlm, ok := msg.(cmds.RefreshListsMsg)
 	if !ok {
@@ -81,7 +82,7 @@ func TestImportRecreatesLists(t *testing.T) {
 	}
 
 	before, _ := s.ListLists()
-	m := NewImport(s).(ImportModel)
+	m := NewImport(s, testTermWidth).(ImportModel)
 	m = typeImportPath(t, m, expPath)
 	_, cmd := stepImport(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
 	runSubmitImport(t, cmd)
@@ -120,7 +121,7 @@ func TestImportVersionMismatchRoutesError(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	m := NewImport(s).(ImportModel)
+	m := NewImport(s, testTermWidth).(ImportModel)
 	msg := runImportFollow(t, m.importFollowCmd(path))
 	rlm, ok := msg.(cmds.RefreshListsMsg)
 	if !ok {
@@ -133,7 +134,7 @@ func TestImportVersionMismatchRoutesError(t *testing.T) {
 
 func TestImportViewContainsTitle(t *testing.T) {
 	s := openTestStore(t)
-	m := NewImport(s).(ImportModel)
+	m := NewImport(s, testTermWidth).(ImportModel)
 	v := m.View().Content
 	if !containsImport(v, "Import") {
 		t.Error("View should contain the modal title \"Import\"")
@@ -186,4 +187,18 @@ func runImportFollow(t *testing.T, cmd tea.Cmd) tea.Msg {
 
 func containsImport(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
+}
+
+// TestImportViewShowsFullPlaceholder verifies the path input's placeholder
+// renders in full. The bubbles v2 textinput's placeholderView truncates to
+// the first character when Width is 0, leaking a stray 'p' (first rune of
+// "path/to/file.json") as the cursor char. Setting Width from terminalWidth
+// in View fixes this — the full placeholder must appear in the rendered output.
+func TestImportViewShowsFullPlaceholder(t *testing.T) {
+	s := openTestStore(t)
+	m := NewImport(s, testTermWidth).(ImportModel)
+	v := ansi.Strip(m.View().Content)
+	if !containsImport(v, "path/to/file.json") {
+		t.Error("View should contain the full placeholder \"path/to/file.json\", not just 'p'")
+	}
 }

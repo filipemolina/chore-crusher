@@ -27,12 +27,15 @@ type Model struct {
 	wholeStore    bool    // toggle: true exports everything, false exports listID
 	input         textinput.Model
 	toggleFocused bool // tab moves focus off the path onto the toggle
+	termWidth     int  // terminal width, to size the path input (docs/DESIGN.md §12)
 }
 
 // NewExport creates the export modal. wholeStore seeds to true when no list
 // is highlighted (the only sensible default is "everything"); with a list
-// highlighted the natural default is to export just that list.
-func NewExport(s *store.Store, listID *string) tea.Model {
+// highlighted the natural default is to export just that list. termWidth
+// sizes the path input so its placeholder renders in full rather than the
+// bubbles v2 textinput's first-character-only bug at Width 0.
+func NewExport(s *store.Store, listID *string, termWidth int) tea.Model {
 	input := textinput.New()
 	input.Focus()
 	// The bubbles default prompt is a hardcoded ANSI-white "> ", which would
@@ -42,7 +45,7 @@ func NewExport(s *store.Store, listID *string) tea.Model {
 	input.Placeholder = "path/to/file.json"
 
 	wholeStore := listID == nil
-	return Model{store: s, listID: listID, wholeStore: wholeStore, input: input}
+	return Model{store: s, listID: listID, wholeStore: wholeStore, input: input, termWidth: termWidth}
 }
 
 func (m Model) Init() tea.Cmd { return textinput.Blink }
@@ -125,6 +128,13 @@ func (m Model) View() tea.View {
 	// vanishes on a light theme's modal (farol-day). Same per-render
 	// discipline as listnamemodal and detailspanel (docs/DESIGN.md §12).
 	chrome.SealInput(&m.input, appstyles.Active.ModalBg, appstyles.Active.ModalBg)
+	// Size the input from the terminal width so the placeholder renders
+	// in full. bubbles v2 textinput's placeholderView truncates to the
+	// first character when Width is 0, leaving a stray 'p' (first rune of
+	// "path/to/file.json") as the cursor char. ModalSurface spends 6 cols
+	// on border+padding; cap the field at 50 so it never grows comically
+	// wide on a large terminal.
+	m.input.SetWidth(max(10, min(m.termWidth-6, 50)))
 
 	lines := []string{chrome.ModalTitle("Export"), m.input.View()}
 

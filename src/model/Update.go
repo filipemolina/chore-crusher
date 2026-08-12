@@ -275,10 +275,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// lists panel, so they share the focused-Lists-panel guard the other
 		// list CRUD keys use (docs/DESIGN.md §9, export/import).
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Export):
-			m.activeModal = importexportmodal.NewExport(m.store, m.highlightedListIDptr())
+			m.activeModal = importexportmodal.NewExport(m.store, m.highlightedListIDptr(), m.terminalWidth)
 
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Import):
-			m.activeModal = importexportmodal.NewImport(m.store)
+			m.activeModal = importexportmodal.NewImport(m.store, m.terminalWidth)
 
 		}
 
@@ -426,10 +426,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeModal = searchpicker.New(m.store, m.terminalHeight)
 
 	case cmds.OpenExportModalMsg:
-		m.activeModal = importexportmodal.NewExport(m.store, m.highlightedListIDptr())
+		m.activeModal = importexportmodal.NewExport(m.store, m.highlightedListIDptr(), m.terminalWidth)
 
 	case cmds.OpenImportModalMsg:
-		m.activeModal = importexportmodal.NewImport(m.store)
+		m.activeModal = importexportmodal.NewImport(m.store, m.terminalWidth)
 
 	// The global picker jumped to a task, possibly in another list: switch
 	// the active list to the result's list (when different) and move the tree

@@ -23,12 +23,15 @@ import (
 // It imports the whole document (every list in the file), matching the CLI's
 // default `farol import <file>` with no --list.
 type ImportModel struct {
-	store *store.Store
-	input textinput.Model
+	store     *store.Store
+	input     textinput.Model
+	termWidth int // terminal width, to size the path input (docs/DESIGN.md §12)
 }
 
-// NewImport creates the import modal focused on its path input.
-func NewImport(s *store.Store) tea.Model {
+// NewImport creates the import modal focused on its path input. termWidth
+// sizes the path input so its placeholder renders in full rather than the
+// bubbles v2 textinput's first-character-only bug at Width 0.
+func NewImport(s *store.Store, termWidth int) tea.Model {
 	input := textinput.New()
 	input.Focus()
 	// Same default-prompt leak guard as the other modals: SealInput (called
@@ -36,7 +39,7 @@ func NewImport(s *store.Store) tea.Model {
 	input.Prompt = ""
 	input.Placeholder = "path/to/file.json"
 
-	return ImportModel{store: s, input: input}
+	return ImportModel{store: s, input: input, termWidth: termWidth}
 }
 
 func (m ImportModel) Init() tea.Cmd { return textinput.Blink }
@@ -97,6 +100,13 @@ func (m ImportModel) View() tea.View {
 	// Seal the input onto the modal surface every render (see ExportModel /
 	// listnamemodal for why).
 	chrome.SealInput(&m.input, appstyles.Active.ModalBg, appstyles.Active.ModalBg)
+	// Size the input from the terminal width so the placeholder renders
+	// in full. bubbles v2 textinput's placeholderView truncates to the
+	// first character when Width is 0, leaving a stray 'p' (first rune of
+	// "path/to/file.json") as the cursor char. ModalSurface spends 6 cols
+	// on border+padding; cap the field at 50 so it never grows comically
+	// wide on a large terminal.
+	m.input.SetWidth(max(10, min(m.termWidth-6, 50)))
 
 	lines := []string{
 		chrome.ModalTitle("Import"),
