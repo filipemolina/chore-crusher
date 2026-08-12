@@ -102,6 +102,25 @@ post-alpha backlog.
   green, including the rewritten `TestCLICanRenameForeignOwnedList` which now
   pins the refusal-without-`--force` and the override-with-`--force`.
 
+- **`farol work` closes parity gap #1** (the retired `farol:///work`
+  resource). `farol work` is a read-only, non-interactive command that mirrors
+  the resource exactly in `--json` mode: one JSON value on stdout, a bare
+  array of `{id, entity_type, entity_id, agent_id, kind, acquired_at}` rows
+  — the same field names and order the resource emitted, so a host that read
+  `farol:///work` reads the same live-presence rows here (presence, not
+  assignment: `assignee` is a separate axis and deliberately not part of this
+  read). Human mode prints a plain `tabwriter` table (`AGENT ENTITY TITLE KIND
+  AGE`) with the claimed entity's title resolved best-effort and the claim age
+  in the `2h14m ago` form the §9 takeover message uses — the ergonomic a
+  static JSON blob could not offer — and prints nothing when there are no
+  live claims (empty is a normal state, not an error). It claims no presence
+  of its own. `docs/DESIGN.md` §9 gains the subcommand and pins both shapes;
+  `src/cli/work.go` is the implementation, `src/cli/work_test.go` pins the
+  mirror (`TestWorkJSONMirrorsResource`), the one-value rule
+  (`TestWorkJSONIsOneValue`), the empty state (`TestWorkEmptyPrintsNothing`),
+  and the human table including the presence-not-assignment boundary
+  (`TestWorkHumanTable`). Tests: `go test ./src/cli/...` green.
+
 - Implemented the MCP server wrapper (`src/mcpserver`). `crush mcp` exposes
   every CLI operation as an MCP tool over stdin/stdout: lists, tasks, add,
   complete/reopen/toggle, rename, notes, progress, move, delete, and search.
