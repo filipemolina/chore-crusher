@@ -208,6 +208,14 @@ decision it depends on.
   "Decisions already taken" note above deferring them was scoped to the
   *first alpha* and stands as a record of that scope.
 
+- ~~**Export and import.**~~ **Shipped** — `farol export [list-id] [--out <file>]`
+  and `farol import <file> [--list <id>]` (mirror with `e` / `i` in the Lists
+  panel) move lists and tasks between stores as versioned JSON. Export reuses
+  `ListTasks`' depth-first preorder so parents precede children; import
+  regenerates ULIDs and rewrites parent links through an old→new id map
+  within a single transaction. Additive: existing data is never overwritten.
+  See `docs/DESIGN.md` §6 (keybindings) and §9 (CLI).
+
 ### TUI and bug-fix plans
 
 These came out of a triage of the Chore Crusher list itself (2026-08-05) and
@@ -237,8 +245,11 @@ previous delete pulls them apart. A seventh item was documentation only: the
 database is already per-OS-user because its path derives from `$XDG_DATA_HOME`,
 and `docs/DESIGN.md` §8 now says so, so nobody re-files it as a feature.
 
-One gap it deliberately left open: `lastError` is written in several
-places and rendered in none, so errors are still invisible in the TUI.
+One gap it deliberately left open: `lastError` was written in several places and
+rendered in none, so errors were invisible in the TUI. **Closed** — `statusView`
+now renders `lastError` as a themed strip between the body and the footer (see
+`src/model/View.go` and `docs/STATUS.md`), so a failed export/import surfaces
+visibly and a clean refresh clears the message.
 
 **TUI interaction polish** — *four of five landed.* Enter on a list
 selects it and closes the panel, `esc` closes the panel (after first clearing

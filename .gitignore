@@ -10,6 +10,9 @@
 *.db-wal
 *.db-shm
 
+# Local CSV scratch files (failed/working model probe output, etc.).
+*.csv
+
 
 farol
 

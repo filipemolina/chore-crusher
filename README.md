@@ -50,6 +50,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | **Live agent presence** | Animated spinner lights on task writes. You see exactly what's working. |
 | **4-value priority** | `high` > `medium` > `low` > `none` (drives `next_task` ordering) |
 | **Agent CLI** | a single agent-facing front end: every operation is a `farol` subcommand emitting one JSON value with `--json` |
+| **Export / Import** | `farol export` / `farol import` (or `e` / `i` in the Lists panel) move lists and tasks between stores as versioned JSON |
 | **Themes** | 14 themes: four of the app's own (`farol-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
 
 ---
@@ -120,6 +121,8 @@ The default list `Inbox` is created automatically; the app opens on the
 | `[` | Set next added task as **sibling of parent** |
 | `/` | Filter current list (fuzzy search) |
 | `F` | Global search across all lists |
+| `e` | Export the store or highlighted list to JSON |
+| `i` | Import lists from a JSON file |
 | `T` | Toggle theme picker |
 | `L` | Toggle lists panel visibility |
 | `?` | Show help overlay |
@@ -156,6 +159,10 @@ farol priority <task-id> high    # none | low | medium | high
 # Search
 farol search "paint"              # fuzzy search across titles and notes
 farol search "deck" --json       # JSON output
+
+# Export & import
+farol export [list-id] [--out <file>]  # export the whole store or one list
+farol import <file> [--list <id>]      # import lists and tasks from an export file
 
 # Global
 farol --help                      # full CLI reference

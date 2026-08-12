@@ -23,6 +23,25 @@ post-alpha backlog.
 
 ## Latest change
 
+- **Export and import.** `farol export [list-id] [--out <file>]` writes the store
+  (or one list) to a versioned JSON document; `farol import <file> [--list <id>]`
+  recreates lists additively with fresh ULIDs. The TUI mirrors this with `e` /
+  `i` keys in the Lists panel: `e` opens an export modal (path + whole-store /
+  this-list toggle), `i` opens an import modal (path input). Both route through
+  `store.Export` / `store.ImportList`, the same mutators the CLI uses, so the
+  two surfaces never diverge on a write path. `IMPORT`/`EXPORT` keys are bound to
+  `L` context only (free in the existing binding set). See `docs/DESIGN.md` §6
+  (keybindings) and §9 (CLI). Tests: `go test ./src/cli/... ./src/store/... ./src/components/importexportmodal/...`.
+
+- **lastError is now rendered in the TUI.** A failed export/import (bad path,
+  unparseable file, version mismatch) was previously invisible: `lastError` was
+  written on every error but never surfaced. `statusView` now renders it as a
+  single themed strip (Danger color) between the body and the footer, truncated
+  to width. A clean `RefreshListsMsg` / `RefreshTasksMsg` clears the message so a
+  later success removes the stale error. Tests:
+  `TestFailedImportRendersErrorInStatusLine` and
+  `TestSuccessfulRoundTripClearsLastError` in `src/model/lists_panel_trio_test.go`.
+
 - **The brand themes are the default.** `farol-dark` and `farol-day` are no
   longer copies of stack-stitcher's palettes: both derive from the logo
   family's navy/amber/cream (deep navy `#0E1B30` surfaces, lamp amber
