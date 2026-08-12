@@ -340,6 +340,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastError = msg.Err.Error()
 			break
 		}
+		// A clean (error-free) refresh clears any prior error, so a failed
+		// export/import does not leave its message stale on screen after a
+		// subsequent success (docs/DESIGN.md §9, lastError lifecycle).
+		m.lastError = ""
 		m.lists = msg.Lists
 		wasActive := m.animActive
 		m.animActive = len(msg.Activities) > 0
@@ -401,6 +405,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastError = msg.Err.Error()
 			break
 		}
+		m.lastError = ""
 		wasActive := m.animActive
 		m.animActive = len(msg.Activities) > 0
 		if m.animActive && !wasActive {

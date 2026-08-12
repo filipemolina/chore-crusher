@@ -27,7 +27,13 @@ func (m AppModel) View() tea.View {
 	body := m.renderBody()
 	footer := m.footerView()
 
-	layout := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	parts := []string{header, body}
+	if m.lastError != "" {
+		parts = append(parts, m.statusView())
+	}
+	parts = append(parts, footer)
+
+	layout := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	// Seal the frame against tier 2. JoinVertical pads the narrower pieces
 	// out to the terminal width with unstyled spaces, and an outer
@@ -106,6 +112,35 @@ func (m AppModel) footerView() string {
 		return m.components.KeybindingBar.View().Content
 	}
 	return bar.WithContext(m.helpContext()).View().Content
+}
+
+// statusView renders m.lastError (when non-empty) as a single status strip
+// between the body and the footer. It reuses the lastError field that every
+// failed action already writes to (docs/DESIGN.md §9) — surface it here so a
+// failed export/import is visible instead of silent. The line is truncated to
+// the terminal width via chrome.Truncate and painted in the theme's Danger
+// color on the tier-2 background. When there is no error, the method returns
+// an empty string so JoinVertical adds no extra row and the layout is
+// identical to before.
+func (m AppModel) statusView() string {
+	if m.lastError == "" {
+		return ""
+	}
+	rendered := lipgloss.NewStyle().
+		Foreground(appstyles.Active.Danger).
+		Background(appstyles.Active.BackgroundContent).
+		Render(chrome.Truncate(m.lastError, m.terminalWidth))
+	// Match the footer's full-width, single-height, padded box so the error
+	// row sits flush against the footer with the same background and padding.
+	return appstyles.FillBackground(appstyles.Active.BackgroundContent,
+		lipgloss.NewStyle().
+			Background(appstyles.Active.BackgroundContent).
+			Width(m.terminalWidth).
+			MaxWidth(m.terminalWidth).
+			Height(1).
+			MaxHeight(1).
+			Padding(0, 1).
+			Render(rendered))
 }
 
 // renderBody renders the Tasks surface and, while visible, the Lists surface

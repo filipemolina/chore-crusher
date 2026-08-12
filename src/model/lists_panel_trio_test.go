@@ -517,3 +517,66 @@ func TestOpenImportModalMsgOpensImportModal(t *testing.T) {
 		t.Errorf("modal view should contain \"Import\", got: %q", view)
 	}
 }
+
+// --- lastError rendering (Task 6) ---
+
+// TestFailedImportRendersErrorInStatusLine verifies that a failed import
+// (bad path) surfaces its error through the rendered View, not just in
+// lastError (test-visible only). The error text should appear in the
+// status line between the body and the footer.
+func TestFailedImportRendersErrorInStatusLine(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+
+	// Open the import modal
+	m = refresh(t, m, tea.KeyPressMsg{Text: "i", Code: 'i'})
+	if m.activeModal == nil {
+		t.Fatal("pressing 'i' should have opened the import modal")
+	}
+
+	// Type a non-existent path and submit
+	expPath := filepath.Join(t.TempDir(), "does-not-exist.json")
+	m = typeText(t, m, expPath)
+	m = refresh(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
+
+	// Resolve the terminal layout so View renders a full frame
+	m = refresh(t, m, m.bodyLayout)
+
+	rendered := ansi.Strip(m.View().Content)
+	if !strings.Contains(rendered, "no such file") && !strings.Contains(rendered, m.lastError) {
+		t.Errorf("View should contain the failed import error text; lastError = %q", m.lastError)
+	}
+	if m.lastError == "" {
+		t.Error("failed import should have set lastError")
+	}
+}
+
+// TestSuccessfulRoundTripClearsLastError verifies that after a failed
+// operation, a successful one (refresh, which clears lastError) removes
+// the error from the status line.
+func TestSuccessfulRoundTripClearsLastError(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+
+	// Trigger an error via a failed import
+	m = refresh(t, m, tea.KeyPressMsg{Text: "i", Code: 'i'})
+	m = typeText(t, m, filepath.Join(t.TempDir(), "nope.json"))
+	m = refresh(t, m, tea.KeyPressMsg{Text: "enter", Code: tea.KeyEnter})
+
+	if m.lastError == "" {
+		t.Fatal("precondition: failed import should have set lastError")
+	}
+
+	// Refresh clears lastError (RefreshListsMsg with no Err)
+	m = refresh(t, m, cmds.RefreshLists(m.store)())
+
+	if m.lastError != "" {
+		t.Errorf("after a clean refresh, lastError = %q, want empty", m.lastError)
+	}
+
+	m = refresh(t, m, m.bodyLayout)
+	rendered := ansi.Strip(m.View().Content)
+	if strings.Contains(rendered, "no such file") {
+		t.Error("View should not contain the stale error after refresh")
+	}
+}
