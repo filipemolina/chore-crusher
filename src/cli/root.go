@@ -132,6 +132,8 @@ marks the task with that id complete (cascading to descendants).`,
 		newClaimCmd(),
 		newReleaseCmd(),
 		newSkillCmd(),
+		newExportCmd(),
+		newImportCmd(),
 	)
 	root.AddCommand(taskCommands()...)
 	root.AddCommand(attachmentCommands()...)

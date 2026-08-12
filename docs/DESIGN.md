@@ -911,6 +911,9 @@ farol rm <task-id> --force                     delete a task and its descendants
 farol comment rm <comment-id> --force          delete a comment
 farol search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
+farol export [list-id] [--out <file>]          export the whole store, or one list, to JSON
+farol import <file> [--list <list-id>]         import lists and tasks from a farol export file
+
 farol inbox [--include notes]                  start-of-session context: your list plus every foreign list, each with its top 20 pending tasks and notes inlined
 
 farol work                                     live presence claims (the CLI equivalent of the retired farol:///work resource): who is working on which task/list right now
@@ -1242,6 +1245,27 @@ the one-value rule.
   just weaker than a title one. **`search`, JSON:**
   `[{"id", "list_id", "list_name", "title", "status", "progress",
   "assignee", "priority"}]`.
+- **`export`, human mode (default):** pretty-printed JSON to stdout, or —
+  with `--out <file>` — written to that file with a one-line summary
+  (`exported N list(s) to <file>`) on stdout. **`export`, `--json` mode:**
+  exactly one JSON value, `{ "version": 1, "lists": [ … ] }` — the same
+  `ExportDocument` shape, so a caller captures it with no parser changes.
+  The `lists` array is the export's `ExportList` shape (id, name,
+  created_by, collaborative, created_at, position, and a `tasks` array); each
+  task carries every column (§2), the `comments` array (author, note,
+  created_at), and the `attachments` array (path, created_at). A list-id
+  argument narrows the export to that one list; without it, the whole store
+  is exported.
+- **`import`, human mode:** `imported N list(s)` on success, nothing else.
+  **`import`, `--json` mode:** `{"ok": true}`. A file whose `version` does not
+  match `ExportVersion` is a domain error (exit 1), so a future format is
+  rejected rather than mis-parsed. `import` is additive: it recreates each
+  listed list with fresh ids through `store.ImportList`; it never deletes or
+  overwrites existing data. `--list <id>` restricts the import to a single
+  matching list from a whole-store file (a non-matching id is a domain error).
+  `comments_disabled` is not preserved by export (it is a UI policy default)
+  and is restored as `0`; `AgentActivity` (live presence) is intentionally
+  excluded.
 - **`work`, human mode:** a `tabwriter` table with the header
   `AGENT ENTITY TITLE KIND AGE` — one row per live claim, the entity
   column `type:id` (e.g. `task:01ARZ…`) and the age rendered as `2h14m ago`
