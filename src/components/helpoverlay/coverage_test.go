@@ -43,12 +43,13 @@ func allBindings(t *testing.T) map[string]key.Binding {
 	t.Helper()
 	all := map[string]key.Binding{}
 	for group, keymap := range map[string]any{
-		"Global":  keys.Global,
-		"Tree":    keys.Tree,
-		"Lists":   keys.Lists,
-		"Create":  keys.Create,
-		"Details": keys.Details,
-		"Overlay": keys.Overlay,
+		"Global":      keys.Global,
+		"Tree":        keys.Tree,
+		"Lists":       keys.Lists,
+		"Create":      keys.Create,
+		"Details":     keys.Details,
+		"Overlay":     keys.Overlay,
+		"ExportModal": keys.ExportModal,
 	} {
 		for name, b := range bindingsOf(t, group, keymap) {
 			all[name] = b

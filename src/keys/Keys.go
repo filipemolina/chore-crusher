@@ -115,6 +115,20 @@ type ListsPanelKeys struct {
 	// converge on for moving a line, matching Tree.MoveUp/MoveDown.
 	MoveUp   key.Binding
 	MoveDown key.Binding
+	// Export writes the store or the highlighted list to a JSON file
+	// (docs/DESIGN.md §9, export/import). e is free in the Lists context.
+	Export key.Binding
+	// Import reads a JSON file and recreates its lists as new ones
+	// (docs/DESIGN.md §9, export/import). i is free in the Lists context.
+	Import key.Binding
+}
+
+// ExportModalKeys act inside the export modal: tab moves focus from the path
+// input onto the whole-store / this-list toggle and back (docs/DESIGN.md §9).
+// enter/esc are the generic Overlay.Submit/Overlay.Cancel every overlay
+// answers to, so they are not declared here.
+type ExportModalKeys struct {
+	NextField key.Binding
 }
 
 // ListNameModalKeys act inside the list name modal's Rename mode only: enter
@@ -222,6 +236,15 @@ var Lists = ListsPanelKeys{
 	// "move this row" wherever rows are ordered.
 	MoveUp:   key.NewBinding(key.WithKeys("alt+up", "alt+k"), key.WithHelp("alt+↑/alt+k", "move up")),
 	MoveDown: key.NewBinding(key.WithKeys("alt+down", "alt+j"), key.WithHelp("alt+↓/alt+j", "move down")),
+	// e and i are free in the Lists context: the existing Lists bindings are
+	// navigate/select/new/rename/delete/move, and i is unused by the task
+	// tree too (docs/DESIGN.md §9, export/import).
+	Export: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "export")),
+	Import: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import")),
+}
+
+var ExportModal = ExportModalKeys{
+	NextField: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "toggle whole/list")),
 }
 
 var ListNameModal = ListNameModalKeys{
@@ -391,7 +414,7 @@ func Active(ctx Context) []key.Binding {
 		if ctx.ListsPanelVisible {
 			return []key.Binding{
 				Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete,
-				Lists.MoveUp, Lists.MoveDown,
+				Lists.MoveUp, Lists.MoveDown, Lists.Export, Lists.Import,
 				Global.NextPanel, Global.Quit,
 			}
 		}
@@ -555,8 +578,8 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Lists",
-			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete, Lists.MoveUp, Lists.MoveDown),
-			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively. alt+↑/alt+k and alt+↓/alt+j reorder the highlighted list.",
+			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete, Lists.MoveUp, Lists.MoveDown, Lists.Export, Lists.Import),
+			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively. alt+↑/alt+k and alt+↓/alt+j reorder the highlighted list. e exports the store or the highlighted list to a JSON file; i imports lists from a JSON file.",
 		},
 		{
 			Title:   "Renaming a list",
