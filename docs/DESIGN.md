@@ -913,6 +913,8 @@ farol search <query> [--list <list-id>]        fuzzy search across titles (+ not
 
 farol inbox [--include notes]                  start-of-session context: your list plus every foreign list, each with its top 20 pending tasks and notes inlined
 
+farol work                                     live presence claims (the CLI equivalent of the retired farol:///work resource): who is working on which task/list right now
+
 farol --version
 ```
 
@@ -942,6 +944,35 @@ resource inlines notes unconditionally; the CLI keeps that behaviour behind
 `--include notes` so a caller that does not need bodies avoids the bytes. An
 empty inbox prints nothing in human mode and `mine` empty / `foreign_lists`
 empty in JSON — a normal state, not an error.
+
+**`farol work` is the CLI equivalent of the retired `farol:///work` resource**
+(cli-first migration, parity gap #1). It is read-only and non-interactive, so it
+claims no presence. It emits exactly one JSON value on stdout in `--json` mode —
+a bare array (matching the resource and the other list-returning commands),
+of the shape:
+
+```json
+[
+  { "id", "entity_type", "entity_id", "agent_id", "kind", "acquired_at" },
+  ...
+]
+```
+
+`id` is the `AgentActivity` row's ULID; `entity_type` is `task` or `list`;
+`entity_id` names the claimed entity; `agent_id` is who holds the claim;
+`kind` is `working` | `inspecting`; `acquired_at` is the unix second the claim
+was last renewed (within the store's `WorkTTL`, so the set is exactly what the
+TUI shows a spinner for). This is **presence, not assignment**: who *owns* a
+task is the task row's `assignee` field, a separate axis (docs/DESIGN.md §3),
+and is deliberately not part of this read. The JSON shape is an exact mirror of
+the retired resource's array, so a host that read `farol:///work` reads the same
+rows here. In human mode `farol work` prints a plain table (no ANSI escapes, per
+§9) with the holding agent, the claimed entity, its title resolved
+best-effort, the kind, and the claim's age (`2h14m ago`), so a human sees which
+task an agent is on without re-reading each entity by id — the resource carried
+only ids, so the table is the ergonomic a static JSON blob could not offer. An
+empty claim set prints nothing in human mode and `[]` in JSON — a normal state,
+not an error.
 
 **`set_status` is the one status/progress write.** It takes 1–50 ids in
 one call and accepts `status?` (`pending` | `in_progress` | `complete`),
@@ -1184,6 +1215,13 @@ the one-value rule.
   just weaker than a title one. **`search`, JSON:**
   `[{"id", "list_id", "list_name", "title", "status", "progress",
   "assignee", "priority"}]`.
+- **`work`, human mode:** a `tabwriter` table with the header
+  `AGENT ENTITY TITLE KIND AGE` — one row per live claim, the entity
+  column `type:id` (e.g. `task:01ARZ…`) and the age rendered as `2h14m ago`
+  like the §9 takeover message. **`work`, JSON:** the bare array
+  `[{"id", "entity_type", "entity_id", "agent_id", "kind",
+  "acquired_at"}]` — the exact mirror of the retired `farol:///work`
+  resource's array (see above); no envelope, so an empty claim set is `[]`.
 - **Empty results, human mode:** a read command whose result is empty prints
   nothing (exit 0); JSON mode prints `[]`. A caller that needs to
 distinguish "no data" from "failed" reads the exit code, never the bytes.
