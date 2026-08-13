@@ -70,6 +70,30 @@ func TestFirstRefreshRestoresLastList(t *testing.T) {
 	}
 }
 
+// The lists panel's highlight must match the active list reopened at startup,
+// not always the first list. This is the concrete bug: the panel auto-selected
+// index 0 on its first refresh and broadcast it, clobbering the saved last
+// list back to the first one (docs/DESIGN.md §7). The highlight and the Tasks
+// panel must agree from the first frame.
+func TestFirstRefreshPanelHighlightsActiveList(t *testing.T) {
+	dir := t.TempDir()
+	m, _, listB := seedTwoLists(t, dir)
+
+	// Switch to B and persist it as the last active list.
+	m = refresh(t, m, cmds.SelectListMsg{ListID: listB})
+
+	// Relaunch over the same store: the panel must highlight B, the saved
+	// last-active list, not A (the first list).
+	fresh := newTestModel(t, dir)
+	fresh = refresh(t, fresh, cmds.RefreshLists(fresh.store)())
+	if got := listsPanelSelectedID(t, fresh); got != listB {
+		t.Errorf("panel highlight = %q, want %q (the saved last-active list)", got, listB)
+	}
+	if fresh.activeListID != listB {
+		t.Errorf("activeListID = %q, want %q (the saved last-active list)", fresh.activeListID, listB)
+	}
+}
+
 // A saved last list that no longer exists (the list was deleted while the
 // app was closed) falls back to the first remaining list, exactly like a
 // first run with no saved id at all.

@@ -366,6 +366,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
+				// Align the lists panel's highlight with the active list we
+				// just reopened (docs/DESIGN.md §7). The panel cannot know the
+				// saved last-active list on its own, so it would otherwise
+				// highlight index 0 and disagree with the Tasks panel.
+				finalCmds = append(finalCmds, cmds.SelectListInPanel(m.activeListID))
 				m.persistActiveList()
 			} else if m.store != nil {
 				if id, err := m.store.CreateList(constants.DEFAULT_LIST_NAME, ""); err == nil {

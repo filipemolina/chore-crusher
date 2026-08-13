@@ -95,9 +95,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			if len(items) > 0 && m.list.Index() < 0 {
+				// First load: seed a valid highlight on the first list so the
+				// panel never renders with nothing selected. Do NOT broadcast
+				// SelectListMsg here — AppModel has already chosen the
+				// active list (the saved last-active list, docs/DESIGN.md §7)
+				// and aligns the panel to it via SelectListInPanelMsg. A
+				// broadcast would pick index 0 and clobber that choice back to
+				// the first list on every startup.
 				m.list.Select(0)
-				cmd = tea.Batch(cmd, m.selectList())
-				return m, cmd
+			}
+		}
+
+	case cmds.SelectListInPanelMsg:
+		// One-way startup alignment: highlight the active list AppModel
+		// reopened from the Setting table. No broadcast — the panel is
+		// following AppModel here, not driving it, so echoing back would loop.
+		if msg.ListID != "" {
+			for i, it := range m.list.Items() {
+				if ls, ok := it.(apptypes.ListSummary); ok && ls.List.ID == msg.ListID {
+					m.list.Select(i)
+					break
+				}
 			}
 		}
 
