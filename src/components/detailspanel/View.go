@@ -45,6 +45,8 @@ func (m *Model) View() tea.View {
 		"",
 		m.renderComments(),
 		"",
+		m.renderAttachments(),
+		"",
 		m.renderFooter(),
 	)
 
@@ -433,6 +435,37 @@ func (m *Model) renderCommentCard(c apptypes.Comment, selected bool, innerW int)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", note)
 
 	return m.cardChrome(bg, barFg, content, innerW)
+}
+
+// renderAttachments renders the "Attachments" label and the list of file
+// attachments. Each attachment is shown as a selectable line with the file path.
+// An empty list renders a muted placeholder.
+func (m *Model) renderAttachments() string {
+	label := m.fieldLabel("Attachments", focusAttachments)
+	innerW := m.innerWidth()
+
+	rows := []string{label}
+
+	if len(m.attachments) == 0 {
+		rows = append(rows, "", lipgloss.NewStyle().
+			Foreground(appstyles.Active.TextDim).
+			Render("No attachments."))
+		return lipgloss.JoinVertical(lipgloss.Left, rows...)
+	}
+
+	rows = append(rows, "")
+	for i, a := range m.attachments {
+		selected := i == m.selectedAttachment
+		style := lipgloss.NewStyle().Foreground(appstyles.Active.TextPrimary)
+		if selected {
+			style = style.Foreground(appstyles.Active.Accent).Bold(true)
+		}
+		// Show the file path, truncated to fit
+		path := chrome.Truncate(a.Path, max(1, innerW-4))
+		rows = append(rows, style.Render("  "+path))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 // composeCardBg is the tier the inline compose card paints on. Both the card

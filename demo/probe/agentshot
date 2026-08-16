@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Prints a plausible agent-side transcript, then hands focus to the right pane.
+# It clears the screen first, so its own invocation line never shows up.
+clear
+cat <<'EOF'
+$ export FAROL_AGENT=claude
+$ farol next api --json
+{"id":"01JQZ4","title":"Raise the gateway timeout","list":"infra","status":"pending"}
+$ farol progress 01JQZ4 --mode percentage --percent 60
+ok
+$ farol comment 01JQZ4 "tests green"
+ok
+EOF
+printf '$ '
+herdr pane focus --direction right >/dev/null 2>&1
+sleep 600

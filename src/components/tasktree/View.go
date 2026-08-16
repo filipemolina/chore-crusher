@@ -569,15 +569,20 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 	// two cells (notes left, comments right) regardless of which indicators
 	// the row carries.
 	detailsGlyph := padRightGlyph(notesGlyph) + padRightGlyph(commentsGlyph)
-	// Build the agent spinner text: "⠙ agentA" when claimed, "" otherwise.
-	agentSpinner := ""
+	// Build the agent-presence text: the agent name when the row is claimed,
+	// "" otherwise. The animated spinner glyph was removed (backlog task
+	// "Remove the Spinner"); the agent name alone is the live-presence signal,
+	// and it is de-duplicated against the assignee tag below so the same agent
+	// is not named twice on one row (backlog: "hermes @hermes").
+	agentPresence := ""
+	presenceAgent := ""
 	if a, ok := m.work[row.Task.ID]; ok {
-		spinner := chrome.Spinner(m.animFrame)
+		presenceAgent = a.AgentID
 		agent := a.AgentID
 		if len(agent) > 6 {
 			agent = agent[:6]
 		}
-		agentSpinner = spinner + " " + agent
+		agentPresence = agent
 	}
 
 	// The stale-assignment tier: a durable assignee whose agent holds no live
@@ -588,8 +593,8 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 
 	content := buildRowContent(checkboxColored, title, trailing,
 		statusLabel(row.Task.Status), progressLabel(row, m.rows), detailsGlyph,
-		agentSpinner, assigneeBadge(row.Task.Assignee), priorityLabel(row.Task.Priority), 1,
-		cardWidth-cardInset, statusFg(row.Task.Status), spinnerFg(isSelected),
+		agentPresence, assigneeBadge(row.Task.Assignee, presenceAgent), priorityLabel(row.Task.Priority), 1,
+		cardWidth-cardInset, statusFg(row.Task.Status), agentPresenceFg(isSelected),
 		assigneeFg(assigneeLive), priorityFg(row.Task.Priority))
 
 	return cardIndent + renderTaskCard(cardWidth, rowBg, barFgFor(row.Task.Status, isSelected), content)
@@ -662,15 +667,15 @@ func (m *Model) renderCreateRow(width int, bg color.Color) string {
 // gutter is not a column of its own: it is the blank tail reserved inside the
 // title cell, so the cells to its right keep the fixed offsets they align on.
 type taskRowCols struct {
-	checkbox     int
-	title        int
-	gutter       int
-	status       int
-	progress     int
-	agentSpinner int
-	assignee     int
-	priority     int
-	details      int
+	checkbox      int
+	title         int
+	gutter        int
+	status        int
+	progress      int
+	agentPresence int
+	assignee      int
+	priority      int
+	details       int
 }
 
 // statusColWidth is the fixed width of the status column: the longest status
@@ -725,7 +730,7 @@ const titleGutter = 1
 // trailing icon column a fixed detailsColWidth allocation — reserved and shed
 // together regardless of whether the row has notes — so the label and the
 // glyph (or its blank cell) align across rows.
-func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSpinner, assignee, priority string) taskRowCols {
+func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentPresence, assignee, priority string) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 
 	statusW := 0
@@ -739,8 +744,8 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSp
 		progressW = len(progress) + 1 // +1 for trailing gap
 	}
 	agentW := 0
-	if agentSpinner != "" {
-		agentW = lipgloss.Width(agentSpinner) + 1 // +1 for trailing gap
+	if agentPresence != "" {
+		agentW = lipgloss.Width(agentPresence) + 1 // +1 for trailing gap
 	}
 	assigneeW := 0
 	if assignee != "" {
@@ -782,7 +787,7 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentSp
 	cols.status = statusW
 	cols.details = detailsW
 	cols.progress = progressW
-	cols.agentSpinner = agentW
+	cols.agentPresence = agentW
 	cols.assignee = assigneeW
 	cols.priority = priorityW
 	cols.gutter = gutterNow()
@@ -831,8 +836,16 @@ const assigneeTagWidth = 7
 // assigneeBadge is the row's "@tag" cell for a durably assigned task, or ""
 // when nobody holds it. The tag is user-supplied, so it goes through
 // chrome.Truncate rather than a byte slice (docs/UI_INSTRUCTIONS.md rule 3).
-func assigneeBadge(assignee string) string {
+// liveAgent is the agent currently present on the row (from m.work), or "":
+// when the assignee is the same agent that is present, the presence unit
+// already names them, so the "@tag" is suppressed to avoid printing the name
+// twice (backlog: "hermes @hermes"). The stale-assignment tier still renders
+// the tag whenever the assignee is NOT live (docs/DESIGN.md §12).
+func assigneeBadge(assignee, liveAgent string) string {
 	if assignee == "" {
+		return ""
+	}
+	if assignee == liveAgent {
 		return ""
 	}
 	return "@" + chrome.Truncate(assignee, assigneeTagWidth)
@@ -888,10 +901,10 @@ func barFgFor(status apptypes.Status, isSelected bool) color.Color {
 	return statusFg(status)
 }
 
-// spinnerFg is the agent-spinner color rule: accent on the selected row,
+// agentPresenceFg is the agent-spinner color rule: accent on the selected row,
 // TextDim otherwise — the same selected-row rule as the bar column, so a
 // claimed selected row reads accent all the way across.
-func spinnerFg(isSelected bool) color.Color {
+func agentPresenceFg(isSelected bool) color.Color {
 	if isSelected {
 		return appstyles.Active.Accent
 	}
@@ -971,15 +984,15 @@ func padRightGlyph(glyph string) string {
 // Drop order under narrowness: the status+icon block first, then the
 // assignee badge, then the priority badge, then the agent-spinner unit,
 // then progress, all whole (docs/DESIGN.md §12).
-func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, agentSpinner, assignee, priority string,
-	checkboxWidth, contentWidth int, statusColor, spinnerColor, assigneeColor, priorityColor color.Color) string {
+func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, agentPresence, assignee, priority string,
+	checkboxWidth, contentWidth int, statusColor, agentPresenceColor, assigneeColor, priorityColor color.Color) string {
 	prefixWidth := checkboxWidth + 1
 	tableWidth := contentWidth - prefixWidth
 	if tableWidth < 1 {
 		tableWidth = 1
 	}
 
-	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, agentSpinner, assignee, priority)
+	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, agentPresence, assignee, priority)
 
 	checkboxCell := lipgloss.NewStyle().Width(cols.checkbox).Render(checkbox)
 
@@ -1005,7 +1018,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 	}
 	titleCell := lipgloss.NewStyle().Width(cols.title).Render(titleText)
 
-	var progressCell, agentSpinnerCell, statusCell, detailsCell string
+	var progressCell, agentPresenceCell, statusCell, detailsCell string
 	var assigneeCell, priorityCell string
 	if cols.progress > 0 && progress != "" {
 		progressCell = lipgloss.NewStyle().
@@ -1025,11 +1038,11 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 			Width(cols.assignee).
 			Render(chrome.Truncate(assignee, max(1, cols.assignee-1)))
 	}
-	if cols.agentSpinner > 0 && agentSpinner != "" {
-		agentSpinnerCell = lipgloss.NewStyle().
-			Foreground(spinnerColor).
-			Width(cols.agentSpinner).
-			Render(chrome.Truncate(agentSpinner, max(1, cols.agentSpinner-1)))
+	if cols.agentPresence > 0 && agentPresence != "" {
+		agentPresenceCell = lipgloss.NewStyle().
+			Foreground(agentPresenceColor).
+			Width(cols.agentPresence).
+			Render(chrome.Truncate(agentPresence, max(1, cols.agentPresence-1)))
 	}
 	if cols.status > 0 && status != "" {
 		// Fixed-width status column: the label is right-aligned so PENDING /
@@ -1050,7 +1063,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 			Render(detailsGlyph)
 	}
 
-	parts := []string{checkboxCell, " ", titleCell, progressCell, agentSpinnerCell, assigneeCell, priorityCell, statusCell, detailsCell}
+	parts := []string{checkboxCell, " ", titleCell, progressCell, agentPresenceCell, assigneeCell, priorityCell, statusCell, detailsCell}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 

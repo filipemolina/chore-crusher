@@ -141,6 +141,20 @@ exists, derivation resumes. Do not special-case "zero children" by silently
 rewriting `progress_kind` to `simple` — that would lose the user's stated
 intent the next time they check the details screen.
 
+**A task that gains its first subtask is auto-switched to `subtasks` mode.**
+When any add path (CLI `add --parent`, the TUI's inline create) inserts a
+task under a parent whose `progress_kind` is still `none` — the create-time
+default, which is the absence of a choice rather than a choice — the store
+switches the parent to `subtasks` mode through the same `SetProgress` write
+path a user setting progress by hand uses. Because setting progress starts a
+task (§3), a pending parent becomes `in_progress` as a side effect: a parent
+that has subtasks is a parent that has started, and the derived percentage is
+what "auto percentage on parent tasks" means. An explicit kind (`simple`,
+`subtasks`, `percentage`) is never overridden by this rule, and a complete
+parent is never touched — it can hold no progress. Both add paths share the
+switch, so the CLI and the TUI cannot diverge on whether a new subtask starts
+its parent.
+
 **Auto-completion is asymmetric between the two derived-vs-declared kinds,
 and this is deliberate:**
 
@@ -179,7 +193,7 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (a spinner in the TUI), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat; they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the agent front end also calls `store.ReleaseAgentClaims` when the agent's session ends (process exit), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected.
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (the agent's name rendered in the task row, not a spinner animation), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. When the present agent is also the durable assignee, the row de-dupes the two so the name is not printed twice: the presence unit already names the agent, so the `@tag` assignee badge is suppressed (backlog: "hermes @hermes" must not render the name twice). Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat; they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the agent front end also calls `store.ReleaseAgentClaims` when the agent's session ends (process exit), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected.
 
 **Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) has no TTL and no background sweeper — it changes only when someone explicitly assigns, unassigns or completes the task (§9 `assign_task` / `next_task`), **or when the session holding it ends**. It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. **An assignment lives for the session that made it.** An MCP session's identity is unique to its process unless `FAROL_AGENT` pins it (§9), so a tag that will never return must not hold work forever: on shutdown the server releases its own claims and its own assignments, and removes the Inbox it auto-created if that Inbox is empty. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget.
 
@@ -732,7 +746,7 @@ the selected task gone (deleted from elsewhere) moves the cursor to the
 nearest surviving row — when the ground moves, keep the user on the closest
 thing to where they were, never dump the cursor to a fixed position.
 
-**Agent activity claims are read by the same poll.** Each `RefreshLists` and `RefreshTasks` call also runs `store.ListWork()` to fetch the current set of live agent claims (entities claimed within the `WorkTTL` window). The returned `[]AgentActivity` travels with the refresh messages so the task tree and lists panel can render a spinner on claimed rows. `RefreshLists` additionally computes the set of lists with any live task claim (`ClaimedTaskListIDs`) and carries it on the message, so the lists panel shows a spinner on a list row when an agent is working inside it — not only when the list itself is claimed. The same 1s poll tick governs both data and claims — no separate IPC or interval is needed.
+**Agent activity claims are read by the same poll.** Each `RefreshLists` and `RefreshTasks` call also runs `store.ListWork()` to fetch the current set of live agent claims (entities claimed within the `WorkTTL` window). The returned `[]AgentActivity` travels with the refresh messages so the task tree and lists panel can render the agent's name on claimed rows (no spinner animation). `RefreshLists` additionally computes the set of lists with any live task claim (`ClaimedTaskListIDs`) and carries it on the message, so the lists panel shows the agent's name on a list row when an agent is working inside it — not only when the list itself is claimed. The same 1s poll tick governs both data and claims — no separate IPC or interval is needed.
 
 **The very first load is animated, later polls are not.** `GetInitialModel`
 does no database work: it constructs the components and returns immediately with

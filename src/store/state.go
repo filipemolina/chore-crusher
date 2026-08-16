@@ -74,13 +74,35 @@ func (s *Store) Toggle(taskID string) error {
 // SetProgress sets a task's progress kind (and, for percentage, its percent),
 // starting the task as a side effect: setting any progress implies it has
 // started, so a pending task becomes in_progress (docs/DESIGN.md §3).
+func (s *Store) SetProgress(taskID string, kind ProgressKind, percent *int) error {
+	now := time.Now().Unix()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := setProgressTx(tx, taskID, kind, percent, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// setProgressTx writes a task's progress kind (and, for percentage, its
+// percent) inside an already-open transaction, starting the task as a side
+// effect: setting any progress implies it has started, so a pending task
+// becomes in_progress (docs/DESIGN.md §3). It is the single progress write
+// path — SetProgress opens a transaction and calls it, and CreateTask's
+// auto-switch to subtasks mode (backlog "Auto percentage on parent tasks")
+// calls it with the create transaction, so the auto-switch cannot drift from
+// what a user setting progress by hand gets.
 //
 // Validation happens here, the one place all writers pass through:
 // percent must be 0..100 and non-nil when kind is percentage, and must be nil
 // for every other kind — passing a percent alongside simple/subtasks/none is
 // a caller bug, rejected rather than silently ignored. Setting progress on an
 // already-complete task is a domain error, not a silent reopen.
-func (s *Store) SetProgress(taskID string, kind ProgressKind, percent *int) error {
+func setProgressTx(tx *sql.Tx, taskID string, kind ProgressKind, percent *int, now int64) error {
 	switch kind {
 	case ProgressPercentage:
 		if percent == nil {
@@ -97,22 +119,18 @@ func (s *Store) SetProgress(taskID string, kind ProgressKind, percent *int) erro
 		return fmt.Errorf("task %q: unknown progress kind %q", taskID, kind)
 	}
 
-	now := time.Now().Unix()
-	tx, err := s.db.Begin()
-	if err != nil {
+	// Only the status column is needed here, not the full task row — so the
+	// write path also works against a schema that predates the columns
+	// taskColumns reads (the migration tests create tasks at old migrations,
+	// where the auto-switch in CreateTask fires on the pre-upgrade schema).
+	var status Status
+	if err := tx.QueryRow(`SELECT status FROM Task WHERE id = ?`, taskID).Scan(&status); err != nil {
 		return err
 	}
-	defer tx.Rollback()
-
-	t, err := getTask(tx, taskID)
-	if err != nil {
-		return err
-	}
-	if t.Status == StatusComplete {
+	if status == StatusComplete {
 		return fmt.Errorf("task %q is complete; reopen it before setting progress", taskID)
 	}
 
-	status := t.Status
 	if status == StatusPending {
 		status = StatusInProgress
 	}
@@ -125,10 +143,30 @@ func (s *Store) SetProgress(taskID string, kind ProgressKind, percent *int) erro
 	// A kind change can make a subtasks-mode ancestor's derived condition
 	// hold; the walk only ever promotes on the verified fact that every
 	// direct child is complete, so it is safe to run unconditionally.
-	if err := recomputeAncestors(tx, taskID, now); err != nil {
+	return recomputeAncestors(tx, taskID, now)
+}
+
+// autoSwitchParentToSubtasks implements the "Auto percentage on parent tasks"
+// rule (backlog #7): when a task gains a subtask and its parent's progress
+// kind is still unset ('none' — the create default, never an explicit choice),
+// the parent switches to subtasks mode so its percentage derives from its
+// children. Routing through setProgressTx is what starts the parent (a pending
+// parent becomes in_progress; docs/DESIGN.md §3) and keeps progress writes on
+// the single shared path. An explicit kind (simple, subtasks, percentage) is
+// never overridden, and a complete parent is never touched — it can hold no
+// progress, and adding a child under one is a separate, unrelated edge.
+func autoSwitchParentToSubtasks(tx *sql.Tx, parentID string, now int64) error {
+	var kind ProgressKind
+	var status Status
+	if err := tx.QueryRow(
+		`SELECT progress_kind, status FROM Task WHERE id = ?`, parentID,
+	).Scan(&kind, &status); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if kind == ProgressNone && status != StatusComplete {
+		return setProgressTx(tx, parentID, ProgressSubtasks, nil, now)
+	}
+	return nil
 }
 
 // DerivedProgress is the read-side counterpart to the state machine: for a

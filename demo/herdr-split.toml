@@ -1,0 +1,12 @@
+# herdr config used ONLY while recording demo/landing-split.tape.
+# The sidebar is herdr's own chrome; it must not appear in a frame that is
+# supposed to look like one terminal split in two. "hidden" is zero width --
+# the default "compact" still leaves a narrow status rail in shot.
+# Applied via HERDR_CONFIG_PATH so it never touches the user's real config
+# and survives seed.sh, which wipes /tmp/farol-demo/config on every run.
+# The tab row is the same problem one row up: the recording session has a
+# single tab, so hiding it removes herdr's last visible chrome from the frame.
+[ui]
+sidebar_start_collapsed = true
+sidebar_collapsed_mode = "hidden"
+hide_tab_bar_when_single_tab = true

@@ -16,6 +16,9 @@ func TestTaskTreeAndCascade(t *testing.T) {
 	t.Setenv("FAROL_AGENT", "pi")
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
 	parent := strings.TrimSpace(mustCLI(t, data, "add", lid, "Buy paint"))
+	// Set parent to percentage mode to prevent our auto-switch to subtasks when adding a child.
+	// This way the test can verify the original behavior.
+	mustCLI(t, data, "progress", parent, "--mode", "percentage", "--percent", "0")
 	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "Choose color", "--parent", parent))
 
 	// Tree: parent under Pending, child nested one level (docs/DESIGN.md §12
@@ -24,7 +27,7 @@ func TestTaskTreeAndCascade(t *testing.T) {
 	if !strings.Contains(out, "Pending (2)") {
 		t.Errorf("tasks: %q, want a Pending (2) header", out)
 	}
-	if !strings.Contains(out, "▾ [ ] Buy paint") || !strings.Contains(out, "  [ ] Choose color") {
+	if !strings.Contains(out, "▾ [~] Buy paint (0%)") || !strings.Contains(out, "  [ ] Choose color") {
 		t.Errorf("tasks: %q, want parent with a nested child row", out)
 	}
 

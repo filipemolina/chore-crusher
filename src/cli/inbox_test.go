@@ -56,11 +56,14 @@ func TestInboxPendingPerTaskFilter(t *testing.T) {
 
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 	parent := strings.TrimSpace(mustCLI(t, data, "add", lid, "parent"))
+	// Set parent to percentage mode to prevent our auto-switch to subtasks when adding a child.
+	// This way the test can verify the original behavior: completing a child does not affect the parent's pending status.
+	mustCLI(t, data, "progress", parent, "--mode", "percentage", "--percent", "0")
 	child := strings.TrimSpace(mustCLI(t, data, "add", lid, "child", "--parent", parent))
 	done := strings.TrimSpace(mustCLI(t, data, "add", lid, "done"))
 
 	// Complete only the child (cascades to its own descendants, none) and the
-	// standalone "done" task. parent stays pending, so the inbox should keep
+	// standalone "done" task. parent stays pending (because it's in percentage mode, not subtasks), so the inbox should keep
 	// parent and drop both complete tasks.
 	mustCLI(t, data, child)
 	mustCLI(t, data, done)

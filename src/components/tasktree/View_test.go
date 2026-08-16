@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/farol/src/appstyles"
 	"github.com/filipemolina/farol/src/apptypes"
-	"github.com/filipemolina/farol/src/components/chrome"
 )
 
 // testBg is a concrete background the row renderer seals itself against so a
@@ -112,13 +111,13 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 	}}
 	m.rows = []apptypes.Row{row}
 	m.selectedID = "1"
-	// The sweep row is claimed: the spinner+agent unit is part of the budget
-	// this overflow sweep must exercise.
+	// The sweep row is claimed: the agent-presence unit (the agent name) is
+	// part of the budget this overflow sweep must exercise.
 	m.work = map[string]apptypes.AgentActivity{
 		"1": {EntityType: "task", EntityID: "1", AgentID: "claude", Kind: "working"},
 	}
 	m.animFrame = 2
-	spinnerUnit := chrome.Spinner(2) + " claude"
+	spinnerUnit := "claude"
 
 	for width := 20; width <= 200; width += 10 {
 		rendered := m.renderRow(row, width, testBg, nil)
@@ -155,17 +154,17 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 		// vertical padding is gone.
 		//
 		// The threshold is 50 rather than 40 because this sweep row is
-		// claimed: its spinner unit costs nine columns, and with the
-		// percentage and the gutter on top, a 40-column card would leave the
-		// title under titleFloor — so the label sheds by design (§12). An
-		// unclaimed row still keeps its label at 40.
+		// claimed: its agent-presence unit is part of the budget this overflow
+		// sweep must exercise, and 50 leaves comfortable room for the title
+		// floor while the label is right-aligned (§12). An unclaimed row still
+		// keeps its label at 40.
 		if width >= 50 && !strings.HasSuffix(strings.TrimRight(stripped, " "), "IN PROGRESS") {
 			t.Fatalf("width %d: expected right-aligned IN PROGRESS suffix in: %q", width, stripped)
 		}
-		// A claimed row shows the full spinner+agent unit un-clipped when there
+		// A claimed row shows the full agent-presence unit un-clipped when there
 		// is room — never a fragment.
 		if width >= 120 && !strings.Contains(stripped, spinnerUnit) {
-			t.Fatalf("width %d: expected claimed spinner unit %q in: %q", width, spinnerUnit, stripped)
+			t.Fatalf("width %d: expected claimed agent-presence unit %q in: %q", width, spinnerUnit, stripped)
 		}
 	}
 }
@@ -377,22 +376,21 @@ func TestBarFgRule(t *testing.T) {
 	}
 }
 
-// TestSpinnerFgRule pins the spinner color rule: Accent on the selected row,
-// TextDim otherwise.
-func TestSpinnerFgRule(t *testing.T) {
-	if got := spinnerFg(true); got != appstyles.Active.Accent {
-		t.Errorf("selected spinner fg = %v, want Accent", got)
+// TestAgentPresenceFgRule pins the agent-presence color rule: Accent on the
+// selected row, TextDim otherwise.
+func TestAgentPresenceFgRule(t *testing.T) {
+	if got := agentPresenceFg(true); got != appstyles.Active.Accent {
+		t.Errorf("selected agent-presence fg = %v, want Accent", got)
 	}
-	if got := spinnerFg(false); got != appstyles.Active.TextDim {
-		t.Errorf("unselected spinner fg = %v, want TextDim", got)
+	if got := agentPresenceFg(false); got != appstyles.Active.TextDim {
+		t.Errorf("unselected agent-presence fg = %v, want TextDim", got)
 	}
 }
 
-// TestRenderRowShowsSpinnerWhenClaimed pins the agent-presence render: a row
-// whose task is in m.work appends the animated spinner glyph for m.animFrame
-// plus the short agent id after the status label, and an unclaimed row
-// renders no spinner.
-func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
+// TestRenderRowShowsPresenceWhenClaimed pins the agent-presence render: a row
+// whose task is in m.work shows the agent name after the status label, and an
+// unclaimed row renders no agent-presence.
+func TestRenderRowShowsPresenceWhenClaimed(t *testing.T) {
 	m := &Model{
 		rows: []apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "claimed", Status: apptypes.StatusPending}}},
 		work: map[string]apptypes.AgentActivity{
@@ -402,8 +400,8 @@ func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 	}
 
 	claimed := ansi.Strip(m.renderRow(m.rows[0], 80, testBg, nil))
-	if !strings.Contains(claimed, chrome.Spinner(3)+" claude") {
-		t.Errorf("claimed row must render spinner %q + agent id, got: %q", chrome.Spinner(3), claimed)
+	if !strings.Contains(claimed, "claude") {
+		t.Errorf("claimed row must render the agent name, got: %q", claimed)
 	}
 	if !strings.Contains(claimed, "PENDING") {
 		t.Errorf("claimed row must keep its status label, got: %q", claimed)
@@ -411,27 +409,27 @@ func TestRenderRowShowsSpinnerWhenClaimed(t *testing.T) {
 
 	m.work = map[string]apptypes.AgentActivity{}
 	free := ansi.Strip(m.renderRow(m.rows[0], 80, testBg, nil))
-	if strings.Contains(free, chrome.Spinner(3)) {
-		t.Errorf("unclaimed row must render no spinner, got: %q", free)
+	if strings.Contains(free, "claude") {
+		t.Errorf("unclaimed row must render no agent-presence, got: %q", free)
 	}
 }
 
-// TestSpinnerUnitShedsAfterStatus pins the drop order with a claimed row: each
-// unit is atomic (full width or zero, never a fragment), the status+icon block
-// sheds first, then the agent-spinner unit, and the percentage last.
+// TestAgentPresenceUnitShedsAfterStatus pins the drop order with a claimed row:
+// each unit is atomic (full width or zero, never a fragment), the status+icon
+// block sheds first, then the agent-presence unit, and the percentage last.
 //
 // An earlier design ordered these the other way round (progress, then
-// spinner, then status), when the only constraint was overflow. The title
-// floor reverses it: the label is the cheapest thing to lose and the
-// percentage the dearest. The spinner's position relative to status and
-// progress is unchanged — it is still the middle one — so that design's
-// actual point, that the spinner unit is atomic and never clipped, still
-// holds here.
-func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
+// agent-presence, then status), when the only constraint was overflow. The
+// title floor reverses it: the label is the cheapest thing to lose and the
+// percentage the dearest. The agent-presence unit's position relative to
+// status and progress is unchanged — it is still the middle one — so that
+// design's actual point, that the agent-presence unit is atomic and never
+// clipped, still holds here.
+func TestAgentPresenceUnitShedsAfterStatus(t *testing.T) {
 	const checkbox = 1
 	status := "IN PROGRESS" // any label -> fixed status column, statusColWidth+1
 	progress := "42%"       // 3 runes -> progress column = 4 (label + gap)
-	agent := chrome.Spinner(1) + " claude"
+	agent := "claude"
 
 	statusFull := statusColWidth + 1
 	detailsFull := detailsColWidth + 1
@@ -444,8 +442,8 @@ func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
 		if cols.progress != 0 && cols.progress != progressFull {
 			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
 		}
-		if cols.agentSpinner != 0 && cols.agentSpinner != agentFull {
-			t.Fatalf("width %d: agent-spinner = %d, want 0 or %d", width, cols.agentSpinner, agentFull)
+		if cols.agentPresence != 0 && cols.agentPresence != agentFull {
+			t.Fatalf("width %d: agent-spinner = %d, want 0 or %d", width, cols.agentPresence, agentFull)
 		}
 		if cols.status != 0 && cols.status != statusFull {
 			t.Fatalf("width %d: status = %d, want 0 or %d", width, cols.status, statusFull)
@@ -457,15 +455,15 @@ func TestSpinnerUnitShedsAfterStatus(t *testing.T) {
 		// progress. A unit kept while an earlier one is shed is the wrong order —
 		// status must not outlive the agent-spinner, nor the agent-spinner the
 		// percentage.
-		if cols.status != 0 && cols.agentSpinner == 0 {
+		if cols.status != 0 && cols.agentPresence == 0 {
 			t.Fatalf("width %d: status kept but agent-spinner shed (wrong drop order)", width)
 		}
-		if cols.agentSpinner != 0 && cols.progress == 0 {
+		if cols.agentPresence != 0 && cols.progress == 0 {
 			t.Fatalf("width %d: agent-spinner kept but progress shed (wrong drop order)", width)
 		}
-		if cols.title+cols.progress+cols.agentSpinner+cols.status+cols.details > width {
+		if cols.title+cols.progress+cols.agentPresence+cols.status+cols.details > width {
 			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
-				cols.title+cols.progress+cols.agentSpinner+cols.status+cols.details, width)
+				cols.title+cols.progress+cols.agentPresence+cols.status+cols.details, width)
 		}
 	}
 }

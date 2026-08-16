@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Renders an agent-style transcript on the left pane -- what a coding agent
+# doing work through the farol CLI looks like from the operator's seat --
+# while actually mutating the same store the right pane is reading from, so
+# the two panes stay in sync in a single frame.
+#
+# The left pane operates on "Wire the OAuth callback" (from the seed).
+# The right pane shows that same task claimed by claude with a note attached.
+clear
+
+export XDG_DATA_HOME=/tmp/farol-demo/data
+export XDG_CONFIG_HOME=/tmp/farol-demo/config
+BIN=/tmp/farol-demo/farol
+
+export FAROL_AGENT=claude
+
+# Resolve the IDs we need without showing any of it on screen.
+LIST_ID=$("$BIN" lists | awk '$2 == "api" {print $1; exit}')
+SHIP_AUTH_ID=$("$BIN" search "Ship auth v2" | awk 'NR>1 {print $1; exit}')
+"$BIN" assign "$SHIP_AUTH_ID" >/dev/null 2>&1
+WIRE_ID=$("$BIN" search "Wire the OAuth callback" | awk 'NR>1 {print $1; exit}')
+
+# Palette -- picked to match the tape's Farol theme.
+AMBER=$'\e[38;2;240;178;99m'
+CREAM=$'\e[38;2;245;237;228m'
+MUTED=$'\e[38;2;138;148;168m'
+DIM=$'\e[38;2;120;130;150m'
+GREEN=$'\e[38;2;103;197;138m'
+BOLD=$'\e[1m'
+RESET=$'\e[0m'
+
+bullet() { printf '%s● %s%s%s\n'   "$AMBER" "$CREAM" "$1" "$RESET"; }
+tool()   { printf '  %sBash%s(%s)\n' "$DIM" "$RESET" "$1"; }
+result() { printf '  %s└ %s%s\n\n'   "$MUTED" "$1" "$RESET"; }
+say()    { printf '  %s%s%s\n\n'     "$CREAM" "$1" "$RESET"; }
+
+printf '%s> %sPick up the next api task and log your progress.%s\n\n' \
+  "$MUTED" "$CREAM" "$RESET"
+
+bullet "Checking what's next on the api list."
+tool "farol next api --json"
+"$BIN" next "$LIST_ID" --json >/dev/null
+result "Wire the OAuth callback  ${DIM}(pending, no assignee)${RESET}"
+
+bullet "Claiming it and skimming the notes."
+say "Callback needs to verify the state param before exchanging the code -- I'll run the staging check first."
+
+bullet "Staging check passes. Recording progress at 45%."
+tool "farol progress <wire-oauth-callback> --percent 45"
+"$BIN" progress "$WIRE_ID" --mode percentage --percent 45 >/dev/null
+result "in_progress · 45%"
+
+bullet "Leaving a note so the reviewer knows what I verified."
+tool 'farol comment <wire-oauth-callback> "callback verified against staging"'
+"$BIN" comment "$WIRE_ID" "callback verified against staging" >/dev/null
+result "comment posted"
+
+printf '%s● %sHanded back -- Farol on the right reflects the same store.%s\n' \
+  "$AMBER" "$CREAM" "$RESET"
+
+herdr pane focus --direction right >/dev/null 2>&1
+sleep 600

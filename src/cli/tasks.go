@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"strconv"
 	"strings"
 	"time"
 
@@ -248,6 +249,22 @@ func taskCommands() []*cobra.Command {
 	}
 	unassignCmd.Flags().String("list", "", "release the assignment on every task in this list (prefix accepted)")
 
+	diffCmd := &cobra.Command{
+		Use:   "diff <list-id> [--since <unix-seconds>]",
+		Short: "get tasks added or changed since a timestamp",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) < 1 {
+				return fmt.Errorf("requires a list id")
+			}
+			if len(args) > 2 {
+				return fmt.Errorf("too many arguments")
+			}
+			return nil
+		},
+		RunE: runDiff,
+	}
+	diffCmd.Flags().Int64("since", 0, "unix seconds; return only tasks whose activity changed strictly after this")
+
 	priorityCmd := &cobra.Command{
 		Use:   "priority <task-id>",
 		Short: "set a task's priority: none, low, medium, or high",
@@ -266,7 +283,7 @@ func taskCommands() []*cobra.Command {
 
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
 		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd,
-		assignCmd, unassignCmd, priorityCmd, nextCmd}
+		assignCmd, unassignCmd, priorityCmd, nextCmd, diffCmd}
 }
 
 // runNext grabs the top eligible task in a list and shows it — the CLI
@@ -332,6 +349,63 @@ func runNext(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}, v.payload)
+		return nil
+	})
+}
+
+func runDiff(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	sinceFlag, _ := cmd.Flags().GetInt64("since")
+	return runStore(cmd, func(s *store.Store) error {
+		// Determine the timestamp: if a second positional argument is provided, use it; otherwise, use the flag.
+		var since int64
+		if len(args) == 2 {
+			t, err := strconv.ParseInt(args[1], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid timestamp %q: %w", args[1], err)
+			}
+			since = t
+		} else {
+			since = sinceFlag
+		}
+		// Resolve the list ID
+		listID, err := s.ResolveID("list", args[0])
+		if err != nil {
+			return err
+		}
+		// Get the tasks that have been added or changed since the timestamp
+		tasks, err := s.TasksAddedOrChangedSince(listID, since)
+		if err != nil {
+			return err
+		}
+		// Convert to apptypes.Rows and flatten for tree rendering
+		rows := apptypes.FromStoreTasks(tasks)
+		flattened := apptypes.Flatten(rows)
+		views, err := viewsOf(s, flattened)
+		if err != nil {
+			return err
+		}
+		// Build the payload for JSON mode: an array of showJSON. It is
+		// initialized empty (not nil) so "no changes" marshals to [] rather
+		// than null, matching every other read command (docs/DESIGN.md §9).
+		payload := []showJSON{}
+		for _, t := range tasks {
+			v, err := buildShowJSON(s, t.ID)
+			if err != nil {
+				return err
+			}
+			payload = append(payload, v.payload)
+		}
+		// Human mode: print the tree (without section headers)
+		printResult(jsonMode, func() {
+			if len(views) == 0 {
+				return // print nothing in human mode
+			}
+			for _, v := range views {
+				renderRow(v)
+			}
+		}, payload)
 		return nil
 	})
 }

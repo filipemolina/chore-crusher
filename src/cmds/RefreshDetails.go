@@ -20,11 +20,12 @@ type RefreshDetailsMsg struct {
 	DerivedPct      int
 	DisplayAsSimple bool
 	Comments        []apptypes.Comment
+	Attachments     []apptypes.Attachment
 	Err             error
 }
 
-// RefreshDetails reads one task's details, derived progress, and comment
-// thread. It never writes, and it converts the store rows with apptypes
+// RefreshDetails reads one task's details, derived progress, comment thread,
+// and attachments. It never writes, and it converts the store rows with apptypes
 // functions so no store row type crosses into a component (the same apptypes
 // boundary the other refresh commands keep, docs/DESIGN.md §10).
 func RefreshDetails(s *store.Store, taskID string) tea.Cmd {
@@ -41,12 +42,17 @@ func RefreshDetails(s *store.Store, taskID string) tea.Cmd {
 		if err != nil {
 			return RefreshDetailsMsg{TaskID: taskID, Err: err}
 		}
+		attachments, err := s.ListAttachments(taskID)
+		if err != nil {
+			return RefreshDetailsMsg{TaskID: taskID, Err: err}
+		}
 		return RefreshDetailsMsg{
 			TaskID:          taskID,
 			Task:            apptypes.FromStore(t),
 			DerivedPct:      derivedPct,
 			DisplayAsSimple: displayAsSimple,
 			Comments:        apptypes.FromStoreComments(comments),
+			Attachments:     apptypes.FromStoreAttachments(attachments),
 		}
 	}
 }

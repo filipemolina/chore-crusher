@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/components/aboutmodal"
 	"github.com/filipemolina/farol/src/components/confirmmodal"
 	"github.com/filipemolina/farol/src/components/helpoverlay"
 	"github.com/filipemolina/farol/src/components/importexportmodal"
@@ -149,6 +150,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Global.Theme):
 			if !keyboardOwned() {
 				finalCmds = append(finalCmds, cmds.OpenThemePicker())
+			}
+
+		case key.Matches(msg, keys.Global.About):
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, cmds.OpenAboutModal())
 			}
 
 		// / enters a local filter: the task tree's fuzzy filter when the tree
@@ -427,6 +433,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cmds.OpenThemePickerMsg:
 		m.activeModal = themepickermodal.New(m.terminalHeight)
 
+	case cmds.OpenAboutModalMsg:
+		m.activeModal = aboutmodal.New(m.terminalWidth)
+
 	case cmds.OpenSearchPickerMsg:
 		m.activeModal = searchpicker.New(m.store, m.terminalHeight)
 
@@ -560,6 +569,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			body := fmt.Sprintf("Delete this comment? This cannot be undone.\n\n%q", msg.Note)
 			m.activeModal = confirmmodal.New("Delete comment", body, func() tea.Msg {
 				if err := m.store.DeleteComment(commentID); err != nil {
+					return nil
+				}
+				return cmds.RefreshDetails(m.store, taskID)()
+			})
+		}
+
+	case cmds.DeleteAttachmentMsg:
+		// The Details modal's d binding emitted this (handleAttachmentsKey owns
+		// it); route it through the same confirm modal pattern as task and
+		// comment delete. The dialog quotes the attachment's path — the same
+		// "name what you're about to destroy" pattern — so d never wipes the
+		// wrong attachment.
+		if msg.AttachmentID != "" {
+			attachmentID, taskID := msg.AttachmentID, msg.TaskID
+			body := fmt.Sprintf("Delete this attachment? This cannot be undone.\n\n%q", msg.Path)
+			m.activeModal = confirmmodal.New("Delete attachment", body, func() tea.Msg {
+				if err := m.store.DeleteAttachment(attachmentID); err != nil {
 					return nil
 				}
 				return cmds.RefreshDetails(m.store, taskID)()

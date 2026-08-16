@@ -50,6 +50,10 @@ const (
 	// inline compose card. Unlike the other zones it is always in the cycle even
 	// while the thread is empty — c adds the first comment from here.
 	focusComments
+	// focusAttachments is the attachment list: files are selectable and ↑/↓
+	// move the highlight, d deletes the highlighted attachment, and a opens
+	// the inline attach input.
+	focusAttachments
 	// focusCount is the number of tab-cycle zones; cycleFocus wraps modulo it.
 	focusCount
 )
@@ -145,6 +149,12 @@ type Model struct {
 	// composing reports whether the inline new-comment card is open. While it is,
 	// the compose input owns the keyboard: enter posts, esc cancels.
 	composing bool
+
+	// attachments is the task's file attachments, loaded from RefreshDetails.
+	attachments []apptypes.Attachment
+	// selectedAttachment is the index of the highlighted attachment while the
+	// attachments zone is focused.
+	selectedAttachment int
 
 	focus             int
 	errMsg            string
@@ -305,6 +315,10 @@ func (m *Model) hydrate(msg cmds.RefreshDetailsMsg, resetFocus bool) {
 	if !m.composing {
 		m.commentInput.SetValue("")
 	}
+
+	// Replace the attachments from the refresh.
+	m.attachments = msg.Attachments
+	m.clampSelectedAttachment()
 	if m.notes.Value() != msg.Task.Notes {
 		m.notes.SetValue(msg.Task.Notes)
 		// SetValue leaves the cursor at the END of the buffer. The textarea
@@ -413,6 +427,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handlePriorityKey(msg)
 	case focusComments:
 		return m.handleCommentsKey(msg)
+	case focusAttachments:
+		return m.handleAttachmentsKey(msg)
 	case focusNotes:
 		var cmd tea.Cmd
 		m.notes, cmd = m.notes.Update(msg)
@@ -508,6 +524,29 @@ func (m *Model) handleCommentsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleAttachmentsKey moves the attachment highlight and deletes attachments.
+// ↑/↓ (and k/j) move within the list; d deletes the highlighted attachment
+// (routed through the confirm modal, like every other destructive action).
+func (m *Model) handleAttachmentsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.selectedAttachment > 0 {
+			m.selectedAttachment--
+		}
+	case "down", "j":
+		if m.selectedAttachment < len(m.attachments)-1 {
+			m.selectedAttachment++
+		}
+	case "d", "D":
+		if len(m.attachments) == 0 {
+			return m, nil
+		}
+		a := m.attachments[m.selectedAttachment]
+		return m, cmds.DeleteAttachment(m.taskID, a.ID, a.Path)
+	}
+	return m, nil
+}
+
 // startComposing opens the inline compose card and focuses its input. It is
 // reachable only from the comments zone (c), so it never steals a keystroke
 // from the title or notes editor.
@@ -558,6 +597,15 @@ func (m *Model) clampSelectedComment() {
 	}
 	if m.selectedComment > len(m.comments)-1 {
 		m.selectedComment = max(0, len(m.comments)-1)
+	}
+}
+
+func (m *Model) clampSelectedAttachment() {
+	if m.selectedAttachment < 0 {
+		m.selectedAttachment = 0
+	}
+	if m.selectedAttachment > len(m.attachments)-1 {
+		m.selectedAttachment = max(0, len(m.attachments)-1)
 	}
 }
 

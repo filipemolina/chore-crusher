@@ -11,7 +11,6 @@ import (
 	"github.com/filipemolina/farol/src/appstyles"
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/cmds"
-	"github.com/filipemolina/farol/src/components/chrome"
 )
 
 // TestPriorityLabelRendersRankAndNothingForNone pins the badge text: the three
@@ -70,13 +69,13 @@ func TestPriorityFgIsAStatusColorLadder(t *testing.T) {
 // truncated through chrome.Truncate rather than pushing the right block across
 // the row (docs/UI_INSTRUCTIONS.md rule 3).
 func TestAssigneeBadgeRendersTagOrNothing(t *testing.T) {
-	if got := assigneeBadge(""); got != "" {
+	if got := assigneeBadge("", ""); got != "" {
 		t.Errorf("assigneeBadge(\"\") = %q, want \"\"", got)
 	}
-	if got := assigneeBadge("pi"); got != "@pi" {
+	if got := assigneeBadge("pi", ""); got != "@pi" {
 		t.Errorf("assigneeBadge(\"pi\") = %q, want \"@pi\"", got)
 	}
-	long := assigneeBadge("an-extremely-long-agent-identity")
+	long := assigneeBadge("an-extremely-long-agent-identity", "")
 	if w := lipgloss.Width(long); w > assigneeTagWidth+1 {
 		t.Errorf("assigneeBadge clipped to %d cells (%q), want at most %d", w, long, assigneeTagWidth+1)
 	}
@@ -152,11 +151,19 @@ func TestStaleAssignmentRendersDifferentlyFromLiveOne(t *testing.T) {
 	if strings.Contains(live, sgrPrefix(appstyles.Active.StatusOverdue)) {
 		t.Errorf("a live assignee badge must not draw in the warning tier, got: %q", live)
 	}
-	// Both still say who owns the task; only the tier differs.
-	for _, r := range []string{live, stale} {
-		if !strings.Contains(ansi.Strip(r), "@claude") {
-			t.Errorf("assignee badge lost: %q", ansi.Strip(r))
-		}
+	// The live row de-dupes: the assignee is the agent present on the row, so
+	// the presence unit already names it and the @tag is suppressed (backlog:
+	// "hermes @hermes" must not print the name twice). The stale row has no
+	// live claim from the assignee, so the @tag is the only thing naming the
+	// owner — and it draws in the warning tier.
+	if strings.Contains(ansi.Strip(live), "@claude") {
+		t.Errorf("live row must de-dupe the @tag when the assignee is present, got: %q", ansi.Strip(live))
+	}
+	if !strings.Contains(ansi.Strip(live), "claude") {
+		t.Errorf("live row must still name the present agent via the presence unit, got: %q", ansi.Strip(live))
+	}
+	if !strings.Contains(ansi.Strip(stale), "@claude") {
+		t.Errorf("stale row must show the @tag naming the owner, got: %q", ansi.Strip(stale))
 	}
 }
 
@@ -177,8 +184,8 @@ func TestBadgeDropOrder(t *testing.T) {
 	const checkbox = 1
 	status := "IN PROGRESS"
 	progress := "42%"
-	agent := chrome.Spinner(1) + " claude"
-	assignee := assigneeBadge("claude")
+	agent := "claude"
+	assignee := assigneeBadge("claude", "")
 	priority := priorityLabel(apptypes.PriorityHigh)
 
 	statusFull := statusColWidth + 1
@@ -203,15 +210,15 @@ func TestBadgeDropOrder(t *testing.T) {
 		if cols.details != 0 && cols.details != detailsFull {
 			t.Fatalf("width %d: details = %d, want 0 or %d", width, cols.details, detailsFull)
 		}
-		if cols.agentSpinner != 0 && cols.agentSpinner != agentFull {
-			t.Fatalf("width %d: agent-spinner = %d, want 0 or %d", width, cols.agentSpinner, agentFull)
+		if cols.agentPresence != 0 && cols.agentPresence != agentFull {
+			t.Fatalf("width %d: agent-spinner = %d, want 0 or %d", width, cols.agentPresence, agentFull)
 		}
 		if cols.progress != 0 && cols.progress != progressFull {
 			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
 		}
 
 		// Drop order, each link of the chain.
-		// New order: status+priority shed together -> assignee -> agentSpinner
+		// New order: status+priority shed together -> assignee -> agentPresence
 		// -> progress. Priority is the status label's adjacent state group, so
 		// it sheds with the status, not after the assignee.
 		if (cols.status == 0) != (cols.priority == 0) {
@@ -220,15 +227,15 @@ func TestBadgeDropOrder(t *testing.T) {
 		if cols.status != 0 && cols.assignee == 0 {
 			t.Fatalf("width %d: status kept but assignee shed", width)
 		}
-		if cols.assignee != 0 && cols.agentSpinner == 0 {
+		if cols.assignee != 0 && cols.agentPresence == 0 {
 			t.Fatalf("width %d: assignee kept but agent-spinner shed", width)
 		}
-		if cols.agentSpinner != 0 && cols.progress == 0 {
+		if cols.agentPresence != 0 && cols.progress == 0 {
 			t.Fatalf("width %d: agent-spinner kept but progress shed", width)
 		}
 
 		sum := cols.title + cols.status + cols.details + cols.progress +
-			cols.agentSpinner + cols.assignee + cols.priority
+			cols.agentPresence + cols.assignee + cols.priority
 		if sum > width {
 			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width, sum, width)
 		}
@@ -246,7 +253,7 @@ func TestRowWithBothBadgesNeverOverflows(t *testing.T) {
 	row := apptypes.Row{Task: apptypes.Task{
 		ID: "1", Title: "Water the ferns before the weekend meeting",
 		Status: apptypes.StatusInProgress, ProgressKind: apptypes.ProgressPercentage,
-		ProgressPct: intPtr(63), Assignee: "claude", Priority: apptypes.PriorityHigh,
+		ProgressPct: intPtr(63), Assignee: "pi", Priority: apptypes.PriorityHigh,
 	}}
 	m.rows = []apptypes.Row{row}
 	m.selectedID = "1"
@@ -262,7 +269,7 @@ func TestRowWithBothBadgesNeverOverflows(t *testing.T) {
 		}
 		if width >= 140 {
 			stripped := ansi.Strip(rendered)
-			for _, want := range []string{"HIGH", "@claude", "IN PROGRESS", "63%"} {
+			for _, want := range []string{"HIGH", "@pi", "claude", "IN PROGRESS", "63%"} {
 				if !strings.Contains(stripped, want) {
 					t.Fatalf("width %d: expected %q in row: %q", width, want, stripped)
 				}
@@ -282,7 +289,7 @@ func TestPrioritySitsNextToStatus(t *testing.T) {
 	row := apptypes.Row{Task: apptypes.Task{
 		ID: "1", Title: "Paint the fence",
 		Status: apptypes.StatusInProgress, ProgressKind: apptypes.ProgressPercentage,
-		ProgressPct: intPtr(63), Assignee: "hermes", Priority: apptypes.PriorityHigh,
+		ProgressPct: intPtr(63), Assignee: "pi", Priority: apptypes.PriorityHigh,
 	}}
 	m.rows = []apptypes.Row{row}
 	m.work = map[string]apptypes.AgentActivity{
@@ -294,20 +301,20 @@ func TestPrioritySitsNextToStatus(t *testing.T) {
 	stripped := ansi.Strip(m.renderRow(row, 100, testBg, nil))
 	idx := func(s string) int { return strings.Index(stripped, s) }
 	pos := map[string]int{
-		"progress": idx("63%"),
-		"spinner":  idx(chrome.Spinner(0)),
-		"assignee": idx("@hermes"),
-		"priority": idx("● HIGH"),
-		"status":   idx("IN PROGRESS"),
+		"progress":      idx("63%"),
+		"agentPresence": idx("hermes"),
+		"assignee":      idx("@pi"),
+		"priority":      idx("● HIGH"),
+		"status":        idx("IN PROGRESS"),
 	}
 	for name, i := range pos {
 		if i < 0 {
 			t.Fatalf("badge %s missing from row: %q", name, stripped)
 		}
 	}
-	if !(pos["progress"] < pos["spinner"] && pos["spinner"] < pos["assignee"] &&
+	if !(pos["progress"] < pos["agentPresence"] && pos["agentPresence"] < pos["assignee"] &&
 		pos["assignee"] < pos["priority"] && pos["priority"] < pos["status"]) {
-		t.Fatalf("right block out of order (want progress < spinner < assignee < priority < status): %q", stripped)
+		t.Fatalf("right block out of order (want progress < agentPresence < assignee < priority < status): %q", stripped)
 	}
 	// Adjacency: nothing but cell padding between the priority badge and the
 	// status label; priority is the cell immediately left of status.

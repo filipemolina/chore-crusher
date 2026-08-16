@@ -69,6 +69,17 @@ func (s *Store) CreateTask(listID, title string, parentID *string, notes string)
 		return "", err
 	}
 
+	// Auto-switch the parent to subtasks mode when it gains its first
+	// subtask — "Auto percentage on parent tasks" (backlog #7). A parent
+	// whose progress kind is unset ('none') derives its percentage from its
+	// children through the shared SetProgress write path; an explicit kind is
+	// never overridden, and a complete parent is never touched.
+	if parentID != nil {
+		if err := autoSwitchParentToSubtasks(tx, *parentID, now); err != nil {
+			return "", err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return "", err
 	}
@@ -133,6 +144,15 @@ func (s *Store) CreateTaskAfter(listID, title string, parentID *string, notes, a
 			return "", err
 		}
 
+		// Same auto-switch as CreateTask: the TUI's inline create routes
+		// through CreateTaskAfter, so the CLI and the TUI must not diverge on
+		// whether a new subtask starts its parent (docs/DESIGN.md §3).
+		if parentID != nil {
+			if err := autoSwitchParentToSubtasks(tx, *parentID, now); err != nil {
+				return "", err
+			}
+		}
+
 		if err := tx.Commit(); err != nil {
 			return "", err
 		}
@@ -181,6 +201,13 @@ func (s *Store) CreateTaskAfter(listID, title string, parentID *string, notes, a
 		id, listID, parentID, title, notes, newPosition, now, now,
 	); err != nil {
 		return "", err
+	}
+
+	// Same auto-switch as CreateTask (docs/DESIGN.md §3, backlog #7).
+	if parentID != nil {
+		if err := autoSwitchParentToSubtasks(tx, *parentID, now); err != nil {
+			return "", err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -526,6 +553,33 @@ func (s *Store) TasksChangedSince(listID string, since int64) ([]Task, error) {
 	rows, err := s.db.Query(
 		`SELECT `+taskColumns+` FROM Task WHERE list_id = ? AND updated_at > ? ORDER BY updated_at ASC`,
 		listID, since,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// TasksAddedOrChangedSince returns the tasks in listID whose created_at or
+// updated_at is strictly greater than since (unix seconds). Deletions are not
+// represented — a task removed after `since` is simply absent from the
+// result. Results are ordered by the later of created_at and updated_at
+// ascending, then by task ID to break ties.
+func (s *Store) TasksAddedOrChangedSince(listID string, since int64) ([]Task, error) {
+	rows, err := s.db.Query(
+		`SELECT `+taskColumns+` FROM Task WHERE list_id = ? AND (created_at > ? OR updated_at > ?) ORDER BY 
+		 CASE WHEN created_at > updated_at THEN created_at ELSE updated_at END, id`,
+		listID, since, since,
 	)
 	if err != nil {
 		return nil, err

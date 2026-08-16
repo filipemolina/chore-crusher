@@ -48,6 +48,8 @@ type GlobalKeys struct {
 	CopyID key.Binding
 	// Sort cycles through sort modes (manual, priority, created, updated, alpha).
 	Sort key.Binding
+	// About opens the about modal.
+	About key.Binding
 }
 
 // TaskTreeKeys act on the task tree: navigation, expand/collapse, toggling
@@ -191,6 +193,7 @@ var Global = GlobalKeys{
 	Picker:           key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "search")),
 	CopyID:           key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "copy id")),
 	Sort:             key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
+	About:            key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 }
 
 var Tree = TaskTreeKeys{
@@ -552,7 +555,7 @@ func Catalog(ctx Context) []Scope {
 			Entries: entries(
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
 				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
-				Global.Theme, Global.Filter, Global.Picker, Global.CopyID,
+				Global.Theme, Global.Filter, Global.Picker, Global.CopyID, Global.About,
 			),
 		},
 		{

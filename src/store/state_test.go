@@ -332,6 +332,12 @@ func TestDerivedProgressSubtasksPercent(t *testing.T) {
 	if err := s.Complete(d2); err != nil {
 		t.Fatalf("Complete(d2): %v", err)
 	}
+	// Now p2 is complete because it is in subtasks mode and all children are complete.
+	// To test setting progress to subtasks after children are complete, we must
+	// reopen p2 first (which sets it to pending and progress_kind to none).
+	if err := s.Reopen(p2); err != nil {
+		t.Fatalf("Reopen(p2): %v", err)
+	}
 	if err := s.SetProgress(p2, ProgressSubtasks, nil); err != nil {
 		t.Fatalf("SetProgress(p2, subtasks): %v", err)
 	}
@@ -341,6 +347,81 @@ func TestDerivedProgressSubtasksPercent(t *testing.T) {
 	}
 	if kind != ProgressSubtasks || pct != 100 {
 		t.Fatalf("DerivedProgress(p2) = %s/%d, want subtasks/100", kind, pct)
+	}
+}
+
+// TestAutoSwitchParentToSubtasks pins the "Auto percentage on parent tasks"
+// rule (backlog #7): a task that gains its first subtask switches to subtasks
+// mode and starts — a pending parent becomes in_progress with a
+// subtasks-derived percentage, the same side effect a user setting progress
+// by hand gets (docs/DESIGN.md §3). An explicit kind is never overridden, a
+// complete parent is never touched, and a later sibling leaves an
+// already-switched parent alone. Both add paths exercise it — CreateTask and
+// CreateTaskAfter — so the CLI and the TUI cannot diverge.
+func TestAutoSwitchParentToSubtasks(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "l")
+
+	// A pending parent with no kind yet: the first child auto-switches it to
+	// subtasks mode and starts it.
+	parent := mustTask(t, s, lid, "parent", nil)
+	mustTask(t, s, lid, "child", &parent)
+	if p := mustGet(t, s, parent); p.ProgressKind != ProgressSubtasks || p.Status != StatusInProgress {
+		t.Fatalf("parent after first child = kind %q status %q, want subtasks/in_progress",
+			p.ProgressKind, p.Status)
+	}
+	kind, pct, simple, err := s.DerivedProgress(parent)
+	if err != nil {
+		t.Fatalf("DerivedProgress: %v", err)
+	}
+	if kind != ProgressSubtasks || pct != 0 || simple {
+		t.Fatalf("DerivedProgress = %s/%d/simple=%v, want subtasks/0/false", kind, pct, simple)
+	}
+
+	// A second child leaves an already-switched parent alone.
+	mustTask(t, s, lid, "child 2", &parent)
+	if p := mustGet(t, s, parent); p.ProgressKind != ProgressSubtasks {
+		t.Errorf("second child changed kind to %q, want subtasks", p.ProgressKind)
+	}
+
+	// An explicit kind is never overridden by a new child.
+	explicit := mustTask(t, s, lid, "explicit", nil)
+	if err := s.SetProgress(explicit, ProgressPercentage, intptr(40)); err != nil {
+		t.Fatalf("SetProgress(explicit, percentage 40): %v", err)
+	}
+	mustTask(t, s, lid, "explicit child", &explicit)
+	if e := mustGet(t, s, explicit); e.ProgressKind != ProgressPercentage || e.Status != StatusInProgress {
+		t.Errorf("explicit-kind parent overridden to %q/%q after a child", e.ProgressKind, e.Status)
+	}
+
+	// A complete parent is never touched (it can hold no progress).
+	done := mustTask(t, s, lid, "done", nil)
+	if err := s.Complete(done); err != nil {
+		t.Fatalf("Complete(done): %v", err)
+	}
+	mustTask(t, s, lid, "done child", &done)
+	if d := mustGet(t, s, done); d.ProgressKind != ProgressNone || d.Status != StatusComplete {
+		t.Errorf("complete parent mutated to %q/%q after a child", d.ProgressKind, d.Status)
+	}
+
+	// CreateTaskAfter — the TUI's inline-create path — fires the same
+	// auto-switch, so the CLI and the TUI cannot diverge on whether a new
+	// subtask starts its parent. The append branch (afterID "") and the
+	// positioned branch (after a sibling) both route through it.
+	afterParent := mustTask(t, s, lid, "after parent", nil)
+	if _, err := s.CreateTaskAfter(lid, "after child", &afterParent, "", ""); err != nil {
+		t.Fatalf("CreateTaskAfter append: %v", err)
+	}
+	if a := mustGet(t, s, afterParent); a.ProgressKind != ProgressSubtasks || a.Status != StatusInProgress {
+		t.Errorf("CreateTaskAfter parent = kind %q status %q, want subtasks/in_progress",
+			a.ProgressKind, a.Status)
+	}
+	firstChild := mustTask(t, s, lid, "after child 2", &afterParent)
+	if _, err := s.CreateTaskAfter(lid, "after child 3", &afterParent, "", firstChild); err != nil {
+		t.Fatalf("CreateTaskAfter positioned: %v", err)
+	}
+	if a := mustGet(t, s, afterParent); a.ProgressKind != ProgressSubtasks {
+		t.Errorf("positioned CreateTaskAfter changed kind to %q, want subtasks", a.ProgressKind)
 	}
 }
 
