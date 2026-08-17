@@ -124,11 +124,13 @@ Enter
 Sleep 2000ms
 
 # --- Rest on the finished state ----------------------------------------------
+# The tape used to end with Ctrl+C + Sleep 600ms to quit the app cleanly, but
+# that flashed the exited shell prompt into the final ~0.6s of the recording,
+# which read as "the demo is over" instead of "look at the finished tree".
+# Ending inside the app leaves the last frame on the tree state; VHS tears
+# down the pty when the tape ends, and the app never gets a chance to redraw.
 Escape
-Sleep 2500ms
-
-Ctrl+C
-Sleep 600ms
+Sleep 3000ms
 
 # ---------------------------------------------------------------------------
 # COMPRESSION -- mandatory. The VHS output above is a master.
