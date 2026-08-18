@@ -3,6 +3,8 @@ package store
 import (
 	"fmt"
 	"time"
+
+	"github.com/filipemolina/farol/src/mentions"
 )
 
 // Comment mirrors one row of the TaskComment table. It is the
@@ -23,7 +25,8 @@ var ErrCommentsDisabled = fmt.Errorf("comments are disabled for this list")
 
 // AddComment appends a comment to taskID by author with the given note. It
 // validates the task exists, refuses when the task's list has
-// comments_disabled = 1, and returns the new comment's ULID. Comments are
+// comments_disabled = 1, validates that any @<ULID> mentions in the note
+// reference existing tasks, and returns the new comment's ULID. Comments are
 // insert-only: there is no update or delete path. The returned id is
 // generated before the insert so the caller can reference the row without a
 // re-query, matching CreateTask's convention.
@@ -50,6 +53,13 @@ func (s *Store) AddComment(taskID, author, note string) (string, error) {
 	}
 	if disabled == 1 {
 		return "", ErrCommentsDisabled
+	}
+
+	// Validate mentions before storing — mirror SetNotes validation.
+	for _, m := range mentions.ParseMentions(note) {
+		if _, err := s.GetTask(m.ID); err != nil {
+			return "", fmt.Errorf("mention @%s references non-existent task", m.ID)
+		}
 	}
 
 	id := NewID()

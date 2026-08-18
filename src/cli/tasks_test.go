@@ -559,6 +559,181 @@ func TestCommentRefusedOnMissingTask(t *testing.T) {
 	}
 }
 
+// TestCommentWithValidMention verifies that a comment with a valid
+// @<ULID> mention succeeds and the JSON output includes mention metadata.
+func TestCommentWithValidMention(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
+	mentioned := strings.TrimSpace(mustCLI(t, data, "add", lid, "Login validation"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	// Add comment with mention via CLI --json and verify the output.
+	var res commentResultJSON
+	mustJSONCLI(t, data, &res, "comment", tid, "See @"+mentioned+" for context", "--json")
+	if res.ID == "" {
+		t.Fatal("comment --json returned empty id")
+	}
+	if len(res.Mentions) != 1 {
+		t.Fatalf("comment --json mentions = %d, want 1: %+v", len(res.Mentions), res.Mentions)
+	}
+	m := res.Mentions[0]
+	if m.ID != mentioned {
+		t.Errorf("mention ID = %q, want %q", m.ID, mentioned)
+	}
+	if m.Title == nil || *m.Title != "Login validation" {
+		t.Errorf("mention Title = %v, want \"Login validation\"", m.Title)
+	}
+	if m.Deleted {
+		t.Errorf("mention Deleted = true, want false")
+	}
+	// "See @" = 4 chars (indices 0-3), @ at 4, ULID 26 chars (5-30), end = 31
+	if m.Start != 4 || m.End != 31 {
+		t.Errorf("mention Start/End = %d/%d, want 4/31", m.Start, m.End)
+	}
+
+	// Verify the comment appears in show --json with mentions.
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
+	if len(details.Comments) != 1 {
+		t.Fatalf("show --json comments = %d, want 1", len(details.Comments))
+	}
+	c := details.Comments[0]
+	if c.ID != res.ID || c.Note != "See @"+mentioned+" for context" {
+		t.Errorf("show comment = %+v", c)
+	}
+	if len(c.Mentions) != 1 {
+		t.Fatalf("show comment mentions = %d, want 1", len(c.Mentions))
+	}
+	if c.Mentions[0].ID != mentioned || c.Mentions[0].Title == nil || *c.Mentions[0].Title != "Login validation" {
+		t.Errorf("show comment mention = %+v", c.Mentions[0])
+	}
+
+	// Human mode should render the resolved mention.
+	out := mustCLI(t, data, "show", tid)
+	if !strings.Contains(out, "See @Login validation for context") {
+		t.Errorf("show human output missing resolved mention:\n%s", out)
+	}
+}
+
+// TestCommentWithInvalidMention verifies that a comment with an
+// invalid @<ULID> mention (non-existent task) is rejected.
+func TestCommentWithInvalidMention(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	invalidULID := "01ARZ8X5Y6Z7A8B9C0D1E2F3G4"
+	code, _, errOut := runCLI(t, data, "comment", tid, "See @"+invalidULID+" for context")
+	if code != 1 {
+		t.Fatalf("comment with invalid mention: exit %d, want 1", code)
+	}
+	if !strings.Contains(errOut, "mention @"+invalidULID+" references non-existent task") {
+		t.Errorf("stderr %q should identify the invalid mention ID", errOut)
+	}
+
+	// Verify no comment was stored.
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
+	if len(details.Comments) != 0 {
+		t.Errorf("comment stored despite invalid mention: %+v", details.Comments)
+	}
+}
+
+// TestCommentWithMultipleMentions verifies that a comment with multiple
+// valid mentions succeeds and all are included in JSON output.
+func TestCommentWithMultipleMentions(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
+	mentioned1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "First task"))
+	mentioned2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "Second task"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	note := "Related to @" + mentioned1 + " and @" + mentioned2
+	var res commentResultJSON
+	mustJSONCLI(t, data, &res, "comment", tid, note, "--json")
+	if len(res.Mentions) != 2 {
+		t.Fatalf("comment --json mentions = %d, want 2: %+v", len(res.Mentions), res.Mentions)
+	}
+	if res.Mentions[0].ID != mentioned1 || res.Mentions[1].ID != mentioned2 {
+		t.Errorf("mention IDs = %q, %q; want %q, %q", res.Mentions[0].ID, res.Mentions[1].ID, mentioned1, mentioned2)
+	}
+	if res.Mentions[0].Title == nil || *res.Mentions[0].Title != "First task" {
+		t.Errorf("first mention Title = %v, want \"First task\"", res.Mentions[0].Title)
+	}
+	if res.Mentions[1].Title == nil || *res.Mentions[1].Title != "Second task" {
+		t.Errorf("second mention Title = %v, want \"Second task\"", res.Mentions[1].Title)
+	}
+
+	// Verify in show --json.
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
+	if len(details.Comments) != 1 || len(details.Comments[0].Mentions) != 2 {
+		t.Fatalf("show comment mentions = %d, want 2", len(details.Comments[0].Mentions))
+	}
+}
+
+// TestCommentWithDeletedMention verifies that a mention to a task that is
+// deleted renders as [deleted task] in human output and has Deleted=true,
+// Title=nil in JSON. The mention must have been created BEFORE the task was
+// deleted (write-time validation prevents new mentions to deleted tasks).
+func TestCommentWithDeletedMention(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Home", "--owner", "pi"))
+	mentioned := strings.TrimSpace(mustCLI(t, data, "add", lid, "To be deleted"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "task"))
+
+	// Add comment mentioning the task BEFORE deleting it.
+	var res commentResultJSON
+	mustJSONCLI(t, data, &res, "comment", tid, "See @"+mentioned, "--json")
+	if len(res.Mentions) != 1 {
+		t.Fatalf("comment --json mentions = %d, want 1", len(res.Mentions))
+	}
+	m := res.Mentions[0]
+	if m.ID != mentioned {
+		t.Errorf("mention ID = %q, want %q", m.ID, mentioned)
+	}
+	if m.Title == nil || *m.Title != "To be deleted" {
+		t.Errorf("mention Title = %v, want \"To be deleted\"", m.Title)
+	}
+	if m.Deleted {
+		t.Errorf("mention Deleted = true, want false (task exists at write time)")
+	}
+
+	// Now delete the mentioned task.
+	mustCLI(t, data, "rm", mentioned, "--force")
+
+	// The existing comment should now render as [deleted task].
+	out := mustCLI(t, data, "show", tid)
+	if !strings.Contains(out, "See [deleted task]") {
+		t.Errorf("show human output missing [deleted task]:\n%s", out)
+	}
+
+	// JSON should show Deleted=true, Title=nil.
+	var detailsList []showJSON
+	mustJSONCLI(t, data, &detailsList, "show", tid, "--json")
+	details := detailsList[0]
+	if len(details.Comments) != 1 || len(details.Comments[0].Mentions) != 1 {
+		t.Fatalf("show comment mentions = %d, want 1", len(details.Comments[0].Mentions))
+	}
+	m2 := details.Comments[0].Mentions[0]
+	if m2.ID != mentioned {
+		t.Errorf("mention ID = %q, want %q", m2.ID, mentioned)
+	}
+	if m2.Title != nil {
+		t.Errorf("mention Title = %v, want nil", m2.Title)
+	}
+	if !m2.Deleted {
+		t.Errorf("mention Deleted = false, want true")
+	}
+}
+
 // TestCommentRmRequiresForce mirrors TestRmRequiresForce: no store call at
 // all without --force, and the comment survives.
 func TestCommentRmRequiresForce(t *testing.T) {
