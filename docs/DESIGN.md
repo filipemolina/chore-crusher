@@ -1025,6 +1025,19 @@ against the task table first, then the list table. Human mode prints a one-line
 confirmation; `--json` emits one value (`{"ok":true,"id",...}` for claim,
 `{"ok":true,"cleared":N}` for release, where `cleared:0` is a normal state).
 
+**`farol work clean` is the on-demand presence-hygiene write.** It deletes
+stale `AgentActivity` rows that the opportunistic prune inside
+`ClaimWork`/`ReleaseWork` would otherwise leave until the next write: claims
+older than the `WorkTTL` (120s) by default, or — with `--agent <tag>` — every
+claim held by one tag regardless of age (the session-end semantics of
+`ReleaseAgentClaims`). `--older-than <duration>` overrides the age filter.
+It deliberately never combines "no agent, no age" into a full-table wipe: a
+bare call falls back to the `WorkTTL` sweep, and an agent-only call reuses
+session-end semantics. Presence rows are ephemeral by design (§3), so there
+is no `--force` and no confirmation. Human mode prints `cleaned N claim(s)`
+(nothing when `N` is 0); `--json` emits one value,
+`{"ok":true,"removed":N}`, mirroring `release`'s `{"ok":true,"cleared":N}`.
+
 **`farol skill` emits the agent reference** (cli-first migration, Phase 2): the
 CLI replacement for the retired `farol_inbox` / `farol_breakdown` MCP prompts.
 It prints markdown prose to stdout — the `FAROL_AGENT` identity contract, the
