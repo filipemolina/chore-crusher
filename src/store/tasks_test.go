@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/filipemolina/farol/src/mentions"
 	"github.com/filipemolina/farol/src/store/migrations"
 )
 
@@ -443,6 +444,225 @@ func TestCreateTaskAfterWithInvalidMentionInTitle(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "mention @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 references non-existent task") {
 		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+// TestSelfReferenceMention verifies that a task can mention itself.
+// This is a valid use case (e.g., "See @self for details" where @self
+// is the task's own ID). The validation checks if the task exists
+// at write time, and since the task exists, it should pass.
+func TestSelfReferenceMention(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	// Create a task first
+	id := mustTask(t, s, lid, "original title", nil)
+
+	// Rename the task to mention itself
+	newTitle := "Updated to reference @" + id
+	if err := s.RenameTask(id, newTitle); err != nil {
+		t.Fatalf("RenameTask with self-reference failed: %v", err)
+	}
+
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != newTitle {
+		t.Fatalf("title not stored as-is: got %q, want %q", task.Title, newTitle)
+	}
+
+	// Also test in notes
+	notes := "See @" + id + " for context"
+	if err := s.SetNotes(id, notes); err != nil {
+		t.Fatalf("SetNotes with self-reference failed: %v", err)
+	}
+
+	task, err = s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Notes != notes {
+		t.Fatalf("notes not stored as-is: got %q, want %q", task.Notes, notes)
+	}
+
+	// Also test in comments
+	cid, err := s.AddComment(id, "human", "Self reference: @"+id)
+	if err != nil {
+		t.Fatalf("AddComment with self-reference failed: %v", err)
+	}
+	if cid == "" {
+		t.Fatal("AddComment returned empty id")
+	}
+
+	got, err := s.ListComments(id)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(got) != 1 || got[0].Note != "Self reference: @"+id {
+		t.Fatalf("comment not stored as-is: got %q", got[0].Note)
+	}
+}
+
+// TestCrossListMention verifies that a task in one list can mention
+// a task in a different list. Task IDs are globally unique, so
+// cross-list mentions should work without special handling.
+func TestCrossListMention(t *testing.T) {
+	s := newTestStore(t)
+	listA := mustList(t, s, "list A")
+	listB := mustList(t, s, "list B")
+
+	// Create a task in list B to be mentioned
+	targetInB := mustTask(t, s, listB, "target in list B", nil)
+
+	// Create a task in list A that mentions the task in list B
+	title := "Related to @" + targetInB
+	id, err := s.CreateTask(listA, title, nil, "")
+	if err != nil {
+		t.Fatalf("CreateTask with cross-list mention failed: %v", err)
+	}
+
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != title {
+		t.Fatalf("title not stored as-is: got %q, want %q", task.Title, title)
+	}
+
+	// Also test in notes
+	notes := "See @" + targetInB + " for context"
+	if err := s.SetNotes(id, notes); err != nil {
+		t.Fatalf("SetNotes with cross-list mention failed: %v", err)
+	}
+
+	// Also test in comments
+	cid, err := s.AddComment(id, "human", "Cross-list ref: @"+targetInB)
+	if err != nil {
+		t.Fatalf("AddComment with cross-list mention failed: %v", err)
+	}
+	if cid == "" {
+		t.Fatal("AddComment returned empty id")
+	}
+}
+
+// TestEndToEndMentionWorkflow verifies the complete mention workflow:
+// create task with mention -> verify stored -> show resolves it.
+func TestEndToEndMentionWorkflow(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	// Create a target task
+	target := mustTask(t, s, lid, "target task", nil)
+
+	// Create a task with a mention in the title
+	title := "Follow up on @" + target
+	id, err := s.CreateTask(lid, title, nil, "")
+	if err != nil {
+		t.Fatalf("CreateTask with mention failed: %v", err)
+	}
+
+	// Verify the task was stored with the mention intact
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != title {
+		t.Fatalf("title not stored as-is: got %q, want %q", task.Title, title)
+	}
+
+	// Verify we can resolve the mention (simulating CLI show --json)
+	parsedMentions := mentions.ParseMentions(task.Title)
+	if len(parsedMentions) != 1 {
+		t.Fatalf("expected 1 mention in stored title, got %d", len(parsedMentions))
+	}
+	if parsedMentions[0].ID != target {
+		t.Fatalf("stored mention ID = %q, want %q", parsedMentions[0].ID, target)
+	}
+
+	// Verify the resolved metadata
+	metadata := mentions.BuildMentionMetadata(task.Title, func(id string) string {
+		if id == target {
+			return "target task"
+		}
+		return ""
+	})
+	if len(metadata) != 1 {
+		t.Fatalf("expected 1 metadata entry, got %d", len(metadata))
+	}
+	if metadata[0].ID != target {
+		t.Fatalf("metadata ID = %q, want %q", metadata[0].ID, target)
+	}
+	if metadata[0].Title == nil || *metadata[0].Title != "target task" {
+		t.Fatalf("metadata Title = %v, want 'target task'", metadata[0].Title)
+	}
+	if metadata[0].Deleted {
+		t.Fatalf("metadata Deleted = true, want false")
+	}
+}
+
+// TestMentionInAllThreeSurfaces verifies that mentions work in all
+// three surfaces: title, notes, and comments.
+func TestMentionInAllThreeSurfaces(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	// Create target tasks to mention
+	target1 := mustTask(t, s, lid, "target one", nil)
+	target2 := mustTask(t, s, lid, "target two", nil)
+	target3 := mustTask(t, s, lid, "target three", nil)
+
+	// Create a task with mention in title
+	title := "Related to @" + target1
+	id, err := s.CreateTask(lid, title, nil, "")
+	if err != nil {
+		t.Fatalf("CreateTask with mention in title failed: %v", err)
+	}
+
+	// Add mention in notes
+	notes := "See @" + target2 + " for details"
+	if err := s.SetNotes(id, notes); err != nil {
+		t.Fatalf("SetNotes with mention failed: %v", err)
+	}
+
+	// Add mention in comment
+	cid, err := s.AddComment(id, "human", "Also see @"+target3)
+	if err != nil {
+		t.Fatalf("AddComment with mention failed: %v", err)
+	}
+	if cid == "" {
+		t.Fatal("AddComment returned empty id")
+	}
+
+	// Verify all three surfaces have the mentions stored correctly
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+
+	// Check title mention
+	titleMentions := mentions.ParseMentions(task.Title)
+	if len(titleMentions) != 1 || titleMentions[0].ID != target1 {
+		t.Fatalf("title mentions = %+v, want 1 mention to %s", titleMentions, target1)
+	}
+
+	// Check notes mention
+	notesMentions := mentions.ParseMentions(task.Notes)
+	if len(notesMentions) != 1 || notesMentions[0].ID != target2 {
+		t.Fatalf("notes mentions = %+v, want 1 mention to %s", notesMentions, target2)
+	}
+
+	// Check comment mention
+	comments, err := s.ListComments(id)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	commentMentions := mentions.ParseMentions(comments[0].Note)
+	if len(commentMentions) != 1 || commentMentions[0].ID != target3 {
+		t.Fatalf("comment mentions = %+v, want 1 mention to %s", commentMentions, target3)
 	}
 }
 
