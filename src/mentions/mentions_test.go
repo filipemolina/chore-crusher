@@ -250,3 +250,32 @@ func TestBuildMentionMetadataEmptyText(t *testing.T) {
 		t.Fatalf("expected nil for empty text, got %v", metadata)
 	}
 }
+
+// TestParseMentionsPartialULIDIgnored verifies that partial ULIDs (less than
+// 26 characters) are not matched by the regex. The regex requires exactly
+// 26 Crockford base32 characters, so @ followed by 25 chars is ignored.
+func TestParseMentionsPartialULIDIgnored(t *testing.T) {
+	// 25-character ULID (missing last char) should not be parsed
+	text := "See @01ARZ8X5Y6Z7A8B9C0D1E2F3G for details"
+	mentions := ParseMentions(text)
+	if mentions != nil && len(mentions) > 0 {
+		t.Fatalf("expected no mentions for 25-char partial ULID, got %d", len(mentions))
+	}
+
+	// 10-character ULID (timestamp only) should not be parsed
+	text = "See @01ARZ8X5Y6 for details"
+	mentions = ParseMentions(text)
+	if mentions != nil && len(mentions) > 0 {
+		t.Fatalf("expected no mentions for 10-char partial ULID, got %d", len(mentions))
+	}
+
+	// Valid 26-char ULID should still be parsed
+	text = "See @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 for details"
+	mentions = ParseMentions(text)
+	if len(mentions) != 1 {
+		t.Fatalf("expected 1 mention for valid 26-char ULID, got %d", len(mentions))
+	}
+	if mentions[0].ID != "01ARZ8X5Y6Z7A8B9C0D1E2F3G4" {
+		t.Fatalf("mention ID = %q, want %q", mentions[0].ID, "01ARZ8X5Y6Z7A8B9C0D1E2F3G4")
+	}
+}
