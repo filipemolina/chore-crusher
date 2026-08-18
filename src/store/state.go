@@ -263,6 +263,19 @@ func setComplete(q querier, id string, now int64) error {
 	return err
 }
 
+// reopenTaskTx reopens a complete task to pending within a transaction.
+// It clears progress state and completed_at, matching the Reopen behavior
+// but without the separate transaction (docs/DESIGN.md §3: reopen is lossy,
+// does not cascade, and does not restore prior progress).
+func reopenTaskTx(q querier, id string, now int64) error {
+	_, err := q.Exec(
+		`UPDATE Task SET status = 'pending', progress_kind = 'none', progress_pct = NULL,
+		                completed_at = NULL, updated_at = ? WHERE id = ?`,
+		now, id,
+	)
+	return err
+}
+
 // completeDescendants marks every descendant of id (at every depth) complete.
 func completeDescendants(q querier, id string, now int64) error {
 	_, err := q.Exec(`

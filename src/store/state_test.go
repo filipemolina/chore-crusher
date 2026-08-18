@@ -394,14 +394,16 @@ func TestAutoSwitchParentToSubtasks(t *testing.T) {
 		t.Errorf("explicit-kind parent overridden to %q/%q after a child", e.ProgressKind, e.Status)
 	}
 
-	// A complete parent is never touched (it can hold no progress).
+	// A complete parent is reopened when a child is added, because a complete
+	// task with a pending child is a forbidden state (docs/DESIGN.md §3).
+	// The auto-switch to subtasks mode then applies to the reopened parent.
 	done := mustTask(t, s, lid, "done", nil)
 	if err := s.Complete(done); err != nil {
 		t.Fatalf("Complete(done): %v", err)
 	}
 	mustTask(t, s, lid, "done child", &done)
-	if d := mustGet(t, s, done); d.ProgressKind != ProgressNone || d.Status != StatusComplete {
-		t.Errorf("complete parent mutated to %q/%q after a child", d.ProgressKind, d.Status)
+	if d := mustGet(t, s, done); d.ProgressKind != ProgressSubtasks || d.Status != StatusInProgress {
+		t.Errorf("complete parent should be reopened and switched to subtasks, got %q/%q", d.ProgressKind, d.Status)
 	}
 
 	// CreateTaskAfter — the TUI's inline-create path — fires the same

@@ -425,10 +425,11 @@ func TestReparentCrossListRejected(t *testing.T) {
 	}
 }
 
-// TestReparentCompleteParentRuledOut pins docs/DESIGN.md §3's hard invariant:
-// a complete ancestor may not gain a pending descendant, and reparent — a
-// deliberate restructure, not an add — must not create that state silently.
-func TestReparentCompleteParentRejected(t *testing.T) {
+// TestReparentCompleteParentReopens ensures that reparenting a pending task
+// under a complete parent reopens the parent (docs/DESIGN.md §3: a complete
+// task with a pending child is forbidden). The parent is switched to subtasks
+// mode so it derives progress from its children.
+func TestReparentCompleteParentReopens(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "list")
 	done := mustTask(t, s, lid, "done", nil)
@@ -437,17 +438,40 @@ func TestReparentCompleteParentRejected(t *testing.T) {
 	}
 	task := mustTask(t, s, lid, "still working", nil)
 
-	err := s.Reparent(task, &done)
-	if err == nil || !strings.Contains(err.Error(), "complete it first") {
-		t.Fatalf("moving a pending task under a complete parent error = %v, want a complete-first error", err)
+	// Reparent should succeed by reopening the parent
+	if err := s.Reparent(task, &done); err != nil {
+		t.Fatalf("Reparent: %v", err)
 	}
+
+	// Parent should be reopened and switched to subtasks
+	d, _ := s.GetTask(done)
+	if d.Status != StatusInProgress || d.ProgressKind != ProgressSubtasks {
+		t.Fatalf("Parent should be reopened to in_progress/subtasks, got %s/%s", d.Status, d.ProgressKind)
+	}
+
+	// Task should be reparented
+	tk, _ := s.GetTask(task)
+	if tk.ParentID == nil || *tk.ParentID != done {
+		t.Fatalf("Task not reparented: parent=%v", tk.ParentID)
+	}
+
 	// A complete subtree may move under a complete parent (both sides complete).
+	// The parent stays complete since the child is also complete.
+	// Use a fresh complete parent for this test.
+	done2 := mustTask(t, s, lid, "done2", nil)
+	if err := s.Complete(done2); err != nil {
+		t.Fatalf("Complete(done2): %v", err)
+	}
 	doneSub := mustTask(t, s, lid, "done subtree", nil)
 	if err := s.Complete(doneSub); err != nil {
 		t.Fatalf("Complete(doneSub): %v", err)
 	}
-	if err := s.Reparent(doneSub, &done); err != nil {
+	if err := s.Reparent(doneSub, &done2); err != nil {
 		t.Fatalf("moving a complete subtree under a complete parent should be allowed: %v", err)
+	}
+	d2, _ := s.GetTask(done2)
+	if d2.Status != StatusComplete || d2.ProgressKind != ProgressNone {
+		t.Fatalf("Parent should stay complete when moving complete subtree, got %s/%s", d2.Status, d2.ProgressKind)
 	}
 }
 
@@ -646,5 +670,135 @@ func TestMigration0006PreservesExistingTasks(t *testing.T) {
 	}
 	if freshGot.Assignee != "" || freshGot.AssignedAt != nil || freshGot.Priority != PriorityNone {
 		t.Errorf("new task did not default to unassigned/none: %+v", freshGot)
+	}
+}
+
+// TestCreateTaskReopensCompleteParent ensures that creating a child under a
+// complete parent reopens the parent (docs/DESIGN.md §3: a complete task with
+// a pending child is forbidden). This covers both CreateTask (append) and
+// CreateTaskAfter (positioned) paths.
+func TestCreateTaskReopensCompleteParent(t *testing.T) {
+	tests := []struct {
+		name       string
+		createFunc func(*Store, string, string, *string, string, string) (string, error)
+	}{
+		{
+			name: "CreateTask (append)",
+			createFunc: func(s *Store, lid, title string, parentID *string, notes, afterID string) (string, error) {
+				return s.CreateTask(lid, title, parentID, notes)
+			},
+		},
+		{
+			name: "CreateTaskAfter (append via empty afterID)",
+			createFunc: func(s *Store, lid, title string, parentID *string, notes, afterID string) (string, error) {
+				return s.CreateTaskAfter(lid, title, parentID, notes, "")
+			},
+		},
+		{
+			name: "CreateTaskAfter (positioned after sibling)",
+			createFunc: func(s *Store, lid, title string, parentID *string, notes, afterID string) (string, error) {
+				return s.CreateTaskAfter(lid, title, parentID, notes, afterID)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			lid := mustList(t, s, "list")
+
+			parent := mustTask(t, s, lid, "parent", nil)
+			child1 := mustTask(t, s, lid, "child1", &parent)
+			child2 := mustTask(t, s, lid, "child2", &parent)
+
+			if err := s.Complete(child1); err != nil {
+				t.Fatalf("Complete(child1): %v", err)
+			}
+			if err := s.Complete(child2); err != nil {
+				t.Fatalf("Complete(child2): %v", err)
+			}
+
+			// Parent should be complete (auto-promoted via subtasks mode)
+			p, _ := s.GetTask(parent)
+			if p.Status != StatusComplete {
+				t.Fatalf("Parent should be complete, got %s", p.Status)
+			}
+
+			// Create a new child
+			var newChild string
+			var err error
+			if tc.name == "CreateTaskAfter (positioned after sibling)" {
+				newChild, err = tc.createFunc(s, lid, "newchild", &parent, "", child1)
+			} else {
+				newChild, err = tc.createFunc(s, lid, "newchild", &parent, "", "")
+			}
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+
+			// Parent should be reopened and switched to subtasks
+			p, _ = s.GetTask(parent)
+			if p.Status != StatusInProgress || p.ProgressKind != ProgressSubtasks {
+				t.Fatalf("Parent should be reopened to in_progress/subtasks, got %s/%s", p.Status, p.ProgressKind)
+			}
+
+			// New child should be pending
+			nc, _ := s.GetTask(newChild)
+			if nc.Status != StatusPending {
+				t.Fatalf("New child should be pending, got %s", nc.Status)
+			}
+
+			// MoveTask should work (the bug: moving was impossible before fix)
+			var moveAfter string
+			if tc.name == "CreateTaskAfter (positioned after sibling)" {
+				moveAfter = child2
+			} else {
+				moveAfter = child1
+			}
+			if err := s.MoveTask(newChild, moveAfter); err != nil {
+				t.Fatalf("MoveTask failed: %v", err)
+			}
+
+			// Verify move worked
+			tasks, _ := s.ListTasks(lid)
+			childOrder := []string{}
+			for _, task := range tasks {
+				if task.ParentID != nil && *task.ParentID == parent {
+					childOrder = append(childOrder, task.ID)
+				}
+			}
+			if len(childOrder) != 3 {
+				t.Fatalf("Expected 3 children after move, got %d", len(childOrder))
+			}
+		})
+	}
+}
+
+// TestReparentReopensCompleteParent ensures Reparent also reopens a complete
+// parent when moving a task under it, for consistency with CreateTask.
+func TestReparentReopensCompleteParent(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	done := mustTask(t, s, lid, "done", nil)
+	if err := s.Complete(done); err != nil {
+		t.Fatalf("Complete(done): %v", err)
+	}
+
+	task := mustTask(t, s, lid, "still working", nil)
+
+	// Reparent should reopen the complete parent
+	if err := s.Reparent(task, &done); err != nil {
+		t.Fatalf("Reparent: %v", err)
+	}
+
+	d, _ := s.GetTask(done)
+	if d.Status != StatusInProgress || d.ProgressKind != ProgressSubtasks {
+		t.Fatalf("Parent should be reopened to in_progress/subtasks, got %s/%s", d.Status, d.ProgressKind)
+	}
+
+	tk, _ := s.GetTask(task)
+	if tk.ParentID == nil || *tk.ParentID != done {
+		t.Fatalf("Task not reparented: parent=%v", tk.ParentID)
 	}
 }
