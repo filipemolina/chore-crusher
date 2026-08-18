@@ -431,6 +431,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if draftCmd := m.applyCreateDraft(msg.Rows); draftCmd != nil {
 			finalCmds = append(finalCmds, draftCmd)
 		}
+		// Restore collapsed state for this list (if any).
+		if msg.ListID != "" && m.store != nil {
+			if collapsed, err := m.store.GetCollapsedTasks(msg.ListID); err == nil {
+				if tasks, ok := m.components.TaskPanel.(interface{ SetCollapsed(map[string]bool) }); ok {
+					tasks.SetCollapsed(collapsed)
+				}
+			}
+		}
 		finalCmds = append(finalCmds, m.footerContextCmd())
 
 	case cmds.OpenHelpModalMsg:
@@ -605,6 +613,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.activeListID != "" {
 			finalCmds = append(finalCmds, cmds.RefreshTasks(m.store, m.activeListID, m.sortMode))
+		}
+
+	case cmds.CollapsedStateChangedMsg:
+		// Persist the collapsed state for the current list.
+		if msg.ListID != "" && m.store != nil {
+			if err := m.store.SetCollapsedTasks(msg.ListID, msg.Collapsed); err != nil {
+				m.lastError = err.Error()
+			}
 		}
 
 	case cmds.UnassignTaskMsg:

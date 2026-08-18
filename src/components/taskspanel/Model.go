@@ -187,3 +187,18 @@ func (m Model) FilterValue() string {
 	}
 	return ""
 }
+
+// GetCollapsed returns the task tree's collapsed state for persistence.
+func (m Model) GetCollapsed() map[string]bool {
+	if tree, ok := m.tree.(interface{ GetCollapsed() map[string]bool }); ok {
+		return tree.GetCollapsed()
+	}
+	return nil
+}
+
+// SetCollapsed restores the task tree's collapsed state from persistence.
+func (m Model) SetCollapsed(collapsed map[string]bool) {
+	if tree, ok := m.tree.(interface{ SetCollapsed(map[string]bool) }); ok {
+		tree.SetCollapsed(collapsed)
+	}
+}
