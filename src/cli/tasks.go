@@ -729,10 +729,19 @@ func runAdd(cmd *cobra.Command, args []string) error {
 // `farol show --json` and the MCP's show_task/comments payload (docs/DESIGN.md
 // §9: MCP is a superset of CLI --json, additive fields only).
 type commentJSON struct {
-	ID        string `json:"id"`
-	Author    string `json:"author"`
-	Note      string `json:"note"`
-	CreatedAt int64  `json:"created_at"`
+	ID        string                     `json:"id"`
+	Author    string                     `json:"author"`
+	Note      string                     `json:"note"`
+	CreatedAt int64                      `json:"created_at"`
+	Mentions  []mentions.MentionMetadata `json:"mentions"`
+}
+
+// commentResultJSON is the --json output for `farol comment`: it includes
+// the new comment's id and its mention metadata (per the task-mentions plan
+// Commit 3). Human mode still prints just the id (docs/DESIGN.md §9).
+type commentResultJSON struct {
+	ID       string                     `json:"id"`
+	Mentions []mentions.MentionMetadata `json:"mentions"`
 }
 
 // attachmentJSON is one attachment on a task, included in `farol show --json`
@@ -822,6 +831,16 @@ func buildShowJSON(s *store.Store, id string) (showView, error) {
 	if err != nil {
 		return showView{}, err
 	}
+
+	// Build mention metadata for comments using the same resolver.
+	resolver := func(mentionID string) string {
+		task, err := s.GetTask(mentionID)
+		if err != nil {
+			return ""
+		}
+		return task.Title
+	}
+
 	commentJSONs := make([]commentJSON, 0, len(comments))
 	for _, c := range comments {
 		commentJSONs = append(commentJSONs, commentJSON{
@@ -829,6 +848,7 @@ func buildShowJSON(s *store.Store, id string) (showView, error) {
 			Author:    c.Author,
 			Note:      c.Note,
 			CreatedAt: c.CreatedAt,
+			Mentions:  mentions.BuildMentionMetadata(c.Note, resolver),
 		})
 	}
 
@@ -845,15 +865,6 @@ func buildShowJSON(s *store.Store, id string) (showView, error) {
 		})
 	}
 
-	// Build mention metadata for title and notes.
-	// The resolver looks up task titles by ID; empty string means deleted.
-	resolver := func(mentionID string) string {
-		task, err := s.GetTask(mentionID)
-		if err != nil {
-			return ""
-		}
-		return task.Title
-	}
 	titleMentions := mentions.BuildMentionMetadata(t.Title, resolver)
 	notesMentions := mentions.BuildMentionMetadata(t.Notes, resolver)
 
@@ -990,8 +1001,13 @@ func renderShowHuman(w *strings.Builder, v showView) {
 	}
 	if len(v.comments) > 0 {
 		fmt.Fprintf(w, "Comments (%d):\n", len(v.comments))
-		for _, c := range v.comments {
-			fmt.Fprintf(w, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
+		for i, c := range v.comments {
+			// Resolve mentions in comment using pre-resolved metadata from JSON payload.
+			noteDisplay := c.Note
+			if i < len(v.payload.Comments) && len(v.payload.Comments[i].Mentions) > 0 {
+				noteDisplay = renderMentionsFromMetadata(c.Note, v.payload.Comments[i].Mentions)
+			}
+			fmt.Fprintf(w, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), noteDisplay)
 		}
 	}
 	if len(v.attachments) > 0 {
@@ -1100,12 +1116,27 @@ func runComment(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		cid, err := s.AddComment(id, osUser(), args[1])
+		author := osUser()
+		cid, err := s.AddComment(id, author, args[1])
 		if err != nil {
 			return err
 		}
 		autoClaimTask(s, id)
-		printResult(jsonMode, func() { fmt.Println(cid) }, idJSON{cid})
+
+		// Build mention metadata for the new comment.
+		resolver := func(mentionID string) string {
+			task, err := s.GetTask(mentionID)
+			if err != nil {
+				return ""
+			}
+			return task.Title
+		}
+		mentionsMeta := mentions.BuildMentionMetadata(args[1], resolver)
+
+		printResult(jsonMode, func() { fmt.Println(cid) }, commentResultJSON{
+			ID:       cid,
+			Mentions: mentionsMeta,
+		})
 		return nil
 	})
 }

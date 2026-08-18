@@ -307,3 +307,114 @@ func TestGetCommentRoundTrip(t *testing.T) {
 		t.Errorf("GetComment = %+v, want id=%s task=%s author=pi note=hello", c, id, taskID)
 	}
 }
+
+// TestAddCommentWithValidMention verifies that a comment with a valid
+// @<ULID> mention succeeds and is stored.
+func TestAddCommentWithValidMention(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	mentioned := mustTask(t, s, lid, "referenced task", nil)
+	taskID := mustTask(t, s, lid, "task", nil)
+
+	cid, err := s.AddComment(taskID, "human", "See @"+mentioned+" for context")
+	if err != nil {
+		t.Fatalf("AddComment with valid mention failed: %v", err)
+	}
+	if cid == "" {
+		t.Fatal("AddComment returned empty id")
+	}
+
+	// Verify the comment was stored with the mention text intact.
+	got, err := s.ListComments(taskID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 comment, got %d", len(got))
+	}
+	if got[0].Note != "See @"+mentioned+" for context" {
+		t.Errorf("comment note = %q, want %q", got[0].Note, "See @"+mentioned+" for context")
+	}
+}
+
+// TestAddCommentWithInvalidMention verifies that a comment with an
+// invalid @<ULID> mention (non-existent task) is rejected.
+func TestAddCommentWithInvalidMention(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	taskID := mustTask(t, s, lid, "task", nil)
+
+	// Use a valid ULID format that doesn't exist in the store.
+	invalidULID := "01ARZ8X5Y6Z7A8B9C0D1E2F3G4"
+	_, err := s.AddComment(taskID, "human", "See @"+invalidULID+" for context")
+	if err == nil {
+		t.Fatal("AddComment with invalid mention should fail")
+	}
+	if !strings.Contains(err.Error(), "mention @"+invalidULID+" references non-existent task") {
+		t.Errorf("error %q should identify the invalid mention ID", err.Error())
+	}
+
+	// Verify no comment was stored.
+	got, err := s.ListComments(taskID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("want 0 comments after rejected mention, got %d", len(got))
+	}
+}
+
+// TestAddCommentWithMultipleMentions verifies that a comment with multiple
+// valid mentions succeeds.
+func TestAddCommentWithMultipleMentions(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	mentioned1 := mustTask(t, s, lid, "first task", nil)
+	mentioned2 := mustTask(t, s, lid, "second task", nil)
+	taskID := mustTask(t, s, lid, "task", nil)
+
+	note := "Related to @" + mentioned1 + " and @" + mentioned2
+	cid, err := s.AddComment(taskID, "human", note)
+	if err != nil {
+		t.Fatalf("AddComment with multiple valid mentions failed: %v", err)
+	}
+	if cid == "" {
+		t.Fatal("AddComment returned empty id")
+	}
+
+	got, err := s.ListComments(taskID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(got) != 1 || got[0].Note != note {
+		t.Errorf("comment note = %q, want %q", got[0].Note, note)
+	}
+}
+
+// TestAddCommentWithMixedMentions verifies that a comment with one valid
+// and one invalid mention is rejected (all-or-nothing validation).
+func TestAddCommentWithMixedMentions(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	mentioned := mustTask(t, s, lid, "referenced task", nil)
+	taskID := mustTask(t, s, lid, "task", nil)
+
+	invalidULID := "01ARZ8X5Y6Z7A8B9C0D1E2F3G4"
+	note := "See @" + mentioned + " and @" + invalidULID
+	_, err := s.AddComment(taskID, "human", note)
+	if err == nil {
+		t.Fatal("AddComment with mixed valid/invalid mentions should fail")
+	}
+	if !strings.Contains(err.Error(), "mention @"+invalidULID+" references non-existent task") {
+		t.Errorf("error %q should identify the invalid mention ID", err.Error())
+	}
+
+	// Verify no comment was stored.
+	got, err := s.ListComments(taskID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("want 0 comments after rejected mention, got %d", len(got))
+	}
+}
