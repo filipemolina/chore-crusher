@@ -1,0 +1,342 @@
+/* farol documentation — palette matched to the TUI's farol-dark (dark) and
+   farol-day (light) themes in src/appstyles/Theme.go.
+
+   Dark (farol-dark)
+     Accent   #F0B263  lamp amber
+     Panel    #0E1B30  deep navy
+     Modal    #3A4A63  raised surface
+     Text     #F5EDE4  warm cream
+     Danger   #D9534F
+     Complete #67C58A
+     Pending  #8A94A8
+     InProgress #E8C547
+   Light (farol-day)
+     Accent   #A06A0E  darkened amber
+     Panel    #F5EDE4  cream
+     Modal    #FCF8F1
+     Text     #22385C  navy
+     Danger   #B33A3A
+     Complete #1E7F4E
+     Pending  #454F63
+     InProgress #A87409
+
+   Starlight's gray-1..6 run brightest→darkest text/surface. We map them onto
+   tiers derived from the theme's Panel (lightened for dark, darkened for
+   light) so cards, hairlines, and nav chrome all sit inside the same family
+   as the TUI, not just the hero. */
+
+:root {
+  /* Accent scale — Starlight consumes accent-low/accent/accent-high for
+     link hovers, focus rings, tab underlines. */
+  --sl-color-accent-low: #6b4a1a;
+  --sl-color-accent: #f0b263;
+  --sl-color-accent-high: #f8d9a0;
+
+  /* Text/surface ladder (dark). */
+  --sl-color-white: #f5ede4;         /* TextPrimary */
+  --sl-color-gray-1: #e0d8cc;
+  --sl-color-gray-2: #b0a898;        /* TextMuted-ish */
+  --sl-color-gray-3: #7a8290;        /* TextDim-ish */
+  --sl-color-gray-4: #3d4a5e;
+  --sl-color-gray-5: #1e2d45;        /* BackgroundElevated */
+  --sl-color-gray-6: #162438;        /* BackgroundContent */
+  --sl-color-black: #0e1b30;         /* PanelBg */
+
+  --sl-color-bg: #0e1b30;
+  --sl-color-bg-nav: #131f35;
+  --sl-color-bg-sidebar: #111e33;
+  --sl-color-bg-inline-code: #172640;
+  --sl-color-bg-accent: #f0b263;
+
+  --sl-color-hairline: #0a1424;
+  --sl-color-hairline-light: #1e3350;
+  --sl-color-hairline-shade: #0a1424;
+
+  /* App-level status hues (theme-invariant in the TUI). Used for inline
+     accents and terminal-frame dots. */
+  --farol-status-complete: #67c58a;
+  --farol-status-pending: #8a94a8;
+  --farol-status-in-progress: #e8c547;
+  --farol-status-overdue: #eb4268;
+  --farol-danger: #d9534f;
+
+  /* Convenience aliases for the hand-rolled cards / terminal chrome. */
+  --farol-bg: var(--sl-color-bg);
+  --farol-panel: #131f35;             /* BackgroundContent */
+  --farol-elevated: #1c2d48;          /* BackgroundElevated */
+  --farol-modal: #3a4a63;             /* ModalBg */
+  --farol-border: var(--sl-color-hairline-light);
+  --farol-border-card: #2e4260;       /* BorderCard */
+  --farol-text: var(--sl-color-white);
+  --farol-text-dim: var(--sl-color-gray-3);
+}
+
+/* Light theme — Starlight sets data-theme="light" on <html> when the user
+   picks the sun. We ship a farol-day palette. */
+:root[data-theme='light'] {
+  --sl-color-accent-low: #e8d4b0;
+  --sl-color-accent: #a06a0e;
+  --sl-color-accent-high: #6b4500;
+
+  --sl-color-white: #22385c;         /* TextPrimary on cream */
+  --sl-color-gray-1: #2f4466;
+  --sl-color-gray-2: #4a5a74;
+  --sl-color-gray-3: #6b7a8e;
+  --sl-color-gray-4: #8c98a8;
+  --sl-color-gray-5: #d6cfc2;        /* darkened panel */
+  --sl-color-gray-6: #e8e1d4;
+  --sl-color-gray-7: #efe9dd;
+  --sl-color-black: #f5ede4;         /* PanelBg (cream) */
+
+  --sl-color-bg: #f5ede4;
+  --sl-color-bg-nav: #efe8da;
+  --sl-color-bg-sidebar: #f0eadc;
+  --sl-color-bg-inline-code: #e8e1d4;
+  --sl-color-bg-accent: #a06a0e;
+
+  --sl-color-hairline: #d6cfc2;
+  --sl-color-hairline-light: #c8c0b0;
+  --sl-color-hairline-shade: #b8ae9a;
+
+  --farol-status-complete: #1e7f4e;
+  --farol-status-pending: #454f63;
+  --farol-status-in-progress: #a87409;
+  --farol-status-overdue: #c0243f;
+  --farol-danger: #b33a3a;
+
+  --farol-bg: var(--sl-color-bg);
+  --farol-panel: #ece5d7;
+  --farol-elevated: #fcf8f1;          /* ModalBg — lifts above the cream */
+  --farol-modal: #fcf8f1;
+  --farol-border: var(--sl-color-hairline);
+  --farol-border-card: #c0b8a4;
+  --farol-text: var(--sl-color-white);
+  --farol-text-dim: var(--sl-color-gray-3);
+}
+
+/* Typography: sans for prose, mono reserved for code and the terminal frame. */
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+}
+
+code,
+kbd,
+samp,
+pre,
+.terminal-frame,
+.terminal-frame .titlebar .path {
+  font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', 'Fira Mono',
+    'Source Code Pro', Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+/* Landing hero. */
+.hero {
+  padding: 3rem 0 1.5rem;
+}
+
+.hero h1 {
+  font-size: 2.75rem;
+  line-height: 1.1;
+  margin-bottom: 0.5rem;
+}
+
+.hero .tagline {
+  font-size: 1.15rem;
+  color: var(--farol-text-dim);
+  max-width: 42rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Terminal-window frame for hero visuals. The hairline border/panel tint
+   used elsewhere is too close to the page background to read as a window
+   edge, so this frame borrows the higher-contrast card border/elevated
+   tones instead. */
+.terminal-frame {
+  margin: 2rem 0 1rem;
+  border: 1px solid var(--farol-border-card);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--farol-bg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme='light'] .terminal-frame {
+  box-shadow: 0 8px 24px rgba(14, 27, 48, 0.12);
+}
+
+.terminal-frame .titlebar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--sl-color-gray-5);
+  border-bottom: 1px solid var(--farol-border-card);
+  font-size: 0.75rem;
+  color: var(--farol-text-dim);
+}
+
+.terminal-frame .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--farol-border);
+}
+
+/* Traffic-light dots recolored to the TUI's status hues so the frame reads
+   as "farol" rather than "mac window". */
+.terminal-frame .dot:first-child { background: var(--farol-danger); }
+.terminal-frame .dot:nth-child(2) { background: var(--farol-status-in-progress); }
+.terminal-frame .dot:nth-child(3) { background: var(--farol-status-complete); }
+
+.terminal-frame .titlebar .path {
+  margin-left: 0.5rem;
+}
+
+.terminal-frame .terminal-screenshot {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  border: none;
+  background: var(--farol-bg);
+}
+
+/* Theme-aware screenshot: Starlight sets data-theme on <html>. Dark is the
+   default (also the no-JS fallback); day shot only when explicitly light. */
+.terminal-frame .terminal-shot--day { display: none; }
+html[data-theme='light'] .terminal-frame .terminal-shot--day { display: block; }
+html[data-theme='light'] .terminal-frame .terminal-shot--dark { display: none; }
+
+/* Landing page link cards. */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.stacked-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.stacked-cards > * { margin-top: 0 !important; }
+
+.card-grid a {
+  display: block;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--farol-border-card);
+  border-radius: 8px;
+  background: var(--farol-elevated);
+  color: var(--farol-text);
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card-grid a:hover {
+  border-color: var(--sl-color-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(240, 178, 99, 0.18);
+}
+
+:root[data-theme='light'] .card-grid a:hover {
+  box-shadow: 0 6px 18px rgba(160, 106, 14, 0.14);
+}
+
+.card-grid .card-title {
+  font-weight: 700;
+  color: var(--sl-color-white);
+  margin-bottom: 0.35rem;
+}
+
+.card-grid .card-desc {
+  font-size: 0.9rem;
+  color: var(--farol-text-dim);
+}
+
+/* Code blocks: bordered, terminal-like. */
+.sl-markdown-content pre {
+  border: 1px solid var(--farol-border);
+  border-radius: 6px;
+}
+
+/* Expressive Code terminal frames (```bash and other shell fences) render
+   with their own titlebar-plus-dots chrome. Three defaults break the
+   illusion: the dots are a single muted color, the inner <pre> keeps its
+   own rounded border inside the frame, and the header/body share one
+   background so there's no titlebar to see. Override all three so the
+   frame reads as an actual terminal window in the farol palette. */
+
+.expressive-code .frame.is-terminal {
+  border: 1px solid var(--farol-border-card);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme='light'] .expressive-code .frame.is-terminal {
+  box-shadow: 0 8px 24px rgba(14, 27, 48, 0.12);
+}
+
+/* Zero out the inner pre's own rounded border and stray border color so it
+   sits flush inside the frame's chrome. */
+.expressive-code .frame.is-terminal pre,
+.expressive-code .frame.is-terminal figure > pre {
+  border: none;
+  border-radius: 0;
+  background: var(--farol-panel) !important;
+  margin: 0;
+}
+
+/* Titlebar gets the elevated tier so it reads as a distinct strip above the
+   body, not the same surface as the code. */
+.expressive-code .frame.is-terminal .header {
+  background: var(--sl-color-gray-5) !important;
+  border-bottom: 1px solid var(--farol-border-card);
+}
+
+/* Three real traffic lights: danger / in-progress / complete, left to right,
+   drawn as three colored dots layered over the header. */
+.expressive-code .frame.is-terminal .header::before {
+  background:
+    radial-gradient(circle at 5px 50%,  var(--farol-danger)             3.75px, transparent 4.25px),
+    radial-gradient(circle at 17px 50%, var(--farol-status-in-progress) 3.75px, transparent 4.25px),
+    radial-gradient(circle at 29px 50%, var(--farol-status-complete)    3.75px, transparent 4.25px) !important;
+  background-repeat: no-repeat !important;
+  opacity: 1 !important;
+}
+
+/* Tables: subtle borders, header tint from the panel tier. */
+.sl-markdown-content table {
+  border: 1px solid var(--farol-border);
+}
+
+.sl-markdown-content th {
+  background: var(--farol-panel);
+}
+
+/* Callouts: keep Starlight structure, accent-tint the note variant. */
+.starlight-aside--note {
+  border-color: var(--sl-color-accent);
+}
+
+/* Build-time rendered mermaid diagrams: centered, scrollable when wide. */
+.mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  margin: 2rem 0;
+  overflow-x: auto;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}

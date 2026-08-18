@@ -925,6 +925,7 @@ farol show <task-id>                           title, notes, status, progress, c
 farol rename <task-id> <title>                 rename a task
 farol notes <task-id> <text>                   replace a task's notes (whole text, not append)
 farol <task-id>                                mark complete (cascades to descendants)
+farol complete <task-id>                       mark complete (cascades to descendants)
 farol reopen <task-id>                         mark pending (does not cascade)
 farol toggle <task-id>                         complete <-> reopen, whichever applies
 farol progress <task-id> --mode simple

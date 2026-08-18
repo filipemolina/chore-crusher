@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><defs>
+  <linearGradient id="nwbg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#22385C"/><stop offset="1" stop-color="#0E1B30"/>
+  </linearGradient>
+  <linearGradient id="nwbeam" gradientUnits="userSpaceOnUse" x1="186" y1="256" x2="504" y2="256">
+    <stop offset="0" stop-color="#F6B75C" stop-opacity="0.8"/>
+    <stop offset="0.55" stop-color="#F6B75C" stop-opacity="0.28"/>
+    <stop offset="1" stop-color="#F6B75C" stop-opacity="0.04"/>
+  </linearGradient>
+  <radialGradient id="nwglow" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0" stop-color="#F0B263" stop-opacity="0.55"/>
+    <stop offset="1" stop-color="#F0B263" stop-opacity="0"/>
+  </radialGradient>
+</defs>
+  <rect width="512" height="512" rx="120" fill="url(#nwbg)"/>
+  <polygon points="176,236 504,132 504,380 176,276" fill="url(#nwbeam)"/>
+  <circle cx="176" cy="256" r="88.4" fill="url(#nwglow)"/>
+  <path d="M 210.1 207.3 A 59.5 59.5 0 0 1 210.1 304.7" fill="none" stroke="#F0B263" stroke-opacity="0.5" stroke-width="5.4" stroke-linecap="round"/>
+  <path d="M 228.7 180.8 A 91.8 91.8 0 0 1 228.7 331.2" fill="none" stroke="#F0B263" stroke-opacity="0.35" stroke-width="5.4" stroke-linecap="round"/>
+  <circle cx="176" cy="256" r="34" fill="#F0B263"/></svg>

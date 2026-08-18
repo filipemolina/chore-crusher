@@ -57,6 +57,7 @@ researching the same work.
 == Writes (status, progress, notes, comments, structure) ==
 
     farol <id>             # mark complete (cascades to descendants)
+    farol complete <id>    # mark complete (cascades to descendants)
     farol toggle <id>      # complete <-> reopen, whichever applies
     farol reopen <id>      # back to pending (does not cascade)
     farol progress <id> --mode percentage --percent <0-100>

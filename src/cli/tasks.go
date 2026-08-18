@@ -164,6 +164,13 @@ func taskCommands() []*cobra.Command {
 	}
 	notesCmd.Flags().Bool("force", false, "allow changing notes on a list owned by another agent or by nobody")
 
+	completeCmd := &cobra.Command{
+		Use:   "complete <task-id>",
+		Short: "mark complete (cascades to descendants)",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runComplete,
+	}
+
 	reopenCmd := &cobra.Command{
 		Use:   "reopen <task-id>",
 		Short: "mark pending (does not cascade)",
@@ -282,7 +289,7 @@ func taskCommands() []*cobra.Command {
 	}
 
 	return []*cobra.Command{addCmd, showCmd, renameCmd, notesCmd,
-		reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd,
+		completeCmd, reopenCmd, toggleCmd, progressCmd, rmCmd, mvCmd, commentCmd,
 		assignCmd, unassignCmd, priorityCmd, nextCmd, diffCmd}
 }
 

@@ -1,0 +1,116 @@
+---
+title: Home
+description: farol — a terminal to-do list you can watch, and your coding agent can steer. One SQLite store. No server. No MCP.
+---
+
+<div class="hero">
+
+# farol
+
+**A terminal to-do list you can watch, and your coding agent can steer.**
+
+You keep a TUI open in one pane. Your agent runs `farol` from its shell in another. Both talk to the same SQLite file, so a task the agent claims lights up on your row within a second — you see *which* task is moving, not just that something changed.
+
+</div>
+
+<div class="terminal-frame">
+  <div class="titlebar">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="path">~ — farol</span>
+  </div>
+  <img
+    src="/screenshot-hero.png"
+    alt="The farol TUI: a nested task tree on the right, the Lists panel on the left, one row lit with a live claim from an agent tagged claude"
+    class="terminal-screenshot terminal-shot--dark"
+  />
+  <img
+    src="/screenshot-main-day.png"
+    alt="The farol TUI in the farol-day theme"
+    class="terminal-screenshot terminal-shot--day"
+  />
+</div>
+
+<div class="card-grid">
+  <a href="/users/introduction/">
+    <div class="card-title">User Guide →</div>
+    <div class="card-desc">Install farol, drive it from the keyboard, drive it from the CLI, and set up a coding agent to work against the same store.</div>
+  </a>
+  <a href="/contributors/overview/">
+    <div class="card-title">Contributor Guide →</div>
+    <div class="card-desc">How the codebase is laid out — the TUI half, the CLI half, the one SQLite store they share — and how to contribute.</div>
+  </a>
+</div>
+
+## The window-switching tax
+
+Working with a coding agent means running two systems of record at once. The agent has its notes. You have your to-do app. Keeping them in sync is manual, and it is on you.
+
+You hand the agent a task, then wait for it to finish. It finishes. You switch to your to-do app, find the row, tick it off. An idea lands mid-run — switch back, type it, switch away. The more work in flight, the more of your attention that loop eats.
+
+**farol removes the second window.** Your agent writes to the same store your terminal is already showing you. Progress moves on the row you are looking at. New tasks appear in the tree. Completed tasks cascade into the Complete section. Nothing to reconcile.
+
+## See it in action
+
+<div class="terminal-frame">
+  <div class="titlebar">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="path">~ — farol — a full session in 23 seconds</span>
+  </div>
+  <img
+    src="/demo.gif"
+    alt="Animated demo: creating tasks, nesting subtasks, completing a parent that cascades to its children, and searching across lists"
+    class="terminal-screenshot"
+  />
+</div>
+
+## What each side gets
+
+One store, two audiences. Neither surface is a wrapper around the other.
+
+### For you, at the keyboard
+
+<div class="terminal-frame">
+  <div class="titlebar">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="path">~ — farol — live agent presence</span>
+  </div>
+  <img
+    src="/screenshot-agent.png"
+    alt="A task row with a live claim from an agent, the tag rendered inline with the spinner"
+    class="terminal-screenshot"
+  />
+</div>
+
+- **See which task is moving, not just that something changed.** When an agent claims a row, its tag appears on that row. Two agents at once are two visible spinners.
+- **A tree, not a flat list.** Nest to any depth; a parent's percentage can derive from its children, and completing the last child completes the parent.
+- **One cursor across everything.** Vim or arrows navigate the tree; `space` toggles complete (cascading down); `/` filters the current list; `F` searches every list at once.
+- **Inline everything.** New tasks are spliced into the tree with `n`. `[` and `]` change the level while you type. The Details modal opens over the tree with `enter` and closes with `esc`.
+
+### For your agent, at the CLI
+
+- **`farol skill` prints the whole reference.** Pipe it into your agent's context and it knows the identity contract, the working loop, the ownership gate, and the traps it hits on its first run.
+- **`farol inbox` is the start-of-session context call.** One read returns the agent's own list plus every other list in the store, with top pending tasks in each.
+- **`farol next <list>` is the work queue.** It picks the top-priority eligible task, assigns it to the calling agent atomically, and returns it as JSON.
+- **Assignment reserves the whole subtree.** No other agent can take an ancestor or a descendant of a claimed task, so two agents working the same list never do the same work twice.
+- **Every `--json` call prints exactly one JSON value on stdout** — the payload on success, `{"error": "..."}` on failure. Exit codes are stable: `0` success, `1` domain failure, `2` usage.
+- **No MCP server.** farol shipped one and retired it. Running a subprocess and a JSON-RPC handshake so an agent can invoke commands it can already invoke is a moving part with nothing to show for it. The CLI is the API.
+
+## Also, without ceremony
+
+Fourteen themes with live preview · vim and arrow navigation · four-level priority · notes, comments, and file attachments per task · a `--since` change feed for polling agents · versioned export and import · one static binary, no daemon, no config required.
+
+## Quick links
+
+- [Introduction](/users/introduction/) — what farol is and what it deliberately isn't
+- [Installation](/users/installation/) — one Go install command
+- [Quickstart](/users/quickstart/) — the human loop and the agent loop, back to back
+- [The TUI](/users/tui/) — every surface, in depth
+- [The CLI](/users/cli/) — the contract, the shapes, the exit codes
+- [Working with coding agents](/users/agents/) — the whole story, from `farol skill` to multi-agent coordination
+- [Architecture](/contributors/architecture/) — how the two halves meet at one store
+
+## Built with
+
+Go, [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) / [Lip Gloss v2](https://github.com/charmbracelet/lipgloss) for the TUI, [Cobra](https://github.com/spf13/cobra) for the CLI, and [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) — pure Go, no CGO — for the store. Cross-compiled for Linux and macOS (amd64 and arm64) with a single `go build`.
+
+[MIT](https://github.com/filipemolina/farol/blob/main/LICENSE) licensed. © 2026 Filipe Molina.
