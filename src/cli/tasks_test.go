@@ -192,6 +192,148 @@ func TestShow(t *testing.T) {
 	}
 }
 
+// TestShowMentionsJSON pins the mention metadata in `farol show --json`:
+// title_mentions and notes_mentions arrays with id, title, start, end, and
+// deleted flag per the task-mentions plan Commit 2.
+func TestShowMentionsJSON(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+
+	// Create a task to be mentioned.
+	mentioned := strings.TrimSpace(mustCLI(t, data, "add", lid, "Login validation"))
+
+	// Create a task that mentions the first task in title and notes.
+	title := "Fix bug in @" + mentioned
+	notes := "Related to @" + mentioned + " and @01ARZ9Y6Z7A8B9C0D1E2F3G4H5"
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, title, "--notes", notes))
+
+	var payloadList []showJSON
+	mustJSONCLI(t, data, &payloadList, "show", tid, "--json")
+	payload := payloadList[0]
+
+	// Title mentions: one mention in the title.
+	if len(payload.TitleMentions) != 1 {
+		t.Fatalf("title_mentions = %d, want 1: %+v", len(payload.TitleMentions), payload.TitleMentions)
+	}
+	tm := payload.TitleMentions[0]
+	if tm.ID != mentioned {
+		t.Errorf("title_mentions[0].ID = %q, want %q", tm.ID, mentioned)
+	}
+	if tm.Title == nil || *tm.Title != "Login validation" {
+		t.Errorf("title_mentions[0].Title = %v, want \"Login validation\"", tm.Title)
+	}
+	// "Fix bug in @" = 11 chars (indices 0-10), @ at 11, ULID 26 chars (12-37), end = 38
+	if tm.Start != 11 || tm.End != 38 {
+		t.Errorf("title_mentions[0] Start/End = %d/%d, want 11/38", tm.Start, tm.End)
+	}
+	if tm.Deleted {
+		t.Errorf("title_mentions[0].Deleted = true, want false")
+	}
+
+	// Notes mentions: two mentions, one valid, one deleted.
+	if len(payload.NotesMentions) != 2 {
+		t.Fatalf("notes_mentions = %d, want 2: %+v", len(payload.NotesMentions), payload.NotesMentions)
+	}
+	nm1 := payload.NotesMentions[0]
+	if nm1.ID != mentioned {
+		t.Errorf("notes_mentions[0].ID = %q, want %q", nm1.ID, mentioned)
+	}
+	if nm1.Title == nil || *nm1.Title != "Login validation" {
+		t.Errorf("notes_mentions[0].Title = %v, want \"Login validation\"", nm1.Title)
+	}
+	// "Related to @" = 11 chars (indices 0-10), @ at 11, ULID 26 chars (12-37), end = 38
+	if nm1.Start != 11 || nm1.End != 38 {
+		t.Errorf("notes_mentions[0] Start/End = %d/%d, want 11/38", nm1.Start, nm1.End)
+	}
+	if nm1.Deleted {
+		t.Errorf("notes_mentions[0].Deleted = true, want false")
+	}
+
+	nm2 := payload.NotesMentions[1]
+	if nm2.ID != "01ARZ9Y6Z7A8B9C0D1E2F3G4H5" {
+		t.Errorf("notes_mentions[1].ID = %q, want deleted task ID", nm2.ID)
+	}
+	if nm2.Title != nil {
+		t.Errorf("notes_mentions[1].Title = %v, want nil", nm2.Title)
+	}
+	if !nm2.Deleted {
+		t.Errorf("notes_mentions[1].Deleted = false, want true")
+	}
+	// "Related to @<ULID> and @" = 11 + 27 + 5 = 43, second @ at 43, ULID 26 chars (44-69), end = 70
+	if nm2.Start != 43 || nm2.End != 70 {
+		t.Errorf("notes_mentions[1] Start/End = %d/%d, want 43/70", nm2.Start, nm2.End)
+	}
+}
+
+// TestShowMentionsHuman pins the human-readable mention rendering in
+// `farol show`: @Task Title for resolved, [deleted task] for missing.
+func TestShowMentionsHuman(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+
+	// Create a task to be mentioned.
+	mentioned := strings.TrimSpace(mustCLI(t, data, "add", lid, "Login validation"))
+
+	// Create a task that mentions the first task in title and notes.
+	title := "Fix bug in @" + mentioned
+	notes := "Related to @" + mentioned + " and @01ARZ9Y6Z7A8B9C0D1E2F3G4H5"
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, title, "--notes", notes))
+
+	out := mustCLI(t, data, "show", tid)
+
+	// Title should show resolved mention.
+	if !strings.Contains(out, "Title: Fix bug in @Login validation") {
+		t.Errorf("show title missing resolved mention:\n%s", out)
+	}
+
+	// Notes should show resolved mention and [deleted task].
+	if !strings.Contains(out, "Related to @Login validation and [deleted task]") {
+		t.Errorf("show notes missing resolved/deleted mentions:\n%s", out)
+	}
+}
+
+// TestShowMentionsDeletedTask pins that a mention to a task that is later
+// deleted renders as [deleted task] in both JSON and human output.
+func TestShowMentionsDeletedTask(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+
+	// Create a task to be mentioned, then delete it.
+	mentioned := strings.TrimSpace(mustCLI(t, data, "add", lid, "To be deleted"))
+	mustCLI(t, data, "rm", mentioned, "--force")
+
+	// Create a task that mentions the deleted task.
+	title := "See @" + mentioned
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, title))
+
+	// JSON: title_mentions has deleted=true, title=null.
+	var payloadList []showJSON
+	mustJSONCLI(t, data, &payloadList, "show", tid, "--json")
+	payload := payloadList[0]
+	if len(payload.TitleMentions) != 1 {
+		t.Fatalf("title_mentions = %d, want 1", len(payload.TitleMentions))
+	}
+	tm := payload.TitleMentions[0]
+	if tm.ID != mentioned {
+		t.Errorf("ID = %q, want %q", tm.ID, mentioned)
+	}
+	if tm.Title != nil {
+		t.Errorf("Title = %v, want nil", tm.Title)
+	}
+	if !tm.Deleted {
+		t.Errorf("Deleted = false, want true")
+	}
+
+	// Human: shows [deleted task].
+	out := mustCLI(t, data, "show", tid)
+	if !strings.Contains(out, "Title: See [deleted task]") {
+		t.Errorf("show human output missing [deleted task]:\n%s", out)
+	}
+}
+
 // TestCLIShowIncludesChildren pins H4: `farol show --json` must emit
 // non-empty children with depth relative to the shown
 // task (child at 1, grandchild at 2) — the old code ran the descendant set

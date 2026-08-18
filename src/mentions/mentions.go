@@ -2,6 +2,7 @@ package mentions
 
 import (
 	"regexp"
+	"strings"
 )
 
 // Mention represents a @task-id reference found in text.
@@ -10,6 +11,16 @@ type Mention struct {
 	ID    string
 	Start int
 	End   int
+}
+
+// MentionMetadata is the JSON representation of a mention for CLI output.
+// Deleted tasks have Title set to null and Deleted set to true.
+type MentionMetadata struct {
+	ID      string  `json:"id"`
+	Title   *string `json:"title"`
+	Start   int     `json:"start"`
+	End     int     `json:"end"`
+	Deleted bool    `json:"deleted,omitempty"`
 }
 
 // mentionRE matches @ followed by a 26-character ULID.
@@ -35,4 +46,70 @@ func ParseMentions(text string) []Mention {
 		})
 	}
 	return mentions
+}
+
+// RenderMentions replaces @<ULID> patterns in text with their resolved titles.
+// The resolver function takes a task ID and returns the task's title, or an
+// empty string if the task doesn't exist (deleted). Deleted tasks render as
+// "[deleted task]". This is a pure function with no side effects.
+func RenderMentions(text string, resolver func(string) string) string {
+	mentions := ParseMentions(text)
+	if mentions == nil {
+		return text
+	}
+
+	var result strings.Builder
+	lastEnd := 0
+	for _, m := range mentions {
+		// Write text before the mention
+		result.WriteString(text[lastEnd:m.Start])
+
+		// Resolve the mention
+		title := resolver(m.ID)
+		if title == "" {
+			result.WriteString("[deleted task]")
+		} else {
+			result.WriteString("@")
+			result.WriteString(title)
+		}
+
+		lastEnd = m.End
+	}
+
+	// Write remaining text after the last mention
+	result.WriteString(text[lastEnd:])
+
+	return result.String()
+}
+
+// BuildMentionMetadata creates JSON-serializable mention metadata from text.
+// The resolver returns the task title, or empty string if the task doesn't exist.
+// Deleted tasks get Title=null and Deleted=true in the metadata.
+func BuildMentionMetadata(text string, resolver func(string) string) []MentionMetadata {
+	mentions := ParseMentions(text)
+	if mentions == nil {
+		return nil
+	}
+
+	metadata := make([]MentionMetadata, 0, len(mentions))
+	for _, m := range mentions {
+		title := resolver(m.ID)
+		if title == "" {
+			metadata = append(metadata, MentionMetadata{
+				ID:      m.ID,
+				Title:   nil,
+				Start:   m.Start,
+				End:     m.End,
+				Deleted: true,
+			})
+		} else {
+			metadata = append(metadata, MentionMetadata{
+				ID:    m.ID,
+				Title: &title,
+				Start: m.Start,
+				End:   m.End,
+			})
+		}
+	}
+	return metadata
 }

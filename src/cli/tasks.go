@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/mentions"
 	"github.com/filipemolina/farol/src/store"
 )
 
@@ -362,33 +363,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		printResult(jsonMode, func() {
-			fmt.Fprintf(os.Stdout, "Title: %s\n", v.t.Title)
-			fmt.Fprintf(os.Stdout, "ID: %s\n", t.ID)
-			fmt.Fprintf(os.Stdout, "List: %s\n", t.ListID)
-			fmt.Fprintf(os.Stdout, "Status: %s\n", v.t.Status)
-			fmt.Fprintf(os.Stdout, "Progress: %s\n", progressHuman(v.payload.Progress))
-			fmt.Fprintf(os.Stdout, "Notes:\n")
-			for _, line := range strings.Split(v.t.Notes, "\n") {
-				fmt.Fprintf(os.Stdout, "  %s\n", line)
-			}
-			if len(v.childViews) > 0 {
-				fmt.Fprintf(os.Stdout, "Children (%d):\n", len(v.childViews))
-				for _, cv := range v.childViews {
-					renderRow(cv)
-				}
-			}
-			if len(v.comments) > 0 {
-				fmt.Fprintf(os.Stdout, "Comments (%d):\n", len(v.comments))
-				for _, c := range v.comments {
-					fmt.Fprintf(os.Stdout, "  - %s (%s): %s\n", c.Author, formatTime(c.CreatedAt), c.Note)
-				}
-			}
-			if len(v.attachments) > 0 {
-				fmt.Fprintf(os.Stdout, "Attachments (%d):\n", len(v.attachments))
-				for _, a := range v.attachments {
-					fmt.Fprintf(os.Stdout, "  - %s: %s\n", a.ID, a.Path)
-				}
-			}
+			var human strings.Builder
+			renderShowHuman(&human, v)
+			fmt.Print(human.String())
 		}, v.payload)
 		return nil
 	})
@@ -770,22 +747,24 @@ type attachmentJSON struct {
 // descendants as the same flat, depth-annotated rows `tasks` emits, so a
 // caller that can read one can read the other.
 type showJSON struct {
-	ID          string           `json:"id"`
-	ListID      string           `json:"list_id"`
-	ListOwner   string           `json:"list_owner"`
-	Title       string           `json:"title"`
-	Notes       string           `json:"notes"`
-	Status      string           `json:"status"`
-	Progress    progressJSON     `json:"progress"`
-	CreatedAt   int64            `json:"created_at"`
-	UpdatedAt   int64            `json:"updated_at"`
-	CompletedAt *int64           `json:"completed_at"`
-	Assignee    string           `json:"assignee"`
-	AssignedAt  *int64           `json:"assigned_at"`
-	Priority    string           `json:"priority"`
-	Children    []taskRowJSON    `json:"children"`
-	Comments    []commentJSON    `json:"comments"`
-	Attachments []attachmentJSON `json:"attachments"`
+	ID            string                     `json:"id"`
+	ListID        string                     `json:"list_id"`
+	ListOwner     string                     `json:"list_owner"`
+	Title         string                     `json:"title"`
+	TitleMentions []mentions.MentionMetadata `json:"title_mentions"`
+	Notes         string                     `json:"notes"`
+	NotesMentions []mentions.MentionMetadata `json:"notes_mentions"`
+	Status        string                     `json:"status"`
+	Progress      progressJSON               `json:"progress"`
+	CreatedAt     int64                      `json:"created_at"`
+	UpdatedAt     int64                      `json:"updated_at"`
+	CompletedAt   *int64                     `json:"completed_at"`
+	Assignee      string                     `json:"assignee"`
+	AssignedAt    *int64                     `json:"assigned_at"`
+	Priority      string                     `json:"priority"`
+	Children      []taskRowJSON              `json:"children"`
+	Comments      []commentJSON              `json:"comments"`
+	Attachments   []attachmentJSON           `json:"attachments"`
 }
 
 // showView is everything runShow (and farol next) need to render one task:
@@ -866,28 +845,42 @@ func buildShowJSON(s *store.Store, id string) (showView, error) {
 		})
 	}
 
+	// Build mention metadata for title and notes.
+	// The resolver looks up task titles by ID; empty string means deleted.
+	resolver := func(mentionID string) string {
+		task, err := s.GetTask(mentionID)
+		if err != nil {
+			return ""
+		}
+		return task.Title
+	}
+	titleMentions := mentions.BuildMentionMetadata(t.Title, resolver)
+	notesMentions := mentions.BuildMentionMetadata(t.Notes, resolver)
+
 	v := showView{
 		t:           t,
 		childViews:  childViews,
 		comments:    comments,
 		attachments: attachments,
 		payload: showJSON{
-			ID:          t.ID,
-			ListID:      t.ListID,
-			ListOwner:   l.CreatedBy,
-			Title:       t.Title,
-			Notes:       t.Notes,
-			Status:      string(t.Status),
-			Progress:    prog,
-			CreatedAt:   t.CreatedAt,
-			UpdatedAt:   t.UpdatedAt,
-			CompletedAt: t.CompletedAt,
-			Assignee:    t.Assignee,
-			AssignedAt:  t.AssignedAt,
-			Priority:    string(t.Priority),
-			Children:    children,
-			Comments:    commentJSONs,
-			Attachments: attachmentJSONs,
+			ID:            t.ID,
+			ListID:        t.ListID,
+			ListOwner:     l.CreatedBy,
+			Title:         t.Title,
+			TitleMentions: titleMentions,
+			Notes:         t.Notes,
+			NotesMentions: notesMentions,
+			Status:        string(t.Status),
+			Progress:      prog,
+			CreatedAt:     t.CreatedAt,
+			UpdatedAt:     t.UpdatedAt,
+			CompletedAt:   t.CompletedAt,
+			Assignee:      t.Assignee,
+			AssignedAt:    t.AssignedAt,
+			Priority:      string(t.Priority),
+			Children:      children,
+			Comments:      commentJSONs,
+			Attachments:   attachmentJSONs,
 		},
 	}
 	return v, nil
@@ -975,13 +968,18 @@ func runShow(cmd *cobra.Command, args []string) error {
 // renderShowHuman writes one task's human-readable block to w.
 func renderShowHuman(w *strings.Builder, v showView) {
 	t := v.t
-	fmt.Fprintf(w, "Title: %s\n", t.Title)
+
+	// Resolve mentions for human-readable display using pre-resolved metadata.
+	titleDisplay := renderMentionsFromMetadata(t.Title, v.payload.TitleMentions)
+	notesDisplay := renderMentionsFromMetadata(t.Notes, v.payload.NotesMentions)
+
+	fmt.Fprintf(w, "Title: %s\n", titleDisplay)
 	fmt.Fprintf(w, "ID: %s\n", t.ID)
 	fmt.Fprintf(w, "List: %s\n", t.ListID)
 	fmt.Fprintf(w, "Status: %s\n", t.Status)
 	fmt.Fprintf(w, "Progress: %s\n", progressHuman(v.payload.Progress))
 	fmt.Fprintf(w, "Notes:\n")
-	for _, line := range strings.Split(t.Notes, "\n") {
+	for _, line := range strings.Split(notesDisplay, "\n") {
 		fmt.Fprintf(w, "  %s\n", line)
 	}
 	if len(v.childViews) > 0 {
@@ -1003,6 +1001,29 @@ func renderShowHuman(w *strings.Builder, v showView) {
 		}
 	}
 	fmt.Fprintln(w)
+}
+
+// renderMentionsFromMetadata replaces @<ULID> patterns in text using the
+// pre-resolved mention metadata. Each metadata entry has the title (or nil for
+// deleted), so we can render @Title or [deleted task] without a store lookup.
+func renderMentionsFromMetadata(text string, metadata []mentions.MentionMetadata) string {
+	if len(metadata) == 0 {
+		return text
+	}
+	var result strings.Builder
+	lastEnd := 0
+	for _, m := range metadata {
+		result.WriteString(text[lastEnd:m.Start])
+		if m.Deleted || m.Title == nil {
+			result.WriteString("[deleted task]")
+		} else {
+			result.WriteString("@")
+			result.WriteString(*m.Title)
+		}
+		lastEnd = m.End
+	}
+	result.WriteString(text[lastEnd:])
+	return result.String()
 }
 
 // renderRowTo writes one tree row to w (the batch show path prints to a
