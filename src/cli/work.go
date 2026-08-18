@@ -37,11 +37,73 @@ mirror of the store's live presence claims (docs/DESIGN.md §3). It shows who
 is at the keyboard right now — every agent claim acquired within the store's
 120-second WorkTTL — not who owns a task (that is the assignee field on the
 task row, a separate axis). This is the same set the TUI renders a spinner
-for. The command is a read and claims no presence of its own.`,
+for. The read claims no presence of its own; clean is the group's one write,
+the on-demand hygiene sweep that deletes stale claims.`,
 		Args: cobra.NoArgs,
 		RunE: runWork,
 	}
+	cmd.AddCommand(newWorkCleanCmd())
 	return cmd
+}
+
+// newWorkCleanCmd is `farol work clean`, the targeted presence-hygiene write:
+// the on-demand version of the opportunistic prune ClaimWork/ReleaseWork
+// already run, with an optional agent scope. Presence rows are ephemeral by
+// design (docs/DESIGN.md §3) — a claim past its TTL is invisible to every
+// reader and worth nothing, so this needs no --force, unlike the destructive
+// commands §9 lists.
+func newWorkCleanCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "clean [--agent <tag>] [--older-than <duration>]",
+		Short: "delete stale presence claims (rows older than the 120s TTL)",
+		Long: `Delete AgentActivity rows the TUI would no longer render a spinner for:
+claims older than the store's 120-second WorkTTL, the same set the
+opportunistic prune inside ClaimWork/ReleaseWork removes, but on demand.
+With --agent, that agent's claims go regardless of age — the way a session's
+shutdown path releases its own claims — and with --agent plus an explicit
+--older-than the two narrow each other: only that agent's claims older than
+the duration are removed. With neither flag the default is the WorkTTL sweep.`,
+		Args: cobra.NoArgs,
+		RunE: runWorkClean,
+	}
+	cmd.Flags().String("agent", "", "delete only this agent's claims (any age, unless --older-than is also given)")
+	cmd.Flags().Duration("older-than", store.WorkTTL, "delete claims older than this duration (default: the 120s WorkTTL)")
+	return cmd
+}
+
+// workCleanResultJSON is `work clean`'s success payload: the count of
+// AgentActivity rows removed — 0 is a normal state (nothing was stale), not
+// an error (docs/DESIGN.md §9).
+type workCleanResultJSON struct {
+	OK      bool `json:"ok"`
+	Removed int  `json:"removed"`
+}
+
+func runWorkClean(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	agent, _ := cmd.Flags().GetString("agent")
+	olderThan, _ := cmd.Flags().GetDuration("older-than")
+	// --agent alone cleans that agent's claims regardless of age (session-end
+	// semantics); an explicit --older-than narrows the agent scope to age.
+	// With neither flag the store falls back to the WorkTTL default, so 0 is
+	// never passed as "no age filter, no agent" — the full-table wipe shape.
+	if agent != "" && !cmd.Flags().Changed("older-than") {
+		olderThan = 0
+	}
+	return runStore(cmd, func(s *store.Store) error {
+		n, err := s.DeleteStaleWork(agent, olderThan)
+		if err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {
+			if n == 0 {
+				return // nothing to clean is a normal state (§9)
+			}
+			fmt.Fprintf(os.Stdout, "cleaned %d claim(s)\n", n)
+		}, workCleanResultJSON{OK: true, Removed: n})
+		return nil
+	})
 }
 
 // runWork is the CLI equivalent of the farol:///work resource: a single

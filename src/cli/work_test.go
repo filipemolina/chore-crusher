@@ -156,3 +156,94 @@ func TestWorkHumanTable(t *testing.T) {
 		t.Errorf("human work: %q, want exactly one row for the task (presence only)", out)
 	}
 }
+
+// TestWorkCleanRemovesClaims drives `farol work clean --agent` end to end:
+// the named agent's claims are gone from the store afterward, other agents'
+// claims survive, and the command reports the count removed.
+func TestWorkCleanRemovesClaims(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "claimed task"))
+
+	db, err := openTestStore(t, data)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.ClaimWork("task", tid, "pi", store.ActivityWorking); err != nil {
+		t.Fatalf("claim task: %v", err)
+	}
+	if _, err := db.ClaimWork("list", lid, "claude", store.ActivityInspecting); err != nil {
+		t.Fatalf("claim list: %v", err)
+	}
+	db.Close()
+
+	code, out, errOut := runCLI(t, data, "work", "clean", "--agent", "pi")
+	if code != 0 {
+		t.Fatalf("work clean: exit %d, stderr %q", code, errOut)
+	}
+	if !strings.Contains(out, "cleaned 1 claim(s)") {
+		t.Errorf("human work clean printed %q, want 'cleaned 1 claim(s)'", out)
+	}
+
+	// Only pi's claim is gone; claude's survives (agent scope, not a wipe).
+	var claims []workClaimJSON
+	mustJSONCLI(t, data, &claims, "work", "--json")
+	if len(claims) != 1 || claims[0].AgentID != "claude" {
+		t.Errorf("after clean, work = %+v, want only claude's claim", claims)
+	}
+}
+
+// TestWorkCleanEmptyIsNormal pins the §9 no-output rule for a clean that
+// finds nothing: exit 0, nothing on stdout in human mode, and
+// {"ok":true,"removed":0} in --json mode — an empty result is a normal
+// state, not an error.
+func TestWorkCleanEmptyIsNormal(t *testing.T) {
+	data := t.TempDir()
+
+	if out := mustCLI(t, data, "work", "clean"); out != "" {
+		t.Errorf("human work clean with nothing stale printed %q, want nothing", out)
+	}
+
+	var res struct {
+		OK      bool `json:"ok"`
+		Removed int  `json:"removed"`
+	}
+	mustJSONCLI(t, data, &res, "work", "clean", "--json")
+	if !res.OK || res.Removed != 0 {
+		t.Errorf("json work clean = %+v, want {ok:true removed:0}", res)
+	}
+}
+
+// TestWorkCleanOlderThanKeepsFreshClaims pins the --older-than pass-through:
+// the duration flag reaches the store's age filter, so a fresh claim survives
+// a sweep aimed at older rows. (The delete side of the age filter is pinned
+// in src/store's TestDeleteStaleWorkOlderThanFilter, which can age rows via
+// the raw connection; the CLI layer has no such handle.)
+func TestWorkCleanOlderThanKeepsFreshClaims(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, "fresh task"))
+
+	db, err := openTestStore(t, data)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.ClaimWork("task", tid, "pi", store.ActivityWorking); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	db.Close()
+
+	if out := mustCLI(t, data, "work", "clean", "--older-than", "1m"); out != "" {
+		t.Errorf("work clean --older-than 1m on a fresh claim printed %q, want nothing", out)
+	}
+
+	var claims []workClaimJSON
+	mustJSONCLI(t, data, &claims, "work", "--json")
+	if len(claims) != 1 || claims[0].AgentID != "pi" {
+		t.Errorf("after clean --older-than 1m, work = %+v, want the fresh claim intact", claims)
+	}
+}

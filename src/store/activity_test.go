@@ -633,3 +633,146 @@ func TestReleaseAgentClaimsClearsOwnClaims(t *testing.T) {
 		t.Fatalf("empty ReleaseAgentClaims = (%d, %v), want (0, nil)", n2, err)
 	}
 }
+
+// TestDeleteStaleWorkDefaultsToTTL pins the bare-call contract: with no agent
+// and no duration, DeleteStaleWork behaves like PruneStaleWork — only rows
+// older than WorkTTL go, fresh ones stay, and the empty-agent case can never
+// be the full-table wipe shape.
+func TestDeleteStaleWorkDefaultsToTTL(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid := mustTask(t, s, lid, "task", nil)
+
+	if _, err := s.ClaimWork("task", tid, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+
+	n, err := s.DeleteStaleWork("", 0)
+	if err != nil {
+		t.Fatalf("DeleteStaleWork: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("bare DeleteStaleWork deleted %d fresh rows, want 0", n)
+	}
+
+	// Age the claim past the TTL; the same bare call must delete it.
+	stale := time.Now().Add(-WorkTTL - time.Minute).Unix()
+	if _, err := s.db.Exec(`UPDATE AgentActivity SET acquired_at = ?`, stale); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+	n, err = s.DeleteStaleWork("", 0)
+	if err != nil {
+		t.Fatalf("DeleteStaleWork: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("bare DeleteStaleWork deleted %d rows, want 1", n)
+	}
+}
+
+// TestDeleteStaleWorkOlderThanFilter pins the --older-than contract: rows
+// younger than the given duration survive, older ones go.
+func TestDeleteStaleWorkOlderThanFilter(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid1 := mustTask(t, s, lid, "t1", nil)
+	tid2 := mustTask(t, s, lid, "t2", nil)
+
+	if _, err := s.ClaimWork("task", tid1, "a1", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	if _, err := s.ClaimWork("task", tid2, "a2", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	// Age only tid1's claim to two minutes; tid2's stays fresh.
+	old := time.Now().Add(-2 * time.Minute).Unix()
+	if _, err := s.db.Exec(`UPDATE AgentActivity SET acquired_at = ? WHERE entity_id = ?`, old, tid1); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	n, err := s.DeleteStaleWork("", time.Minute)
+	if err != nil {
+		t.Fatalf("DeleteStaleWork: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("DeleteStaleWork deleted %d rows, want 1", n)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 1 || work[0].EntityID != tid2 {
+		t.Fatalf("the fresh claim must survive, got %v", work)
+	}
+}
+
+// TestDeleteStaleWorkAgentFilter pins the --agent contract: the named agent's
+// rows go regardless of age — ReleaseAgentClaims' session-end semantics,
+// without its empty-agent error — and other agents' rows stay.
+func TestDeleteStaleWorkAgentFilter(t *testing.T) {
+	s := newActivityStore(t)
+	lid1 := mustList(t, s, "list1")
+	lid2 := mustList(t, s, "list2")
+	tid1 := mustTask(t, s, lid1, "task1", nil)
+	tid2 := mustTask(t, s, lid2, "task2", nil)
+
+	if _, err := s.ClaimWork("task", tid1, "pi", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	if _, err := s.ClaimWork("task", tid2, "other", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+
+	n, err := s.DeleteStaleWork("pi", 0)
+	if err != nil {
+		t.Fatalf("DeleteStaleWork: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("DeleteStaleWork deleted %d rows, want 1", n)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 1 || work[0].AgentID != "other" {
+		t.Fatalf("another agent's claim must survive, got %v", work)
+	}
+}
+
+// TestDeleteStaleWorkAgentAndAge pins the combined contract: --agent AND
+// --older-than narrow each other — only that agent's rows older than the
+// duration go, and the same agent's fresh rows survive.
+func TestDeleteStaleWorkAgentAndAge(t *testing.T) {
+	s := newActivityStore(t)
+	lid := mustList(t, s, "list")
+	tid1 := mustTask(t, s, lid, "t1", nil)
+	tid2 := mustTask(t, s, lid, "t2", nil)
+
+	if _, err := s.ClaimWork("task", tid1, "pi", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	if _, err := s.ClaimWork("task", tid2, "pi", ActivityWorking); err != nil {
+		t.Fatalf("ClaimWork: %v", err)
+	}
+	old := time.Now().Add(-2 * time.Minute).Unix()
+	if _, err := s.db.Exec(`UPDATE AgentActivity SET acquired_at = ? WHERE entity_id = ?`, old, tid1); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	n, err := s.DeleteStaleWork("pi", time.Minute)
+	if err != nil {
+		t.Fatalf("DeleteStaleWork: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("DeleteStaleWork deleted %d rows, want 1", n)
+	}
+
+	work, err := s.ListWork()
+	if err != nil {
+		t.Fatalf("ListWork: %v", err)
+	}
+	if len(work) != 1 || work[0].EntityID != tid2 {
+		t.Fatalf("pi's fresh claim must survive, got %v", work)
+	}
+}

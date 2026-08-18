@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -253,6 +254,43 @@ func (s *Store) ReleaseAgentClaims(agentID string) (int, error) {
 	res, err := s.db.Exec(`DELETE FROM AgentActivity WHERE agent_id = ?`, agentID)
 	if err != nil {
 		return 0, fmt.Errorf("release agent claims: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+// DeleteStaleWork removes AgentActivity rows older than olderThan, scoped to
+// agentID when non-empty — the targeted variant of PruneStaleWork /
+// ReleaseAgentClaims that `farol work clean` drives (docs/DESIGN.md §3).
+// A non-positive olderThan means "no age filter" only when an agent is named:
+// that agent's rows go regardless of staleness, the session-end semantics of
+// ReleaseAgentClaims. With no agent named, olderThan falls back to WorkTTL,
+// so a bare DeleteStaleWork("", 0) is equivalent to PruneStaleWork rather
+// than the one call shape that would silently wipe the whole table.
+func (s *Store) DeleteStaleWork(agentID string, olderThan time.Duration) (int, error) {
+	if olderThan <= 0 && agentID == "" {
+		olderThan = WorkTTL
+	}
+	query := `DELETE FROM AgentActivity`
+	var conds []string
+	var args []any
+	if agentID != "" {
+		conds = append(conds, `agent_id = ?`)
+		args = append(args, agentID)
+	}
+	if olderThan > 0 {
+		conds = append(conds, `acquired_at < ?`)
+		args = append(args, time.Now().Add(-olderThan).Unix())
+	}
+	if len(conds) > 0 {
+		query += ` WHERE ` + strings.Join(conds, ` AND `)
+	}
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("delete stale work: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
