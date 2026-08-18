@@ -177,3 +177,13 @@ func (m Model) FilterActive() bool {
 	}
 	return false
 }
+
+// FilterValue returns the tree's current /-filter query text, for
+// AppModel-level tests that need to prove a keystroke landed in the filter
+// input rather than being swallowed or triggering a shortcut.
+func (m Model) FilterValue() string {
+	if tree, ok := m.tree.(interface{ FilterValue() string }); ok {
+		return tree.FilterValue()
+	}
+	return ""
+}

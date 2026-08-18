@@ -235,20 +235,26 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.Select):
 			finalCmds = append(finalCmds, m.closeListsPanel())
 
-		// List CRUD keys: only active when lists panel is visible and focused.
-		// Both rename and delete act on the panel's highlighted list, not on
-		// the list open in the tasks panel: the two diverge whenever the
-		// active list changes without the panel cursor moving (the global
-		// picker jumping to another list, or a delete ahead of the cursor).
-		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.New):
+		// List CRUD keys: only active when lists panel is visible and focused,
+		// and never while the panel's /-filter is being typed — n, R, d, e and
+		// i are all printable, so while the filter input owns the keyboard they
+		// are query characters, not commands (the same guard Lists.Select above
+		// uses to keep enter for the filter). The suppressed keypress falls
+		// through to the component fan-out, where the list's own filter input
+		// consumes it. Both rename and delete act on the panel's highlighted
+		// list, not on the list open in the tasks panel: the two diverge
+		// whenever the active list changes without the panel cursor moving (the
+		// global picker jumping to another list, or a delete ahead of the
+		// cursor).
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.New):
 			m.activeModal = listnamemodal.New(listnamemodal.ModeNew, "", m.store)
 
-		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Rename):
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.Rename):
 			if target := m.highlightedListID(); target != "" {
 				m.activeModal = listnamemodal.New(listnamemodal.ModeRename, target, m.store)
 			}
 
-		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Delete):
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.Delete):
 			if target := m.highlightedListID(); target != "" {
 				// Name the list and its task count so d (bound to both panels,
 				// with no undo anywhere) cannot wipe a list the user mistook for
@@ -280,10 +286,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Export / import open the matching modal. They act on (or add to) the
 		// lists panel, so they share the focused-Lists-panel guard the other
 		// list CRUD keys use (docs/DESIGN.md §9, export/import).
-		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Export):
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.Export):
 			m.activeModal = importexportmodal.NewExport(m.store, m.highlightedListIDptr(), m.terminalWidth)
 
-		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && key.Matches(msg, keys.Lists.Import):
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.Import):
 			m.activeModal = importexportmodal.NewImport(m.store, m.terminalWidth)
 
 		}

@@ -172,6 +172,11 @@ func (m Model) listsBelow() int {
 // for AppModel-level tests.
 func (m Model) FilterActive() bool { return m.list.FilterState() != list.Unfiltered }
 
+// FilterValue returns the current filter query text, for AppModel-level
+// tests that need to prove a keystroke landed in the filter input rather
+// than being swallowed or triggering a shortcut.
+func (m Model) FilterValue() string { return m.list.FilterValue() }
+
 // selectList broadcasts which list is selected to AppModel.
 func (m Model) selectList() tea.Cmd {
 	if len(m.list.Items()) == 0 {

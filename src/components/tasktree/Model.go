@@ -146,6 +146,11 @@ func (m Model) Rows() []apptypes.Row { return m.rows }
 // applied), for AppModel-level tests.
 func (m Model) FilterActive() bool { return m.filterActive() }
 
+// FilterValue returns the current filter query text, for AppModel-level
+// tests that need to prove a keystroke landed in the filter input rather
+// than being swallowed or triggering a shortcut.
+func (m Model) FilterValue() string { return m.filterInput.Value() }
+
 // SelectedID returns the currently selected task id, for tests and the
 // cross-list picker's jump verification.
 func (m Model) SelectedID() string { return m.selectedID }

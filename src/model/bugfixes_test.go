@@ -469,3 +469,128 @@ func TestFooterShowsCreateHintsOnTheFrameAfterN(t *testing.T) {
 		t.Errorf("footer on the frame right after n still shows browse hints:\n%s", out)
 	}
 }
+
+// Bug (task 00003803MAY3SMPHM9YPS8VAXR): typing e or i into the lists
+// panel's /-filter still opened the export/import modals. The lists CRUD
+// cases in AppModel.Update were guarded only on visibility+focus, not on
+// keyboardOwned(), so while the filter input owned the keyboard the
+// printable letters n, R, d, e and i matched their modal-openers instead of
+// typing into the query — unlike every global key (already suppressed) and
+// Lists.Select's enter (already guarded). The suppressed keypress falls
+// through to the component fan-out, where the list's own filter input
+// consumes it.
+func TestListsFilterTypingDoesNotOpenCRUDModals(t *testing.T) {
+	m := seedOneList(t)
+
+	// Open the lists panel; focus lands on it.
+	m = refresh(t, m, tea.KeyPressMsg{Text: "L", Code: 'L'})
+	if m.focusedZone != constants.COMPONENT_LISTS_PANEL {
+		t.Fatalf("after L, focused zone = %d, want lists panel", m.focusedZone)
+	}
+
+	// / opens the lists panel's own filter; the panel now owns the keyboard.
+	m = refresh(t, m, tea.KeyPressMsg{Text: "/", Code: '/'})
+	if !listsFilterActive(t, m) {
+		t.Fatal("/ with lists focused did not open the lists filter")
+	}
+
+	// applyOnce delivers msg without chasing the returned cmd: every
+	// keystroke into the focused filter input returns a cursor-blink
+	// rescheduling cmd (~530ms per hop) that refresh() would chase forever.
+	applyOnce := func(m AppModel, msg tea.Msg) AppModel {
+		t.Helper()
+		updated, _ := m.Update(msg)
+		out, ok := updated.(AppModel)
+		if !ok {
+			t.Fatalf("Update returned %T, want AppModel", updated)
+		}
+		return out
+	}
+
+	// Every printable shortcut bound in the Lists context — n (new), R
+	// (rename), d (delete), e (export), i (import) — must type into the
+	// filter query and open no modal while the filter input is live.
+	typed := ""
+	for _, k := range []string{"n", "R", "d", "e", "i"} {
+		m = applyOnce(m, tea.KeyPressMsg{Text: k, Code: rune(k[0])})
+		typed += k
+		if m.activeModal != nil {
+			t.Fatalf("typing %q in the lists filter opened a modal; the key must be a query character", k)
+		}
+		if !listsFilterActive(t, m) {
+			t.Fatalf("typing %q closed the lists filter", k)
+		}
+	}
+
+	// The keystrokes landed in the filter input, not just nowhere.
+	panel, ok := m.components.ListsPanel.(interface{ FilterValue() string })
+	if !ok {
+		t.Fatalf("ListsPanel is %T, want FilterValue accessor", m.components.ListsPanel)
+	}
+	if got := panel.FilterValue(); got != typed {
+		t.Errorf("lists filter query = %q, want %q (all five keys must type)", got, typed)
+	}
+
+	// esc clears the filter; with the keyboard back in the rows, e opens the
+	// export modal as always — the suppression is scoped to typing only.
+	m = refresh(t, m, tea.KeyPressMsg{Text: "esc"})
+	if listsFilterActive(t, m) {
+		t.Fatal("esc did not clear the lists filter")
+	}
+	m = refresh(t, m, tea.KeyPressMsg{Text: "e", Code: 'e'})
+	if m.activeModal == nil {
+		t.Error("e with the lists panel focused and unfiltered must still open the export modal")
+	}
+}
+
+// The task-tree /-filter input never had the leak: its handleFilterKey
+// routes every non-enter/esc keystroke into the input, and every global key
+// AppModel handles is guarded on keyboardOwned(). Pin it so the two filters
+// cannot drift: typing shortcut letters into the tree filter must neither
+// open a modal nor start an action.
+func TestTreeFilterTypingDoesNotTriggerShortcuts(t *testing.T) {
+	m := seedOneList(t)
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "/", Code: '/'})
+	if !treeFilterActive(t, m) {
+		t.Fatal("/ did not open the tree filter")
+	}
+
+	// Same blink caveat as the lists test: keystrokes into the focused
+	// filter input reschedule a cursor blink, so deliver without chasing.
+	applyOnce := func(m AppModel, msg tea.Msg) AppModel {
+		t.Helper()
+		updated, _ := m.Update(msg)
+		out, ok := updated.(AppModel)
+		if !ok {
+			t.Fatalf("Update returned %T, want AppModel", updated)
+		}
+		return out
+	}
+
+	// e and i are the reported keys (modal openers in the Lists context,
+	// unbound in the tree's); n is Tree.New, the tree action most likely to
+	// leak if the filter input ever stopped swallowing keys.
+	typed := ""
+	for _, k := range []string{"e", "i", "n"} {
+		m = applyOnce(m, tea.KeyPressMsg{Text: k, Code: rune(k[0])})
+		typed += k
+		if m.activeModal != nil {
+			t.Fatalf("typing %q in the tree filter opened a modal", k)
+		}
+		if !treeFilterActive(t, m) {
+			t.Fatalf("typing %q closed the tree filter", k)
+		}
+	}
+	if tasks, ok := m.components.TaskPanel.(interface{ IsCreating() bool }); ok && tasks.IsCreating() {
+		t.Fatal("typing n in the tree filter started inline creation")
+	}
+
+	tree, ok := m.components.TaskPanel.(interface{ FilterValue() string })
+	if !ok {
+		t.Fatalf("TaskPanel is %T, want FilterValue accessor", m.components.TaskPanel)
+	}
+	if got := tree.FilterValue(); got != typed {
+		t.Errorf("tree filter query = %q, want %q (shortcut letters must type)", got, typed)
+	}
+}
