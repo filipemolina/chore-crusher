@@ -35,7 +35,7 @@ func (m *Model) View() tea.View {
 		m.titleInput.View(),
 		"",
 		m.fieldLabel("Notes", focusNotes),
-		m.notes.View(),
+		m.renderNotesView(),
 		"",
 		m.fieldLabel("Progress", focusProgress),
 		m.renderProgressZone(),

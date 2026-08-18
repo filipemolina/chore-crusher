@@ -22,9 +22,13 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/filipemolina/farol/src/appstyles"
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/components/chrome"
 	"github.com/filipemolina/farol/src/constants"
+	"github.com/filipemolina/farol/src/mentions"
 	"github.com/filipemolina/farol/src/store"
 )
 
@@ -870,6 +874,15 @@ func (m *Model) postComment() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// renderNotesView returns the appropriate notes view: the textarea when focused
+// (for editing), or the mention-resolved styled view when not focused (for reading).
+func (m *Model) renderNotesView() string {
+	if m.focus == focusNotes {
+		return m.notes.View()
+	}
+	return m.renderNotesWithMentions()
+}
+
 // osUser returns the current OS username for human-authored writes (comments),
 // falling back to $USER/$LOGNAME when os/user.Current fails — some minimal
 // containers lack /etc/passwd. Mirrors the CLI's osUser so human attribution is
@@ -882,4 +895,97 @@ func osUser() string {
 		return u
 	}
 	return os.Getenv("LOGNAME")
+}
+
+// resolveMentionTitle looks up a task by ID and returns its title,
+// or an empty string if the task doesn't exist (deleted).
+func (m *Model) resolveMentionTitle(id string) string {
+	task, err := m.store.GetTask(id)
+	if err != nil {
+		return ""
+	}
+	return task.Title
+}
+
+// renderNotesWithMentions returns the notes text with @<ULID> mentions
+// resolved to task titles and highlighted in the accent color. Deleted tasks
+// render as "[deleted task]". This is used when the notes field is not focused
+// (viewing mode). When focused, the raw textarea is shown for editing.
+// The output is limited to notesRows() lines to match the textarea's viewport.
+func (m *Model) renderNotesWithMentions() string {
+	rawNotes := m.notes.Value()
+	if rawNotes == "" {
+		return ""
+	}
+
+	innerW := m.innerWidth()
+	prompt := "┃ "
+	promptW := lipgloss.Width(prompt)
+	textW := max(0, innerW-promptW)
+	maxLines := m.notesRows()
+
+	// Parse mentions in the raw notes
+	mentionList := mentions.ParseMentions(rawNotes)
+	if mentionList == nil {
+		// No mentions, just render the plain text with prompt on each line
+		return m.renderPlainNotes(rawNotes, prompt, textW, maxLines)
+	}
+
+	// Build a styled string by replacing mentions with resolved titles
+	var result strings.Builder
+	lastEnd := 0
+	for _, mention := range mentionList {
+		// Write text before the mention
+		result.WriteString(rawNotes[lastEnd:mention.Start])
+
+		// Resolve the mention
+		title := m.resolveMentionTitle(mention.ID)
+		mentionStyle := lipgloss.NewStyle().
+			Foreground(appstyles.Active.Accent).
+			Bold(true)
+		if title == "" {
+			result.WriteString(mentionStyle.Render("[deleted task]"))
+		} else {
+			result.WriteString(mentionStyle.Render("@" + title))
+		}
+
+		lastEnd = mention.End
+	}
+	// Write remaining text after the last mention
+	result.WriteString(rawNotes[lastEnd:])
+
+	// Now split into lines, limit to maxLines, and apply prompt + truncation
+	styledText := result.String()
+	lines := strings.Split(styledText, "\n")
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	var outLines []string
+	for _, line := range lines {
+		// Truncate each line to fit the text width
+		truncated := chrome.Truncate(line, textW)
+		outLines = append(outLines, prompt+truncated)
+	}
+
+	// Apply background styling to seal the modal background
+	bg := appstyles.Active.ModalBg
+	styled := lipgloss.NewStyle().Background(bg).Render(strings.Join(outLines, "\n"))
+	return appstyles.FillBackground(bg, styled)
+}
+
+// renderPlainNotes renders notes without mentions, applying prompt and truncation,
+// limited to maxLines.
+func (m *Model) renderPlainNotes(text, prompt string, textW, maxLines int) string {
+	lines := strings.Split(text, "\n")
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	var outLines []string
+	for _, line := range lines {
+		truncated := chrome.Truncate(line, textW)
+		outLines = append(outLines, prompt+truncated)
+	}
+	bg := appstyles.Active.ModalBg
+	styled := lipgloss.NewStyle().Background(bg).Render(strings.Join(outLines, "\n"))
+	return appstyles.FillBackground(bg, styled)
 }
