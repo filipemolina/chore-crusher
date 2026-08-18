@@ -352,22 +352,22 @@ func TestDerivedProgressSubtasksPercent(t *testing.T) {
 
 // TestAutoSwitchParentToSubtasks pins the "Auto percentage on parent tasks"
 // rule (backlog #7): a task that gains its first subtask switches to subtasks
-// mode and starts — a pending parent becomes in_progress with a
-// subtasks-derived percentage, the same side effect a user setting progress
-// by hand gets (docs/DESIGN.md §3). An explicit kind is never overridden, a
-// complete parent is never touched, and a later sibling leaves an
-// already-switched parent alone. Both add paths exercise it — CreateTask and
-// CreateTaskAfter — so the CLI and the TUI cannot diverge.
+// mode but does NOT start — a pending parent stays pending with a
+// subtasks-derived percentage (docs/DESIGN.md §3: creating a subtask is
+// planning, not starting). An explicit kind is never overridden, a complete
+// parent is never touched, and a later sibling leaves an already-switched
+// parent alone. Both add paths exercise it — CreateTask and CreateTaskAfter —
+// so the CLI and the TUI cannot diverge.
 func TestAutoSwitchParentToSubtasks(t *testing.T) {
 	s := newTestStore(t)
 	lid := mustList(t, s, "l")
 
 	// A pending parent with no kind yet: the first child auto-switches it to
-	// subtasks mode and starts it.
+	// subtasks mode but leaves it pending — work has not begun on any child.
 	parent := mustTask(t, s, lid, "parent", nil)
 	mustTask(t, s, lid, "child", &parent)
-	if p := mustGet(t, s, parent); p.ProgressKind != ProgressSubtasks || p.Status != StatusInProgress {
-		t.Fatalf("parent after first child = kind %q status %q, want subtasks/in_progress",
+	if p := mustGet(t, s, parent); p.ProgressKind != ProgressSubtasks || p.Status != StatusPending {
+		t.Fatalf("parent after first child = kind %q status %q, want subtasks/pending",
 			p.ProgressKind, p.Status)
 	}
 	kind, pct, simple, err := s.DerivedProgress(parent)
@@ -396,14 +396,15 @@ func TestAutoSwitchParentToSubtasks(t *testing.T) {
 
 	// A complete parent is reopened when a child is added, because a complete
 	// task with a pending child is a forbidden state (docs/DESIGN.md §3).
-	// The auto-switch to subtasks mode then applies to the reopened parent.
+	// The auto-switch to subtasks mode then applies to the reopened parent,
+	// which stays pending until a child starts.
 	done := mustTask(t, s, lid, "done", nil)
 	if err := s.Complete(done); err != nil {
 		t.Fatalf("Complete(done): %v", err)
 	}
 	mustTask(t, s, lid, "done child", &done)
-	if d := mustGet(t, s, done); d.ProgressKind != ProgressSubtasks || d.Status != StatusInProgress {
-		t.Errorf("complete parent should be reopened and switched to subtasks, got %q/%q", d.ProgressKind, d.Status)
+	if d := mustGet(t, s, done); d.ProgressKind != ProgressSubtasks || d.Status != StatusPending {
+		t.Errorf("complete parent should be reopened and switched to subtasks (pending), got %q/%q", d.ProgressKind, d.Status)
 	}
 
 	// CreateTaskAfter — the TUI's inline-create path — fires the same
@@ -414,8 +415,8 @@ func TestAutoSwitchParentToSubtasks(t *testing.T) {
 	if _, err := s.CreateTaskAfter(lid, "after child", &afterParent, "", ""); err != nil {
 		t.Fatalf("CreateTaskAfter append: %v", err)
 	}
-	if a := mustGet(t, s, afterParent); a.ProgressKind != ProgressSubtasks || a.Status != StatusInProgress {
-		t.Errorf("CreateTaskAfter parent = kind %q status %q, want subtasks/in_progress",
+	if a := mustGet(t, s, afterParent); a.ProgressKind != ProgressSubtasks || a.Status != StatusPending {
+		t.Errorf("CreateTaskAfter parent = kind %q status %q, want subtasks/pending",
 			a.ProgressKind, a.Status)
 	}
 	firstChild := mustTask(t, s, lid, "after child 2", &afterParent)
@@ -424,6 +425,104 @@ func TestAutoSwitchParentToSubtasks(t *testing.T) {
 	}
 	if a := mustGet(t, s, afterParent); a.ProgressKind != ProgressSubtasks {
 		t.Errorf("positioned CreateTaskAfter changed kind to %q, want subtasks", a.ProgressKind)
+	}
+}
+
+// TestParentStatusDerivedFromChildren pins the derived parent-status rule
+// (docs/DESIGN.md §3): a subtasks-mode parent is in_progress when any direct
+// child is in_progress or complete, and pending when every direct child is
+// pending again. Creating a child does not start the parent; starting or
+// completing a child does; reopening the last in-progress child returns the
+// parent to pending.
+func TestParentStatusDerivedFromChildren(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	// Creating a child under a pending/none parent switches it to subtasks
+	// mode but leaves it pending — planning, not starting.
+	parent := mustTask(t, s, lid, "parent", nil)
+	c1 := mustTask(t, s, lid, "child 1", &parent)
+	if p := mustGet(t, s, parent); p.ProgressKind != ProgressSubtasks || p.Status != StatusPending {
+		t.Fatalf("parent after first child = kind %q status %q, want subtasks/pending", p.ProgressKind, p.Status)
+	}
+
+	// A child going in_progress starts the parent.
+	if err := s.SetProgress(c1, ProgressSimple, nil); err != nil {
+		t.Fatalf("SetProgress(c1, simple): %v", err)
+	}
+	if got := mustGet(t, s, parent).Status; got != StatusInProgress {
+		t.Fatalf("parent after child in_progress = %s, want in_progress", got)
+	}
+
+	// A second child completing keeps the parent in_progress.
+	c2 := mustTask(t, s, lid, "child 2", &parent)
+	if err := s.Complete(c2); err != nil {
+		t.Fatalf("Complete(c2): %v", err)
+	}
+	if got := mustGet(t, s, parent).Status; got != StatusInProgress {
+		t.Fatalf("parent after child complete = %s, want in_progress", got)
+	}
+
+	// Reopening the last in-progress child (c1) leaves c2 complete, so the
+	// parent stays in_progress.
+	if err := s.Reopen(c1); err != nil {
+		t.Fatalf("Reopen(c1): %v", err)
+	}
+	if got := mustGet(t, s, parent).Status; got != StatusInProgress {
+		t.Fatalf("parent after reopening one of two children = %s, want in_progress (c2 still complete)", got)
+	}
+
+	// Reopening the remaining complete child returns the parent to pending.
+	if err := s.Reopen(c2); err != nil {
+		t.Fatalf("Reopen(c2): %v", err)
+	}
+	if got := mustGet(t, s, parent).Status; got != StatusPending {
+		t.Fatalf("parent after all children pending = %s, want pending", got)
+	}
+}
+
+// TestParentStatusAllChildrenCompletePromotes — completing every child of a
+// subtasks-mode parent promotes it to complete (existing auto-completion),
+// not merely to in_progress.
+func TestParentStatusAllChildrenCompletePromotes(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	parent := mustTask(t, s, lid, "parent", nil)
+	c1 := mustTask(t, s, lid, "child 1", &parent)
+	c2 := mustTask(t, s, lid, "child 2", &parent)
+
+	if err := s.Complete(c1); err != nil {
+		t.Fatalf("Complete(c1): %v", err)
+	}
+	if got := mustGet(t, s, parent).Status; got != StatusInProgress {
+		t.Fatalf("parent after one child complete = %s, want in_progress", got)
+	}
+	if err := s.Complete(c2); err != nil {
+		t.Fatalf("Complete(c2): %v", err)
+	}
+	if got := mustGet(t, s, parent).Status; got != StatusComplete {
+		t.Fatalf("parent after all children complete = %s, want complete", got)
+	}
+}
+
+// TestParentStatusExplicitKindNotOverridden — a parent with an explicit
+// progress kind is not started by its children's status changes.
+func TestParentStatusExplicitKindNotOverridden(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	parent := mustTask(t, s, lid, "parent", nil)
+	if err := s.SetProgress(parent, ProgressPercentage, intptr(40)); err != nil {
+		t.Fatalf("SetProgress(parent, percentage 40): %v", err)
+	}
+	child := mustTask(t, s, lid, "child", &parent)
+	if err := s.Complete(child); err != nil {
+		t.Fatalf("Complete(child): %v", err)
+	}
+	p := mustGet(t, s, parent)
+	if p.ProgressKind != ProgressPercentage || p.Status != StatusInProgress {
+		t.Fatalf("explicit-kind parent changed to %q/%q after child complete, want percentage/in_progress", p.ProgressKind, p.Status)
 	}
 }
 

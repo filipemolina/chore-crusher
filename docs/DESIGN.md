@@ -115,9 +115,15 @@ edges wrong, so read the whole thing before writing `store` code that touches
 `status` or `progress_kind`.
 
 **States.** A task's `status` is one of `pending`, `in_progress`, `complete`.
-`progress_kind` only has meaning while `status = in_progress`; it is `none`
-for `pending` and `complete` tasks (§3 keeps this an invariant the store
-enforces, not a convention callers remember).
+`progress_kind` is `none` for `complete` tasks. For `pending` and `in_progress`
+tasks it records the progress tracking mode: `none` (no progress tracking),
+`simple` (work started, no percentage), `subtasks` (percentage derived from
+direct children), or `percentage` (user-set percentage). A `pending` task
+**may** have `progress_kind = 'subtasks'` when it has children but work has not
+yet begun on any of them — creating subtasks is planning, not starting. The
+invariant that `progress_kind` only *drives behavior* (percentage display,
+auto-completion) while `status = in_progress` still holds; for a `pending`
+task it records *intent*.
 
 **The three flavors of `in_progress`:**
 
@@ -145,16 +151,25 @@ intent the next time they check the details screen.
 When any add path (CLI `add --parent`, the TUI's inline create) inserts a
 task under a parent whose `progress_kind` is still `none` — the create-time
 default, which is the absence of a choice rather than a choice — the store
-switches the parent to `subtasks` mode through the same `SetProgress` write
-path a user setting progress by hand uses. Because setting progress starts a
-task (§3), a pending parent becomes `in_progress` as a side effect: a parent
-that has subtasks is a parent that has started, and the derived percentage is
-what "auto percentage on parent tasks" means. An explicit kind (`simple`,
-`subtasks`, `percentage`) is never overridden by this rule. If the parent is
-complete, it is reopened to `pending` (lossy, per §3) before the auto-switch
-applies, because a complete task with a pending child is a forbidden state.
-Both add paths share the switch, so the CLI and the TUI cannot diverge on
-whether a new subtask starts its parent.
+switches the parent to `subtasks` mode. This sets only the *kind*; it does
+**not** start the parent. Creating a subtask is planning, not starting, so a
+pending parent stays `pending` until one of its children actually starts. An
+explicit kind (`simple`, `subtasks`, `percentage`) is never overridden by this
+rule. If the parent is complete, it is reopened to `pending` (lossy, per §3)
+before the auto-switch applies, because a complete task with a pending child
+is a forbidden state. Both add paths share the switch, so the CLI and the TUI
+cannot diverge on whether a new subtask starts its parent.
+
+**A subtasks-mode parent's status is derived from its direct children.** A
+parent whose `progress_kind = 'subtasks'` is `in_progress` when any direct
+child is `in_progress` or `complete`, and `pending` when every direct child is
+`pending` again. This is the two-way counterpart to auto-completion below: it
+keeps a parent's "started" state honest against its children, so a parent does
+not sit `in_progress` forever after one child started and the rest were
+reopened. The store recomputes it on every child status write (completing a
+child starts its parent; reopening the last in-progress child returns the
+parent to `pending`). The derived percentage is what "auto percentage on
+parent tasks" means.
 
 **Auto-completion is asymmetric between the two derived-vs-declared kinds,
 and this is deliberate:**

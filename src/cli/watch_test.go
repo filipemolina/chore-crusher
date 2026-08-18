@@ -157,11 +157,12 @@ func TestWatchLiveStartReportsOnlyChanges(t *testing.T) {
 	if child.ID != childID || child.Depth != 1 || child.ParentID == nil || *child.ParentID != rootID {
 		t.Errorf("child payload = %+v, want id %s, depth 1, parent %s", child, childID, rootID)
 	}
-	// The root gained its first subtask, which auto-starts it to in_progress
-	// in subtasks mode (docs/DESIGN.md §3) — the created event carries the
-	// post-switch state. The child is created plain pending.
-	if root.Status != "in_progress" {
-		t.Errorf("root payload %+v: want status in_progress (auto-started by its first subtask)", root)
+	// The root gained its first subtask, which switches it to subtasks mode
+	// but does NOT start it — creating a subtask is planning, not starting
+	// (docs/DESIGN.md §3) — so the created event carries the post-switch
+	// pending state. The child is created plain pending.
+	if root.Status != "pending" {
+		t.Errorf("root payload %+v: want status pending (subtasks mode, not started by its first subtask)", root)
 	}
 	if child.Status != "pending" {
 		t.Errorf("child payload %+v: want status pending", child)

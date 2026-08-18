@@ -447,9 +447,11 @@ func validStatusFilter(s string) bool {
 // sectionRows flattens a list's tasks and splits the rows by each tree's
 // root status (docs/DESIGN.md §6: a root's own status decides its section,
 // so a pending root's complete children stay in Pending), applying the
-// --status filter at the root — a root's whole subtree is included or not as
-// a unit. The store rows are converted to apptypes at the boundary, so the
-// shared Flatten (and its Row type) never sees store.Task.
+// --status filter per task (not per root) — each task is included or
+// excluded based on its own status. When --status all, the current behavior
+// is preserved: all rows, split by root status into Pending/Complete sections.
+// The store rows are converted to apptypes at the boundary, so the shared
+// Flatten (and its Row type) never sees store.Task.
 func sectionRows(tasks []store.Task, status string) (pending, complete []apptypes.Row) {
 	converted := apptypes.FromStoreTasks(tasks)
 	rows := apptypes.Flatten(converted)
@@ -458,19 +460,34 @@ func sectionRows(tasks []store.Task, status string) (pending, complete []apptype
 		byID[t.ID] = t
 	}
 	for _, r := range rows {
-		root := r.Task
-		for root.ParentID != nil {
-			root = byID[*root.ParentID]
+		taskStatus := r.Task.Status
+		// When status is "all", preserve the root-based sectioning behavior (§6).
+		if status == "all" {
+			root := r.Task
+			for root.ParentID != nil {
+				root = byID[*root.ParentID]
+			}
+			if root.Status == apptypes.StatusComplete {
+				complete = append(complete, r)
+			} else {
+				pending = append(pending, r)
+			}
+			continue
 		}
-		switch {
-		case root.Status == apptypes.StatusComplete:
-			if status == "all" || status == "complete" {
+		// For specific status filters, match each task's own status.
+		switch status {
+		case "pending":
+			if taskStatus == apptypes.StatusPending {
+				pending = append(pending, r)
+			}
+		case "in_progress":
+			if taskStatus == apptypes.StatusInProgress {
+				pending = append(pending, r)
+			}
+		case "complete":
+			if taskStatus == apptypes.StatusComplete {
 				complete = append(complete, r)
 			}
-		case status == "all" ||
-			(status == "pending" && root.Status == apptypes.StatusPending) ||
-			(status == "in_progress" && root.Status == apptypes.StatusInProgress):
-			pending = append(pending, r)
 		}
 	}
 	return pending, complete

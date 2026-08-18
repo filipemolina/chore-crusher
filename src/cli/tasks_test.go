@@ -163,6 +163,90 @@ func TestTasksStatusFilter(t *testing.T) {
 	if code != 1 || !strings.Contains(errOut, "--status") {
 		t.Errorf("--status bogus: exit %d stderr %q", code, errOut)
 	}
+
+	// --- Per-task status filter with nested tasks ---
+
+	// Create a complete root with a pending child.
+	// Adding a child to a complete root reopens it to pending, then auto-switches
+	// to subtasks mode. The parent stays pending — creating a subtask is
+	// planning, not starting (docs/DESIGN.md §3). The child stays pending.
+	completeRoot := strings.TrimSpace(mustCLI(t, data, "add", lid, "complete root"))
+	mustCLI(t, data, completeRoot) // complete it (cascades to any children, but none yet)
+	mustCLI(t, data, "add", lid, "pending child of complete", "--parent", completeRoot)
+
+	// Create an in_progress root with a pending child.
+	inProgressRoot := strings.TrimSpace(mustCLI(t, data, "add", lid, "in_progress root"))
+	mustCLI(t, data, "progress", inProgressRoot, "--mode", "simple")
+	mustCLI(t, data, "add", lid, "pending child of in_progress", "--parent", inProgressRoot)
+
+	// Create a pending root with an in_progress child.
+	// Adding a child to a pending root auto-switches it to subtasks mode but
+	// leaves it pending; setting the child in_progress then starts the parent
+	// (docs/DESIGN.md §3).
+	pendingRoot := strings.TrimSpace(mustCLI(t, data, "add", lid, "pending root"))
+	inProgressChildOfPending := strings.TrimSpace(mustCLI(t, data, "add", lid, "in_progress child of pending", "--parent", pendingRoot))
+	mustCLI(t, data, "progress", inProgressChildOfPending, "--mode", "simple")
+
+	// --status pending should show all pending tasks at any depth.
+	// completeRoot is reopened to pending (not in_progress) by adding a child,
+	// so it appears here. pendingRoot is in_progress (its child started), so it
+	// does not.
+	out = mustCLI(t, data, "tasks", lid, "--status", "pending")
+	for _, want := range []string{"pending task", "pending child of complete", "pending child of in_progress", "complete root"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--status pending missing %q in:\n%s", want, out)
+		}
+	}
+	// Should NOT show in_progress or complete tasks.
+	for _, unwanted := range []string{"started task", "in_progress root", "in_progress child of pending", "pending root"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("--status pending unexpectedly contains %q in:\n%s", unwanted, out)
+		}
+	}
+
+	// --status in_progress should show all in_progress tasks at any depth.
+	// This includes: the original started task, in_progress root, pending root
+	// (started by its in_progress child), and the explicit in_progress child.
+	// completeRoot is pending (not in_progress), so it does not appear.
+	out = mustCLI(t, data, "tasks", lid, "--status", "in_progress")
+	for _, want := range []string{"started task", "in_progress root", "pending root", "in_progress child of pending"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--status in_progress missing %q in:\n%s", want, out)
+		}
+	}
+	// Should NOT show pending tasks.
+	for _, unwanted := range []string{"pending task", "pending child of complete", "pending child of in_progress", "complete root"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("--status in_progress unexpectedly contains %q in:\n%s", unwanted, out)
+		}
+	}
+
+	// --status complete should show all complete tasks at any depth.
+	// After adding children, no tasks remain complete (complete root was reopened).
+	out = mustCLI(t, data, "tasks", lid, "--status", "complete")
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("--status complete should be empty (no tasks remain complete after adding children), got:\n%s", out)
+	}
+
+	// --status all should preserve root-based sectioning (all tasks, split by root status).
+	out = mustCLI(t, data, "tasks", lid, "--status", "all")
+	// All tasks should appear somewhere.
+	for _, want := range []string{"pending task", "started task", "complete root", "pending child of complete", "pending child of in_progress", "pending root", "in_progress root", "in_progress child of pending"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--status all missing %q in:\n%s", want, out)
+		}
+	}
+	// Should have both Pending and Complete sections (root-based).
+	// Roots that are in_progress (complete root, in_progress root, pending root)
+	// go to Pending section. Only roots that are complete go to Complete section.
+	// Since no roots are complete, only Pending section should appear.
+	if !strings.Contains(out, "Pending (") {
+		t.Errorf("--status all should have Pending section:\n%s", out)
+	}
+	// Complete section should not appear (no complete roots).
+	if strings.Contains(out, "Complete (") {
+		t.Errorf("--status all should not have Complete section (no complete roots):\n%s", out)
+	}
 }
 
 func TestShow(t *testing.T) {

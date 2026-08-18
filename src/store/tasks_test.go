@@ -900,10 +900,11 @@ func TestReparentCompleteParentReopens(t *testing.T) {
 		t.Fatalf("Reparent: %v", err)
 	}
 
-	// Parent should be reopened and switched to subtasks
+	// Parent should be reopened and switched to subtasks, but stay pending —
+	// creating/reparenting a subtask is planning, not starting (docs/DESIGN.md §3).
 	d, _ := s.GetTask(done)
-	if d.Status != StatusInProgress || d.ProgressKind != ProgressSubtasks {
-		t.Fatalf("Parent should be reopened to in_progress/subtasks, got %s/%s", d.Status, d.ProgressKind)
+	if d.Status != StatusPending || d.ProgressKind != ProgressSubtasks {
+		t.Fatalf("Parent should be reopened to pending/subtasks, got %s/%s", d.Status, d.ProgressKind)
 	}
 
 	// Task should be reparented
@@ -1193,10 +1194,11 @@ func TestCreateTaskReopensCompleteParent(t *testing.T) {
 				t.Fatalf("Create: %v", err)
 			}
 
-			// Parent should be reopened and switched to subtasks
+			// Parent should be reopened and switched to subtasks, but stay
+			// pending — creating a subtask is planning, not starting (§3).
 			p, _ = s.GetTask(parent)
-			if p.Status != StatusInProgress || p.ProgressKind != ProgressSubtasks {
-				t.Fatalf("Parent should be reopened to in_progress/subtasks, got %s/%s", p.Status, p.ProgressKind)
+			if p.Status != StatusPending || p.ProgressKind != ProgressSubtasks {
+				t.Fatalf("Parent should be reopened to pending/subtasks, got %s/%s", p.Status, p.ProgressKind)
 			}
 
 			// New child should be pending
@@ -1250,8 +1252,8 @@ func TestReparentReopensCompleteParent(t *testing.T) {
 	}
 
 	d, _ := s.GetTask(done)
-	if d.Status != StatusInProgress || d.ProgressKind != ProgressSubtasks {
-		t.Fatalf("Parent should be reopened to in_progress/subtasks, got %s/%s", d.Status, d.ProgressKind)
+	if d.Status != StatusPending || d.ProgressKind != ProgressSubtasks {
+		t.Fatalf("Parent should be reopened to pending/subtasks, got %s/%s", d.Status, d.ProgressKind)
 	}
 
 	tk, _ := s.GetTask(task)

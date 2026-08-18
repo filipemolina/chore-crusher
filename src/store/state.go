@@ -32,6 +32,14 @@ func (s *Store) Complete(taskID string) error {
 	if err := completeDescendants(tx, taskID, now); err != nil {
 		return err
 	}
+	// Completing a child starts its subtasks-mode parent (docs/DESIGN.md §3):
+	// a parent whose child is complete has started. Run the parent-status walk
+	// before the completion walk — both are idempotent and monotonic, so a
+	// parent promoted to in_progress here can still be promoted to complete
+	// next if all its children are done.
+	if err := recomputeParentStatus(tx, taskID, now); err != nil {
+		return err
+	}
 	if err := recomputeAncestors(tx, taskID, now); err != nil {
 		return err
 	}
@@ -39,19 +47,33 @@ func (s *Store) Complete(taskID string) error {
 }
 
 // Reopen returns only that task to pending — it does not cascade to children
-// (a reopen is intentionally lossy; see docs/DESIGN.md §3) and it does not
-// touch the parent: re-derivation only ever promotes toward complete, never
-// demotes, so a reopened task can only reduce an ancestor's derived ratio.
+// (a reopen is intentionally lossy; see docs/DESIGN.md §3). It then walks the
+// task's ancestors: a subtasks-mode parent whose children are all pending
+// again is demoted back to pending (docs/DESIGN.md §3), so reopening the last
+// in-progress child of a parent returns that parent to pending too.
 func (s *Store) Reopen(taskID string) error {
-	res, err := s.db.Exec(
+	now := time.Now().Unix()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
 		`UPDATE Task SET status = 'pending', progress_kind = 'none', progress_pct = NULL,
 		                completed_at = NULL, updated_at = ? WHERE id = ?`,
-		time.Now().Unix(), taskID,
+		now, taskID,
 	)
 	if err != nil {
 		return err
 	}
-	return requireAffected(res, "task", taskID)
+	if err := requireAffected(res, "task", taskID); err != nil {
+		return err
+	}
+	if err := recomputeParentStatus(tx, taskID, now); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Toggle flips a task between complete and pending, "whichever applies":
@@ -140,19 +162,61 @@ func setProgressTx(tx *sql.Tx, taskID string, kind ProgressKind, percent *int, n
 	); err != nil {
 		return err
 	}
+	// A task that just started (or changed kind) can make a subtasks-mode
+	// ancestor's derived status hold: a parent whose child is now in_progress
+	// or complete starts too. Run the parent-status walk first, then the
+	// completion walk — both are idempotent and monotonic (pending →
+	// in_progress → complete), so their order cannot conflict.
+	if err := recomputeParentStatus(tx, taskID, now); err != nil {
+		return err
+	}
 	// A kind change can make a subtasks-mode ancestor's derived condition
 	// hold; the walk only ever promotes on the verified fact that every
 	// direct child is complete, so it is safe to run unconditionally.
 	return recomputeAncestors(tx, taskID, now)
 }
 
+// setProgressKindTx writes only a task's progress_kind (and, for percentage,
+// its percent) inside an already-open transaction, WITHOUT changing status.
+// It is the auto-switch path: creating a subtask records the parent's intent
+// to derive its percentage from its children, but does not start the parent —
+// a parent with subtasks but no started child stays pending (docs/DESIGN.md
+// §3). Validation mirrors setProgressTx, and it deliberately does not run
+// recomputeParentStatus or recomputeAncestors: a kind-only change on a task
+// that is not itself starting cannot make an ancestor's derived status hold.
+func setProgressKindTx(tx *sql.Tx, taskID string, kind ProgressKind, percent *int, now int64) error {
+	switch kind {
+	case ProgressPercentage:
+		if percent == nil {
+			return fmt.Errorf("task %q: progress_kind percentage requires a percent", taskID)
+		}
+		if *percent < 0 || *percent > 100 {
+			return fmt.Errorf("task %q: percent %d out of range 0..100", taskID, *percent)
+		}
+	case ProgressNone, ProgressSimple, ProgressSubtasks:
+		if percent != nil {
+			return fmt.Errorf("task %q: percent is only valid with progress_kind percentage", taskID)
+		}
+	default:
+		return fmt.Errorf("task %q: unknown progress kind %q", taskID, kind)
+	}
+	if _, err := tx.Exec(
+		`UPDATE Task SET progress_kind = ?, progress_pct = ?, updated_at = ? WHERE id = ?`,
+		kind, percent, now, taskID,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
 // autoSwitchParentToSubtasks implements the "Auto percentage on parent tasks"
 // rule (backlog #7): when a task gains a subtask and its parent's progress
 // kind is still unset ('none' — the create default, never an explicit choice),
 // the parent switches to subtasks mode so its percentage derives from its
-// children. Routing through setProgressTx is what starts the parent (a pending
-// parent becomes in_progress; docs/DESIGN.md §3) and keeps progress writes on
-// the single shared path. An explicit kind (simple, subtasks, percentage) is
+// children. It routes through setProgressKindTx, which sets only the kind and
+// does NOT start the parent: creating a subtask is planning, not starting, so
+// a pending parent stays pending until one of its children actually starts
+// (docs/DESIGN.md §3). An explicit kind (simple, subtasks, percentage) is
 // never overridden, and a complete parent is never touched — it can hold no
 // progress, and adding a child under one is a separate, unrelated edge.
 func autoSwitchParentToSubtasks(tx *sql.Tx, parentID string, now int64) error {
@@ -164,7 +228,7 @@ func autoSwitchParentToSubtasks(tx *sql.Tx, parentID string, now int64) error {
 		return err
 	}
 	if kind == ProgressNone && status != StatusComplete {
-		return setProgressTx(tx, parentID, ProgressSubtasks, nil, now)
+		return setProgressKindTx(tx, parentID, ProgressSubtasks, nil, now)
 	}
 	return nil
 }
@@ -246,6 +310,65 @@ func recomputeAncestors(tx *sql.Tx, taskID string, now int64) error {
 		}
 		if err := setComplete(tx, *parent, now); err != nil {
 			return err
+		}
+		current = *parent
+	}
+}
+
+// recomputeParentStatus walks upward from taskID's parent and derives each
+// subtasks-mode ancestor's status from its direct children (docs/DESIGN.md
+// §3): a pending parent whose child is in_progress or complete has started,
+// so it flips to in_progress; an in_progress parent whose children are all
+// pending again has stopped, so it flips back to pending. This is the
+// two-way counterpart to recomputeAncestors (which only ever promotes toward
+// complete): it keeps a parent's "started" state honest against its children
+// instead of leaving it in_progress forever after one child started. It stops
+// at the first ancestor that is not subtasks-mode or is complete — a complete
+// ancestor holds no progress, and a non-subtasks ancestor's status is not
+// derived from its children.
+func recomputeParentStatus(tx *sql.Tx, taskID string, now int64) error {
+	current := taskID
+	for {
+		parent, err := getParentID(tx, current)
+		if err != nil {
+			return err
+		}
+		if parent == nil {
+			return nil
+		}
+
+		anc, err := getTask(tx, *parent)
+		if err != nil {
+			return err
+		}
+		if anc.ProgressKind != ProgressSubtasks || anc.Status == StatusComplete {
+			return nil
+		}
+
+		// A parent is "started" when any direct child is in_progress or
+		// complete; it is pending only when every direct child is pending.
+		// Count the non-pending children directly rather than deriving from
+		// the complete count, which would miss in_progress children.
+		var nonPending int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM Task WHERE parent_id = ? AND status != 'pending'`,
+			*parent,
+		).Scan(&nonPending); err != nil {
+			return err
+		}
+		var want Status
+		if nonPending > 0 {
+			want = StatusInProgress
+		} else {
+			want = StatusPending
+		}
+		if anc.Status != want {
+			if _, err := tx.Exec(
+				`UPDATE Task SET status = ?, updated_at = ? WHERE id = ?`,
+				want, now, *parent,
+			); err != nil {
+				return err
+			}
 		}
 		current = *parent
 	}
