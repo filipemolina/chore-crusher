@@ -899,3 +899,197 @@ func TestNextHumanEmptyPrintsNothing(t *testing.T) {
 		t.Fatalf("exhausted next human output = %q, want empty", out)
 	}
 }
+
+// TestAddBatch pins the multi-title add: `farol add <list> <title>...`
+// creates every task under the same resolved parent (or the list root when
+// no --parent is given), prints one id per line in human mode, and returns
+// {"ids": [...]} in --json mode — the plural of the single-add {"id": ...}.
+func TestAddBatch(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+	parent := strings.TrimSpace(mustCLI(t, data, "add", lid, "parent"))
+
+	// Human mode: one id per line, in input order.
+	out := mustCLI(t, data, "add", lid, "one", "two", "three", "--parent", parent)
+	ids := strings.Fields(out)
+	if len(ids) != 3 {
+		t.Fatalf("add batch human output = %q, want 3 ids", out)
+	}
+	for _, id := range ids {
+		if id == "" {
+			t.Errorf("add batch returned an empty id")
+		}
+	}
+
+	// JSON mode: {"ids": [...]} in input order.
+	var res struct {
+		IDs []string `json:"ids"`
+	}
+	mustJSONCLI(t, data, &res, "add", lid, "four", "five", "--json")
+	if len(res.IDs) != 2 {
+		t.Fatalf("add batch --json ids = %v, want 2", res.IDs)
+	}
+
+	// Every batch task landed, children under the shared parent and the
+	// --parent-less batch at the list root.
+	var payload listTasksResult
+	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
+	byTitle := map[string]taskRowJSON{}
+	for _, r := range payload.Tasks {
+		byTitle[r.Title] = r
+	}
+	for _, title := range []string{"one", "two", "three"} {
+		r, ok := byTitle[title]
+		if !ok {
+			t.Fatalf("task %q missing after batch add", title)
+		}
+		if r.ParentID == nil || *r.ParentID != parent {
+			t.Errorf("task %q parent = %v, want the shared parent %s", title, r.ParentID, parent)
+		}
+	}
+	for _, title := range []string{"four", "five"} {
+		r, ok := byTitle[title]
+		if !ok {
+			t.Fatalf("task %q missing after batch add", title)
+		}
+		if r.ParentID != nil {
+			t.Errorf("root batch task %q parent = %v, want nil", title, r.ParentID)
+		}
+	}
+}
+
+// TestCompleteReopenBatch pins the batch complete/reopen contract: a single
+// id keeps the legacy {"ok":true} shape; 2+ ids return an array of
+// {id, ok:true} rows in input order, and the statuses all land.
+func TestCompleteReopenBatch(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
+	t2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "two"))
+	t3 := strings.TrimSpace(mustCLI(t, data, "add", lid, "three"))
+
+	// Single id: the original shape.
+	var single okPayload
+	mustJSONCLI(t, data, &single, "complete", t3, "--json")
+	if !single.OK {
+		t.Errorf("single complete --json = %+v, want ok:true", single)
+	}
+
+	// Batch complete: an array of per-id ok rows in input order.
+	var rows []taskBatchResult
+	mustJSONCLI(t, data, &rows, "complete", t1, t2, "--json")
+	if len(rows) != 2 || !rows[0].OK || !rows[1].OK {
+		t.Fatalf("complete batch = %+v, want two ok rows", rows)
+	}
+	if rows[0].ID != t1 || rows[1].ID != t2 {
+		t.Errorf("complete batch order wrong: %+v", rows)
+	}
+	var payload listTasksResult
+	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
+	for _, r := range payload.Tasks {
+		if (r.ID == t1 || r.ID == t2 || r.ID == t3) && r.Status != "complete" {
+			t.Errorf("task %s status = %q after complete, want complete", r.ID, r.Status)
+		}
+	}
+
+	// Batch reopen returns the two to pending; the single-completed t3
+	// stays complete (reopen does not cascade, §3).
+	mustJSONCLI(t, data, &rows, "reopen", t1, t2, "--json")
+	if len(rows) != 2 || !rows[0].OK || !rows[1].OK {
+		t.Fatalf("reopen batch = %+v, want two ok rows", rows)
+	}
+	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
+	status := map[string]string{}
+	for _, r := range payload.Tasks {
+		status[r.ID] = r.Status
+	}
+	if status[t1] != "pending" || status[t2] != "pending" {
+		t.Errorf("after reopen: t1=%s t2=%s, want both pending", status[t1], status[t2])
+	}
+	if status[t3] != "complete" {
+		t.Errorf("after reopen: t3=%s, want complete (reopen does not cascade)", status[t3])
+	}
+}
+
+// TestRmBatchRequiresForce pins the batch rm gate: without --force a batch
+// is refused before any store call and every task survives; with --force all
+// ids are deleted and --json returns per-id ok rows.
+func TestRmBatchRequiresForce(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
+	t2 := strings.TrimSpace(mustCLI(t, data, "add", lid, "two"))
+
+	code, _, errOut := runCLI(t, data, "rm", t1, t2)
+	if code != 1 || !strings.Contains(errOut, "--force") {
+		t.Errorf("rm batch without --force: exit %d stderr %q, want exit 1 mentioning --force", code, errOut)
+	}
+	out := mustCLI(t, data, "tasks", lid)
+	if !strings.Contains(out, "one") || !strings.Contains(out, "two") {
+		t.Errorf("tasks after refused rm batch: %q, want both tasks intact", out)
+	}
+
+	// --force deletes both, one ok row per id.
+	var rows []taskBatchResult
+	mustJSONCLI(t, data, &rows, "rm", t1, t2, "--force", "--json")
+	if len(rows) != 2 || !rows[0].OK || !rows[1].OK {
+		t.Fatalf("rm batch --force --json = %+v, want two ok rows", rows)
+	}
+	if out := mustCLI(t, data, "tasks", lid); out != "" {
+		t.Errorf("tasks after rm batch --force: %q, want empty", out)
+	}
+}
+
+// TestBatchMutatorPerIDErrors pins the per-id error contract of the batch
+// mutators: in --json mode a bad id becomes a {id, error} row and the call
+// still succeeds (the valid ids were processed) — matching `farol show`'s
+// batch and MCP set_status; in human mode per-id errors go to stderr and the
+// call exits 1.
+func TestBatchMutatorPerIDErrors(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
+	t1 := strings.TrimSpace(mustCLI(t, data, "add", lid, "one"))
+
+	code, out, errOut := runCLI(t, data, "complete", t1, "does-not-exist", "--json")
+	if code != 0 || errOut != "" {
+		t.Fatalf("batch complete with bad id: exit %d stderr %q, want exit 0 with empty stderr", code, errOut)
+	}
+	var rows []taskBatchResult
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("stdout %q is not one JSON array: %v", out, err)
+	}
+	if len(rows) != 2 || !rows[0].OK || rows[0].ID != t1 {
+		t.Fatalf("rows = %+v, want an ok row for %s first", rows, t1)
+	}
+	if rows[1].OK || rows[1].Err == "" || rows[1].ID != "does-not-exist" {
+		t.Errorf("bad-id row = %+v, want {id, error}", rows[1])
+	}
+	if !strings.Contains(rows[1].Err, "not found") {
+		t.Errorf("bad-id error = %q, want it to name the not-found cause", rows[1].Err)
+	}
+
+	// The valid id was completed despite the bad one.
+	var payload listTasksResult
+	mustJSONCLI(t, data, &payload, "tasks", lid, "--json")
+	for _, r := range payload.Tasks {
+		if r.ID == t1 && r.Status != "complete" {
+			t.Errorf("task %s status = %q, want complete", r.ID, r.Status)
+		}
+	}
+
+	// Human mode: stdout stays empty, per-id errors go to stderr, exit 1.
+	code, out, errOut = runCLI(t, data, "complete", t1, "does-not-exist")
+	if code != 1 {
+		t.Fatalf("human batch complete with bad id: exit %d, want 1", code)
+	}
+	if out != "" {
+		t.Errorf("human mode stdout = %q, want empty", out)
+	}
+	if !strings.Contains(errOut, "does-not-exist") {
+		t.Errorf("stderr %q should name the bad id", errOut)
+	}
+}

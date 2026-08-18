@@ -219,6 +219,60 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// StatusSummary is a read-only health snapshot of the whole store: the table
+// counts, the task status breakdown, and the highest migration version
+// applied. It is the payload behind `farol status` (docs/DESIGN.md §9).
+type StatusSummary struct {
+	Lists         int
+	Tasks         int
+	Pending       int
+	InProgress    int
+	Complete      int
+	LastMigration int
+}
+
+// StatusSummary returns the store's health snapshot. One GROUP BY over Task
+// yields all three status counts — never an N+1 per list — and the migration
+// version is the highest row already recorded in schema_migrations, so it can
+// never report a migration that was not applied (COALESCE to 0 is only the
+// theoretical never-migrated store, which Open cannot produce).
+func (s *Store) StatusSummary() (StatusSummary, error) {
+	var sum StatusSummary
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM List`).Scan(&sum.Lists); err != nil {
+		return StatusSummary{}, err
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM Task`).Scan(&sum.Tasks); err != nil {
+		return StatusSummary{}, err
+	}
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM Task GROUP BY status`)
+	if err != nil {
+		return StatusSummary{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var n int
+		if err := rows.Scan(&status, &n); err != nil {
+			return StatusSummary{}, err
+		}
+		switch Status(status) {
+		case StatusPending:
+			sum.Pending = n
+		case StatusInProgress:
+			sum.InProgress = n
+		case StatusComplete:
+			sum.Complete = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return StatusSummary{}, err
+	}
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&sum.LastMigration); err != nil {
+		return StatusSummary{}, err
+	}
+	return sum, nil
+}
+
 // applyMigrations runs every embedded migration whose version is not yet
 // recorded in schema_migrations, in filename order, each inside its own
 // transaction.

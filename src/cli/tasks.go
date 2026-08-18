@@ -16,9 +16,10 @@ import (
 	"github.com/filipemolina/farol/src/store"
 )
 
-// showBatchCap is the maximum number of task ids a single `farol show` may
-// request, matching the MCP show_task cap (50).
-const showBatchCap = 50
+// batchCap is the maximum number of task ids a single batch command may
+// carry — `farol show`, and the batch mutators complete/reopen/rm — matching
+// the MCP show_task/set_status cap (50).
+const batchCap = 50
 
 // nextEmptyJSON is the --json shape when a list has no eligible task: an
 // explicit {ok:false} rather than an error, so an agent can branch on it
@@ -32,6 +33,36 @@ type nextEmptyJSON struct {
 // agent captures from either (docs/DESIGN.md §9).
 type idJSON struct {
 	ID string `json:"id"`
+}
+
+// idsJSON is the multi-add success payload: the new tasks' ids in input
+// order, the plural of idJSON's id — the one value an agent captures from a
+// batch add grows from a scalar to an array (docs/DESIGN.md §9).
+type idsJSON struct {
+	IDs []string `json:"ids"`
+}
+
+// taskIDArgs is the positional contract of the batch mutators (complete,
+// reopen, rm): at least one task id, at most batchCap — the same 50-id cap
+// `farol show` and the MCP batch-write tools apply.
+func taskIDArgs(cmd *cobra.Command, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("requires at least one task id")
+	}
+	if len(args) > batchCap {
+		return fmt.Errorf("accepts at most %d task ids, got %d", batchCap, len(args))
+	}
+	return nil
+}
+
+// taskBatchResult is one id's row in a batch mutator's --json output
+// (complete/reopen/rm with 2+ ids): {id, ok:true} on success, {id, error}
+// on failure — the same per-id row shape MCP set_status returns, so one bad
+// id does not sink the rest of the batch.
+type taskBatchResult struct {
+	ID  string `json:"id"`
+	OK  bool   `json:"ok,omitempty"`
+	Err string `json:"error,omitempty"`
 }
 
 // progressJSON is the derived-progress shape both front ends share for a
@@ -124,9 +155,9 @@ func newTasksCmd() *cobra.Command {
 // docs/DESIGN.md §9, grouped in this file.
 func taskCommands() []*cobra.Command {
 	addCmd := &cobra.Command{
-		Use:   "add <list-id> <title>",
-		Short: "add a task; prints its id",
-		Args:  cobra.ExactArgs(2),
+		Use:   "add <list-id> <title> [<title> ...]",
+		Short: "add one or more tasks (all with the same parent); prints the new id(s)",
+		Args:  cobra.MinimumNArgs(2),
 		RunE:  runAdd,
 	}
 	addCmd.Flags().String("parent", "", "parent task id (prefix accepted)")
@@ -140,8 +171,8 @@ func taskCommands() []*cobra.Command {
 			if len(args) < 1 {
 				return fmt.Errorf("requires at least one task id")
 			}
-			if len(args) > showBatchCap {
-				return fmt.Errorf("show accepts at most %d task ids, got %d", showBatchCap, len(args))
+			if len(args) > batchCap {
+				return fmt.Errorf("show accepts at most %d task ids, got %d", batchCap, len(args))
 			}
 			return nil
 		},
@@ -165,16 +196,16 @@ func taskCommands() []*cobra.Command {
 	notesCmd.Flags().Bool("force", false, "allow changing notes on a list owned by another agent or by nobody")
 
 	completeCmd := &cobra.Command{
-		Use:   "complete <task-id>",
+		Use:   "complete <task-id> [<task-id> ...]",
 		Short: "mark complete (cascades to descendants)",
-		Args:  cobra.ExactArgs(1),
+		Args:  taskIDArgs,
 		RunE:  runComplete,
 	}
 
 	reopenCmd := &cobra.Command{
-		Use:   "reopen <task-id>",
+		Use:   "reopen <task-id> [<task-id> ...]",
 		Short: "mark pending (does not cascade)",
-		Args:  cobra.ExactArgs(1),
+		Args:  taskIDArgs,
 		RunE:  runReopen,
 	}
 
@@ -196,9 +227,9 @@ func taskCommands() []*cobra.Command {
 	progressCmd.Flags().Int("percent", 0, "percent 0-100 (required for --mode percentage)")
 
 	rmCmd := &cobra.Command{
-		Use:   "rm <task-id>",
-		Short: "delete a task and its descendants",
-		Args:  cobra.ExactArgs(1),
+		Use:   "rm <task-id> [<task-id> ...]",
+		Short: "delete one or more tasks and their descendants",
+		Args:  taskIDArgs,
 		RunE:  runRm,
 	}
 	rmCmd.Flags().Bool("force", false, "delete without confirmation")
@@ -257,14 +288,17 @@ func taskCommands() []*cobra.Command {
 	unassignCmd.Flags().String("list", "", "release the assignment on every task in this list (prefix accepted)")
 
 	diffCmd := &cobra.Command{
-		Use:   "diff <list-id> [--since <unix-seconds>]",
+		Use:   "diff <list-id> [<timestamp>] [--since <unix-seconds>]",
 		Short: "get tasks added or changed since a timestamp",
+		Long: `Get tasks added or changed since a timestamp (unix seconds). The
+timestamp may be given as a positional argument or with --since; the positional
+argument takes precedence when both are supplied.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 1 {
 				return fmt.Errorf("requires a list id")
 			}
 			if len(args) > 2 {
-				return fmt.Errorf("too many arguments")
+				return fmt.Errorf("too many arguments: usage is diff <list-id> [<timestamp>]")
 			}
 			return nil
 		},
@@ -649,10 +683,14 @@ func renderFlat(views []taskView) {
 	}
 }
 
-// runAdd adds a task to a list. The list it targets is a structural write
-// (docs/DESIGN.md §9), so a list owned by another agent (or an untagged,
-// human-managed list) is refused unless --force — the same ownership guard
-// the retired MCP server applied to add_task.
+// runAdd adds one or more tasks to a list. The list it targets is a
+// structural write (docs/DESIGN.md §9), so a list owned by another agent (or
+// an untagged, human-managed list) is refused unless --force — the same
+// ownership guard the retired MCP server applied to add_task. Every task in
+// a batch shares the resolved list and parent (or the list root when no
+// --parent is given); the list resolution, ownership check, and parent
+// resolution each run once before any task is created. A single title keeps
+// the original {"id": ...} JSON shape; two or more return {"ids": [...]}.
 func runAdd(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
@@ -677,12 +715,35 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 			parent = &resolved
 		}
-		taskID, err := s.CreateTask(id, args[1], parent, notes)
-		if err != nil {
-			return err
+		if len(args) == 2 {
+			// The single-title path, unchanged: {"id": ...} (docs/DESIGN.md
+			// §9).
+			taskID, err := s.CreateTask(id, args[1], parent, notes)
+			if err != nil {
+				return err
+			}
+			autoClaimTask(s, taskID)
+			printResult(jsonMode, func() { fmt.Println(taskID) }, idJSON{taskID})
+			return nil
 		}
-		autoClaimTask(s, taskID)
-		printResult(jsonMode, func() { fmt.Println(taskID) }, idJSON{taskID})
+		// Batch path: same parent for every title. Each create is an
+		// independent store call, so a failure mid-batch (e.g. an empty
+		// title) surfaces as the §9 error shape with the earlier tasks
+		// already created — store validation wins over CLI pre-checks.
+		ids := make([]string, 0, len(args)-1)
+		for _, title := range args[1:] {
+			taskID, err := s.CreateTask(id, title, parent, notes)
+			if err != nil {
+				return err
+			}
+			autoClaimTask(s, taskID)
+			ids = append(ids, taskID)
+		}
+		printResult(jsonMode, func() {
+			for _, taskID := range ids {
+				fmt.Println(taskID)
+			}
+		}, idsJSON{IDs: ids})
 		return nil
 	})
 }
@@ -1102,20 +1163,81 @@ func runNotes(cmd *cobra.Command, args []string) error {
 	})
 }
 
+// runTaskBatch applies a store write to every requested id and emits the
+// batch result: with 2+ ids, --json mode returns one value — an array of
+// taskBatchResult rows in input order, a bad id becoming a {id, error} row
+// rather than failing the call (matching `farol show`'s batch and MCP
+// set_status's batchApply) — and human mode reports per-id errors on stderr
+// and exits 1 when any failed (docs/DESIGN.md §9). Single-id callers keep
+// the legacy shape and never reach this helper.
+func runTaskBatch(jsonMode bool, args []string, s *store.Store, fn func(s *store.Store, id string) error) error {
+	rows := make([]taskBatchResult, 0, len(args))
+	anyErr := false
+	for _, raw := range args {
+		id, err := s.ResolveID("task", raw)
+		if err != nil {
+			anyErr = true
+			if jsonMode {
+				rows = append(rows, taskBatchResult{ID: raw, Err: err.Error()})
+			} else {
+				fmt.Fprintf(os.Stderr, "farol: %s\n", err)
+			}
+			continue
+		}
+		if err := fn(s, id); err != nil {
+			anyErr = true
+			if jsonMode {
+				rows = append(rows, taskBatchResult{ID: raw, Err: err.Error()})
+			} else {
+				fmt.Fprintf(os.Stderr, "farol: %s\n", err)
+			}
+			continue
+		}
+		if jsonMode {
+			rows = append(rows, taskBatchResult{ID: id, OK: true})
+		}
+	}
+	if jsonMode {
+		b, err := json.Marshal(rows)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	if anyErr {
+		// Human mode sends per-id errors to stderr (stdout stays empty, §9)
+		// and exits 1.
+		return domainError(fmt.Errorf("one or more task ids could not be processed"))
+	}
+	return nil
+}
+
 func runComplete(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	return runStore(cmd, func(s *store.Store) error {
-		id, err := s.ResolveID("task", args[0])
-		if err != nil {
-			return err
+		if len(args) == 1 {
+			// The single-id path, unchanged: {"ok": true} (docs/DESIGN.md
+			// §9).
+			id, err := s.ResolveID("task", args[0])
+			if err != nil {
+				return err
+			}
+			if err := s.Complete(id); err != nil {
+				return err
+			}
+			autoClaimTask(s, id)
+			printResult(jsonMode, func() {}, okPayload{true})
+			return nil
 		}
-		if err := s.Complete(id); err != nil {
-			return err
-		}
-		autoClaimTask(s, id)
-		printResult(jsonMode, func() {}, okPayload{true})
-		return nil
+		return runTaskBatch(jsonMode, args, s, func(s *store.Store, id string) error {
+			if err := s.Complete(id); err != nil {
+				return err
+			}
+			autoClaimTask(s, id)
+			return nil
+		})
 	})
 }
 
@@ -1123,16 +1245,27 @@ func runReopen(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	return runStore(cmd, func(s *store.Store) error {
-		id, err := s.ResolveID("task", args[0])
-		if err != nil {
-			return err
+		if len(args) == 1 {
+			// The single-id path, unchanged: {"ok": true} (docs/DESIGN.md
+			// §9).
+			id, err := s.ResolveID("task", args[0])
+			if err != nil {
+				return err
+			}
+			if err := s.Reopen(id); err != nil {
+				return err
+			}
+			autoClaimTask(s, id)
+			printResult(jsonMode, func() {}, okPayload{true})
+			return nil
 		}
-		if err := s.Reopen(id); err != nil {
-			return err
-		}
-		autoClaimTask(s, id)
-		printResult(jsonMode, func() {}, okPayload{true})
-		return nil
+		return runTaskBatch(jsonMode, args, s, func(s *store.Store, id string) error {
+			if err := s.Reopen(id); err != nil {
+				return err
+			}
+			autoClaimTask(s, id)
+			return nil
+		})
 	})
 }
 
@@ -1345,39 +1478,58 @@ func runPriority(cmd *cobra.Command, args []string) error {
 // is the CLI's confirmation (docs/DESIGN.md §9). Deleting a task is a
 // structural write, so it is also refused on a list the current agent does
 // not own unless --force — a single --force covers both the confirmation and
-// the ownership override, matching the server's delete_task.
+// the ownership override, matching the server's delete_task. The force check
+// runs before any resolution or delete, so a refused batch deletes nothing.
 func runRm(cmd *cobra.Command, args []string) error {
 	errSilence(cmd)
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	force, _ := cmd.Flags().GetBool("force")
 	if !force {
-		err := fmt.Errorf("refusing to delete task %q without --force", args[0])
+		var err error
+		if len(args) == 1 {
+			err = fmt.Errorf("refusing to delete task %q without --force", args[0])
+		} else {
+			err = fmt.Errorf("refusing to delete %d tasks without --force", len(args))
+		}
 		printError(jsonMode, err)
 		return domainError(err)
 	}
 	return runStore(cmd, func(s *store.Store) error {
-		id, err := s.ResolveID("task", args[0])
-		if err != nil {
-			return err
-		}
-		if !force {
-			if err := taskOwnershipError(s, id); err != nil {
+		if len(args) == 1 {
+			// The single-id path, unchanged: {"ok": true} (docs/DESIGN.md
+			// §9).
+			id, err := s.ResolveID("task", args[0])
+			if err != nil {
 				return err
 			}
+			if !force {
+				if err := taskOwnershipError(s, id); err != nil {
+					return err
+				}
+			}
+			// Claim presence before the delete: ClaimWork validates that the
+			// entity still exists, so we light the spinner while the row is
+			// present (matches MCP, which claims during the write). DeleteTask
+			// then removes any AgentActivity rows for the task by design — an
+			// orphaned spinner on a vanished task is worse than none — so this
+			// claim is best-effort and leaves nothing behind. That is the
+			// correct, TUI-safe behaviour; it is intentionally not asserted as a
+			// surviving claim.
+			autoClaimTask(s, id)
+			if err := s.DeleteTask(id); err != nil {
+				return err
+			}
+			printResult(jsonMode, func() {}, okPayload{true})
+			return nil
 		}
-		// Claim presence before the delete: ClaimWork validates that the
-		// entity still exists, so we light the spinner while the row is
-		// present (matches MCP, which claims during the write). DeleteTask
-		// then removes any AgentActivity rows for the task by design — an
-		// orphaned spinner on a vanished task is worse than none — so this
-		// claim is best-effort and leaves nothing behind. That is the
-		// correct, TUI-safe behaviour; it is intentionally not asserted as a
-		// surviving claim.
-		autoClaimTask(s, id)
-		if err := s.DeleteTask(id); err != nil {
-			return err
-		}
-		printResult(jsonMode, func() {}, okPayload{true})
-		return nil
+		return runTaskBatch(jsonMode, args, s, func(s *store.Store, id string) error {
+			if !force {
+				if err := taskOwnershipError(s, id); err != nil {
+					return err
+				}
+			}
+			autoClaimTask(s, id)
+			return s.DeleteTask(id)
+		})
 	})
 }

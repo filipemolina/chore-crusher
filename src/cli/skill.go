@@ -28,10 +28,10 @@ Changes from either side are visible to the other within ~1s (the TUI polls).
 == Identity: FAROL_AGENT ==
 
 Every write is attributed to an agent identity. It comes from the FAROL_AGENT
-environment variable. If you do not set it, each process invents its own
-` + "`agent-` + 6 hex" + ` tag - so two of your commands act as two different
-agents and never see each other's assignments or presence. Export FAROL_AGENT
-once per session to get a stable tag:
+environment variable. If you do not set it, the CLI falls back to the shared
+tag ` + "`agent`" + ` - so every unconfigured agent acts as one agent and overwrites
+each other's work with no refusal. Export FAROL_AGENT once per session to get
+a stable, unique tag:
 
     export FAROL_AGENT=pi
 
@@ -43,6 +43,29 @@ once per session to get a stable tag:
 ` + "`farol inbox`" + ` is the cheapest way to learn what is on your plate and what
 is available to pick up. ` + "`farol work`" + ` shows who is actively on what right
 now (live presence claims).
+
+== Agent interaction protocol ==
+
+The minimal loop for taking, tracking, and releasing work:
+
+    export FAROL_AGENT=<unique-tag>   # once per session, before any farol command
+    farol next <list-id> --json       # grab the top eligible task; assigns it to you and claims presence
+    farol progress <id> --mode <mode> [--percent N]   # update progress as you work
+    farol complete <id>               # mark complete when done (cascades; auto-unassigns)
+    farol unassign <id>               # release the task when done
+    farol work --json                 # see every live claim: who is on what right now
+
+` + "`farol next`" + ` is the anti-race grab: it atomically picks the highest-priority
+unassigned task, assigns it to you, and returns its full payload in one call.
+An empty list is not an error - it returns ` + "`{ok: false, reason: \"no eligible task in this list\"}`" + `.
+` + "`farol progress`" + ` takes --mode simple, percentage (with --percent 0-100), or
+subtasks. ` + "`farol complete`" + ` marks a task complete (cascading to descendants and
+auto-unassigning the cascade); ` + "`farol <id>`" + ` is a shorthand for the same
+single-task action. ` + "`farol unassign`" + ` releases your assignment (or --list
+<list-id> for a whole list); completing a task auto-unassigns it. ` + "`farol work`" + ` lists live
+presence claims, not assignments - see "Presence vs. assignment" below.
+` + "`farol agent help`" + ` prints this protocol; docs/AGENT_PROTOCOL.md carries the
+full version.
 
 == Working a task ==
 
@@ -112,7 +135,8 @@ mode prints tables/ids to stdout; errors go to stderr as "farol: ...".
 
 == Gotchas ==
 
-- Set FAROL_AGENT or you are a new random agent every command.
+- Set FAROL_AGENT or you act as the shared tag "agent" - every unconfigured
+  agent collides with you.
 - farol rm, farol lists rm, and farol comment rm need --force - there is no
   confirm prompt in the CLI.
 - An ambiguous id prefix (matches more than one row) is an error, never a

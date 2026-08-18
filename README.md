@@ -188,8 +188,9 @@ farol add <list-id> "Buy paint"   # add a root task
 farol add <list-id> "Mix colors" --parent <task-id>  # add a subtask
 farol show <task-id> --json       # show full task details
 farol <task-id>                   # mark task complete (cascades)
+farol complete <task-id> [<task-id> ...]  # mark one or more tasks complete (cascades)
 farol toggle <task-id>            # complete <-> reopen, whichever applies
-farol reopen <task-id>            # reopen a complete task
+farol reopen <task-id> [<task-id> ...]    # reopen one or more complete tasks
 farol rename <task-id> "New name" # rename a task
 farol notes <task-id> "text..."   # replace a task's notes (whole text)
 farol mv <task-id> --parent <id>  # re-parent a task (or --root)

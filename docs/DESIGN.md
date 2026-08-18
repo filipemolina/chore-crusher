@@ -917,42 +917,51 @@ farol lists rm <list-id> --force               delete a list and its tasks
 
 farol tasks <list-id> [--status pending|in_progress|complete|all] [--flat]
                                                    list tasks (tree by default)
-farol add <list-id> <title> [--parent <task-id>] [--notes <text>] [--force]
-                                                     add a task; prints its id
-                                                     (--force allows adding to a list
-                                                      owned by another agent or by nobody)
-farol show <task-id>                           title, notes, status, progress, children
-farol rename <task-id> <title>                 rename a task
-farol notes <task-id> <text>                   replace a task's notes (whole text, not append)
-farol <task-id>                                mark complete (cascades to descendants)
-farol complete <task-id>                       mark complete (cascades to descendants)
-farol reopen <task-id>                         mark pending (does not cascade)
-farol toggle <task-id>                         complete <-> reopen, whichever applies
-farol progress <task-id> --mode simple
-farol progress <task-id> --mode percentage --percent <0-100>
-farol progress <task-id> --mode subtasks
-farol assign <task-id> [--force]               assign to the current agent; --force takes it from another
-farol unassign <task-id>                       release the current agent's assignment on the task
-farol unassign --list <list-id>                release the assignment on every task in the list
-farol priority <task-id> --level none|low|medium|high
-                                                   set a task's priority
-farol mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
-farol rm <task-id> --force                     delete a task and its descendants
-farol comment rm <comment-id> --force          delete a comment
-farol search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
+ farol add <list-id> <title> [<title> ...] [--parent <task-id>] [--notes <text>] [--force]
+                                                      add one or more tasks, all with the same
+                                                      parent (or the list root); prints the new id(s)
+                                                      (--force allows adding to a list
+                                                       owned by another agent or by nobody)
+ farol show <task-id>                           title, notes, status, progress, children
+ farol rename <task-id> <title>                 rename a task
+ farol notes <task-id> <text>                   replace a task's notes (whole text, not append)
+ farol <task-id>                                mark complete (cascades to descendants)
+ farol complete <task-id> [<task-id> ...]       mark complete (cascades to descendants)
+ farol reopen <task-id> [<task-id> ...]         mark pending (does not cascade)
+ farol toggle <task-id>                         complete <-> reopen, whichever applies
+ farol progress <task-id> --mode simple
+ farol progress <task-id> --mode percentage --percent <0-100>
+ farol progress <task-id> --mode subtasks
+ farol assign <task-id> [--force]               assign to the current agent; --force takes it from another
+ farol unassign <task-id>                       release the current agent's assignment on the task
+ farol unassign --list <list-id>                release the assignment on every task in the list
+ farol priority <task-id> --level none|low|medium|high
+                                                    set a task's priority
+ farol mv <task-id> [--parent <task-id>]        re-parent a task; empty --parent moves it to the list root
+ farol rm <task-id> [<task-id> ...] --force     delete a task and its descendants
+ farol comment rm <comment-id> --force          delete a comment
+ farol search <query> [--list <list-id>]        fuzzy search across titles (+ notes)
 
-farol export [list-id] [--out <file>]          export the whole store, or one list, to JSON
-farol import <file> [--list <list-id>]         import lists and tasks from a farol export file
+ farol export [list-id] [--out <file>]          export the whole store, or one list, to JSON
+ farol import <file> [--list <list-id>]         import lists and tasks from a farol export file
 
-farol inbox [--include notes]                  start-of-session context: your list plus every foreign list, each with its top 20 pending tasks and notes inlined
+ farol inbox [--include notes]                  start-of-session context: your list plus every foreign list, each with its top 20 pending tasks and notes inlined
 
-farol work                                     live presence claims (the CLI equivalent of the retired farol:///work resource): who is working on which task/list right now
+ farol work                                     live presence claims (the CLI equivalent of the retired farol:///work resource): who is working on which task/list right now
 
-farol claim <task-id|list-id> [--kind working|inspecting]   claim presence on an entity (lights the TUI spinner)
-farol release <task-id|list-id> [--all]         release presence on an entity, or --all to clear every claim this agent holds
-farol skill                                    print the agent command reference (markdown)
+ farol claim <task-id|list-id> [--kind working|inspecting]   claim presence on an entity (lights the TUI spinner)
+ farol release <task-id|list-id> [--all]         release presence on an entity, or --all to clear every claim this agent holds
+ farol skill                                    print the agent command reference (markdown)
+ farol agent help                               print the agent interaction protocol (markdown)
 
-farol --version
+ farol status                                   store health: counts, size, migrations, config path
+ farol config get <key>                         view one config key's effective value
+ farol config set <key> <value>                 write one config key
+ farol config list                              list every config key
+ farol watch <task-id|list-id> [--since <unix-seconds>] [--interval <duration>]
+                                                    long-poll the store, one JSON event per change
+
+ farol --version
 ```
 
 **`farol inbox` is the CLI equivalent of the `farol:///inbox` resource**
@@ -1046,6 +1055,65 @@ start-of-session reads, the write surface, the presence-vs-assignment
 distinction, the list-ownership gate, and the `--json` contract — and, under
 `--json`, the same prose wrapped as a single `{"skill": "..."}` value (one JSON
 value, per §9). It is a doc command, not a store read.
+
+**`farol agent help` emits the agent interaction protocol** — a doc command
+like `farol skill`, not a store read: the minimal loop for taking, tracking and
+releasing work (set `FAROL_AGENT`, `farol next`, `farol progress`, `farol
+unassign`, `farol work`) plus the presence-vs-assignment distinction. It prints
+markdown prose to stdout and, under `--json`, the same prose wrapped as a
+single `{"help": "..."}` value (one JSON value, per §9). The full protocol
+lives in `docs/AGENT_PROTOCOL.md`.
+
+**`farol status` is a read-only store health read.** It reports how many lists
+and tasks the store holds, the task status breakdown (pending / in_progress /
+complete, counted per row), the store file's size in bytes, the highest
+migration version applied (from `schema_migrations`, so it is always an
+*applied* version), and the resolved config file path. It is the first thing
+to run when a store looks wrong; like every read, it claims no presence. An
+empty store is a normal state, not an error: zero counts, exit 0. Human mode
+prints a labeled key/value readout (`Lists:`, `Tasks:`, `Pending:`, `In
+progress:`, `Complete:`, `Store size:` (human-readable bytes), `Last
+migration:`, `Config:`), plain text, no ANSI escapes. `--json` emits one
+object — `{"lists", "tasks", "pending", "in_progress", "complete",
+"store_size_bytes", "last_migration", "config_path"}` — no envelope.
+
+**`farol config` views and edits the user's preferences**
+(`~/.config/farol/config.yaml`, §8). It is a config-file command, not a store
+read — like `farol skill` it never opens the store. `get <key>` prints one
+key's *effective* value (the stored one, or the compiled default when the
+field is absent — a missing file is a normal first-run state); `set <key>
+<value>` writes one key through `LoadConfig`/`SaveConfig` (the whole struct
+round-trips, so setting one key never drops the other); `list` prints every
+key in the file's canonical order. The two keys are `theme` (a non-empty
+string; unknown names are allowed, the app falls back to `DefaultTheme`) and
+`poll_interval_ms` (a positive integer). An unknown key is a domain error
+naming the supported keys. Human mode: `get` prints the value alone, `set`
+prints nothing, `list` prints a `KEY VALUE` table. `--json`: `get` emits
+`{"key", "value"}` with the value's native type (string for theme, number for
+poll_interval_ms); `set` emits `{"ok": true, "key", "value"}` echoing the row
+that landed; `list` emits the same rows as a bare array in canonical order.
+
+**`farol watch <task-id|list-id>` long-polls the store and emits one JSON
+event per change** until Ctrl+C/SIGTERM (exit 0), for agents and scripts that
+want real-time updates without the TUI. It is a deliberate exception to the
+one-value rule: output is a newline-delimited stream of per-event shapes —
+`{"event":"task_created","task":{taskRowJSON}}`,
+`{"event":"task_updated","task":{taskRowJSON}}`,
+`{"event":"task_deleted","task_id","list_id"}`,
+`{"event":"list_changed","list":{...}}`, and
+`{"event":"list_deleted","list_id"}`. Default `--interval` is 1s (the TUI's
+poll cadence). `--since <unix-seconds>` makes the first poll replay every task
+with activity strictly after the timestamp (created if `created_at > since`,
+else updated), then continues live; without it the first poll records the
+baseline and reports only changes that happen after the watch begins. A task
+target reports only that task's own changes (including new comments) and its
+deletion; a list target reports the whole list. Change detection is the
+store's `updated_at` signal at second granularity — two writes to the same
+task within one unix second are indistinguishable (shared with the rest of the
+app). Deletions are only visible from the first poll onward; a `--since`
+replay cannot report tasks deleted before the watch began. Transient poll
+errors go to stderr and are retried; startup failures (bad id, store open) use
+the normal §9 error shape, exit 1.
 
 **`set_status` is the one status/progress write.** It takes 1–50 ids in
 one call and accepts `status?` (`pending` | `in_progress` | `complete`),
@@ -1238,6 +1306,14 @@ the one-value rule.
   remaining writes print nothing on success. **Writes, `--json` mode:** the
   two add commands print `{"id": "…"}`; the remaining writes print
   `{"ok": true}`.
+- **Batch writes:** `add` with 2+ titles returns `{"ids": [...]}` (the plural
+  of the single-add `{"id": …}`, ids in input order); `complete`/`reopen`/`rm`
+  with 2+ ids return an array of `{"id", "ok":true}` / `{"id", "error"}` rows
+  in input order, a bad id becoming a `{id, error}` row rather than failing
+  the call (matching `show`'s batch and MCP `set_status`'s `batchApply`); a
+  single id keeps the legacy `{"ok": true}` / `{"id": …}` shapes. Batch
+  mutators accept at most 50 ids, like `show`. `rm`'s `--force` gate runs
+  before any resolution or delete, so a refused batch deletes nothing.
 - **`lists`, human mode:** a `tabwriter` table with the header
   `ID NAME PENDING COMPLETE`, one row per list; an empty result prints
   nothing. **`lists`, JSON:** `[{"id", "name", "pending", "complete",

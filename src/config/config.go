@@ -94,8 +94,10 @@ func legacyConfigDir() (string, error) {
 	return filepath.Join(base, "chore-crusher"), nil
 }
 
-// configPath returns the full path to the config file.
-func configPath() (string, error) {
+// ConfigPath returns the full path to the config file. It is the config
+// side's counterpart to DBPath: a caller like `farol status` (docs/DESIGN.md
+// §9) can name the file without re-deriving XDG rules.
+func ConfigPath() (string, error) {
 	dir, err := configDir()
 	if err != nil {
 		return "", err
@@ -109,7 +111,7 @@ func configPath() (string, error) {
 // A malformed file is an error worth reporting — the caller decides whether
 // to surface it or fall back to defaults.
 func LoadConfig() (Config, error) {
-	path, err := configPath()
+	path, err := ConfigPath()
 	if err != nil {
 		return Config{}, err
 	}

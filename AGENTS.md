@@ -340,6 +340,13 @@ progress percentage, advance the percentage at milestones, comment at decision
 points, and complete it when done. The human watches the TUI; the statuses are
 the report.
 
+The agent interaction protocol — set `FAROL_AGENT` to a unique tag, grab the
+top task with `farol next <list-id>`, update with `farol progress <id> --mode
+<mode>`, release with `farol unassign <id>`, and read live claims with `farol
+work` — is in [`docs/AGENT_PROTOCOL.md`](docs/AGENT_PROTOCOL.md), and
+`farol agent help` prints it from the CLI. `farol skill` is the full command
+reference.
+
 ## Reference material
 
 The Glossary (the fixed vocabulary: Task, Subtask, Level offset, Tier,
