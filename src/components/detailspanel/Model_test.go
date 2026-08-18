@@ -800,3 +800,237 @@ func TestComposeInputPaintsOnTheCardBackground(t *testing.T) {
 		}
 	})
 }
+
+// TestMentionInNotesRendered verifies that a @<ULID> mention in the notes
+// is resolved to the task's title and highlighted in the accent color when
+// the notes field is not focused (viewing mode).
+func TestMentionInNotesRendered(t *testing.T) {
+	s := openTestStore(t)
+	listID, err := s.CreateList("Test", "")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	// Create a target task to be mentioned
+	targetID, err := s.CreateTask(listID, "Buy groceries", nil, "")
+	if err != nil {
+		t.Fatalf("create target task: %v", err)
+	}
+	// Create the task with a mention in its notes
+	taskID, err := s.CreateTask(listID, "Weekly shopping", nil, "See @"+targetID+" for details")
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	m := New(s).(*Model)
+	m, _ = updateModel(m, cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL)())
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+
+	// Focus is on Title (entry field), so Notes should show resolved mention
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "Buy groceries") {
+		t.Errorf("mention not resolved to task title:\n%s", view)
+	}
+	// The mention should be highlighted with accent color (bold + accent fg)
+	// We can't easily assert on ANSI codes after Strip, but we can verify
+	// the raw view contains the accent SGR sequence.
+	rawView := m.View().Content
+	accentStyle := lipgloss.NewStyle().
+		Foreground(appstyles.Active.Accent).
+		Bold(true).
+		Render("x")
+	accentSGR := accentStyle[:strings.Index(accentStyle, "x")]
+	if !strings.Contains(rawView, accentSGR) {
+		t.Errorf("mention not highlighted with accent color:\n%s", rawView)
+	}
+	// The raw @ULID should not appear in the view
+	if strings.Contains(view, "@"+targetID) {
+		t.Errorf("raw mention ULID still visible:\n%s", view)
+	}
+}
+
+// TestDeletedMentionRendered verifies that a mention to a deleted task
+// renders as "[deleted task]" in the accent color.
+func TestDeletedMentionRendered(t *testing.T) {
+	s := openTestStore(t)
+	listID, err := s.CreateList("Test", "")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	// Create a task, then delete it
+	targetID, err := s.CreateTask(listID, "To be deleted", nil, "")
+	if err != nil {
+		t.Fatalf("create target task: %v", err)
+	}
+	if err := s.DeleteTask(targetID); err != nil {
+		t.Fatalf("delete target task: %v", err)
+	}
+	// Create the task with a mention to the deleted task
+	taskID, err := s.CreateTask(listID, "Has deleted mention", nil, "Ref @"+targetID)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	m := New(s).(*Model)
+	m, _ = updateModel(m, cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL)())
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "[deleted task]") {
+		t.Errorf("deleted mention not rendered as [deleted task]:\n%s", view)
+	}
+	// Should be highlighted with accent color
+	rawView := m.View().Content
+	accentStyle := lipgloss.NewStyle().
+		Foreground(appstyles.Active.Accent).
+		Bold(true).
+		Render("x")
+	accentSGR := accentStyle[:strings.Index(accentStyle, "x")]
+	if !strings.Contains(rawView, accentSGR) {
+		t.Errorf("deleted mention not highlighted with accent color:\n%s", rawView)
+	}
+}
+
+// TestMultipleMentionsInNotes verifies that multiple mentions in the notes
+// are all resolved and highlighted.
+func TestMultipleMentionsInNotes(t *testing.T) {
+	s := openTestStore(t)
+	listID, err := s.CreateList("Test", "")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	target1, err := s.CreateTask(listID, "First task", nil, "")
+	if err != nil {
+		t.Fatalf("create target1: %v", err)
+	}
+	target2, err := s.CreateTask(listID, "Second task", nil, "")
+	if err != nil {
+		t.Fatalf("create target2: %v", err)
+	}
+	target3, err := s.CreateTask(listID, "Third task", nil, "")
+	if err != nil {
+		t.Fatalf("create target3: %v", err)
+	}
+	// Delete target3
+	if err := s.DeleteTask(target3); err != nil {
+		t.Fatalf("delete target3: %v", err)
+	}
+
+	notes := "Start with @" + target1 + ", then @" + target2 + ", and finally @" + target3
+	taskID, err := s.CreateTask(listID, "Multiple mentions", nil, notes)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	m := New(s).(*Model)
+	m, _ = updateModel(m, cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL)())
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+
+	view := ansi.Strip(m.View().Content)
+	// All three mentions should be resolved
+	if !strings.Contains(view, "First task") {
+		t.Errorf("first mention not resolved:\n%s", view)
+	}
+	if !strings.Contains(view, "Second task") {
+		t.Errorf("second mention not resolved:\n%s", view)
+	}
+	if !strings.Contains(view, "[deleted task]") {
+		t.Errorf("third (deleted) mention not rendered:\n%s", view)
+	}
+	// Raw ULIDs should not appear
+	if strings.Contains(view, "@"+target1) || strings.Contains(view, "@"+target2) || strings.Contains(view, "@"+target3) {
+		t.Errorf("raw mention ULIDs still visible:\n%s", view)
+	}
+	// All mentions should be highlighted with accent color
+	rawView := m.View().Content
+	accentStyle := lipgloss.NewStyle().
+		Foreground(appstyles.Active.Accent).
+		Bold(true).
+		Render("x")
+	accentSGR := accentStyle[:strings.Index(accentStyle, "x")]
+	// Count occurrences of accent SGR - should be at least 3 (one per mention)
+	count := strings.Count(rawView, accentSGR)
+	if count < 3 {
+		t.Errorf("expected at least 3 accent highlights, got %d:\n%s", count, rawView)
+	}
+}
+
+// TestMentionInNotesWhileEditing verifies that when the notes field is focused,
+// the raw @ULID mentions are shown (for editing), not the resolved titles.
+func TestMentionInNotesWhileEditing(t *testing.T) {
+	s := openTestStore(t)
+	listID, err := s.CreateList("Test", "")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	targetID, err := s.CreateTask(listID, "Buy groceries", nil, "")
+	if err != nil {
+		t.Fatalf("create target task: %v", err)
+	}
+	taskID, err := s.CreateTask(listID, "Weekly shopping", nil, "See @"+targetID+" for details")
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	m := New(s).(*Model)
+	m, _ = updateModel(m, cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL)())
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	m, _ = updateModel(m, cmds.SetDetailsLayout(80, 40)())
+
+	// Tab to Notes field (Title -> Notes)
+	m, _ = updateModel(m, tea.KeyPressMsg{Text: "tab"})
+	if m.focus != focusNotes {
+		t.Fatalf("focus = %d, want focusNotes", m.focus)
+	}
+
+	view := ansi.Strip(m.View().Content)
+	// Should show raw @ULID for editing
+	if !strings.Contains(view, "@"+targetID) {
+		t.Errorf("raw mention not shown while editing:\n%s", view)
+	}
+	if strings.Contains(view, "Buy groceries") {
+		t.Errorf("resolved title shown while editing (should show raw):\n%s", view)
+	}
+}
+
+// TestLongNotesWithMentionsTruncated verifies that long notes with mentions
+// are truncated properly to fit the modal width.
+func TestLongNotesWithMentionsTruncated(t *testing.T) {
+	s := openTestStore(t)
+	listID, err := s.CreateList("Test", "")
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	targetID, err := s.CreateTask(listID, "Target task with a very long title that should be truncated", nil, "")
+	if err != nil {
+		t.Fatalf("create target task: %v", err)
+	}
+	// Create a note with a mention early enough to be in the viewport
+	// The viewport shows notesRows() lines; put mention on line 2
+	longNote := "First line\nSee @" + targetID + " for details\n" + strings.Repeat("More text. ", 20)
+	taskID, err := s.CreateTask(listID, "Long notes", nil, longNote)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	m := New(s).(*Model)
+	m, _ = updateModel(m, cmds.SetFocus(constants.COMPONENT_DETAILS_PANEL)())
+	m, _ = updateModel(m, cmds.RefreshDetails(s, taskID)())
+	// Use a narrow modal to force truncation
+	m, _ = updateModel(m, cmds.SetDetailsLayout(50, 30)())
+
+	view := m.View().Content
+	// No line should exceed the modal width
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > 50 {
+			t.Errorf("line exceeds modal width 50: %d (%q)", w, line)
+		}
+	}
+	// The mention should still be resolved and highlighted (on line 2)
+	stripped := ansi.Strip(view)
+	if !strings.Contains(stripped, "Target task with a very long title") {
+		t.Errorf("mention not resolved in truncated view:\n%s", stripped)
+	}
+}
