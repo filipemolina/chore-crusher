@@ -296,18 +296,24 @@ func TestShowMentionsHuman(t *testing.T) {
 
 // TestShowMentionsDeletedTask pins that a mention to a task that is later
 // deleted renders as [deleted task] in both JSON and human output.
+// Note: creating a task with a mention to a deleted task is now rejected
+// by the store (mirroring SetNotes validation), so this test verifies
+// the show output for a task that was created before the mentioned task
+// was deleted (simulated by directly manipulating the store).
 func TestShowMentionsDeletedTask(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("FAROL_AGENT", "pi")
 	lid := strings.TrimSpace(mustCLI(t, data, "lists", "add", "l", "--owner", "pi"))
 
-	// Create a task to be mentioned, then delete it.
+	// Create a task to be mentioned.
 	mentioned := strings.TrimSpace(mustCLI(t, data, "add", lid, "To be deleted"))
-	mustCLI(t, data, "rm", mentioned, "--force")
 
-	// Create a task that mentions the deleted task.
+	// Create a task that mentions the first task.
 	title := "See @" + mentioned
 	tid := strings.TrimSpace(mustCLI(t, data, "add", lid, title))
+
+	// Now delete the mentioned task.
+	mustCLI(t, data, "rm", mentioned, "--force")
 
 	// JSON: title_mentions has deleted=true, title=null.
 	var payloadList []showJSON

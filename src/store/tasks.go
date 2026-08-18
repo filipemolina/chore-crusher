@@ -18,9 +18,18 @@ import (
 // The parent, when given, must exist and belong to the same list — a task
 // belongs to exactly one List, and a cross-list parent would orphan the task
 // from every tree reader that scopes by list_id.
+//
+// Any @<ULID> mentions in the title are validated against existing tasks.
 func (s *Store) CreateTask(listID, title string, parentID *string, notes string) (string, error) {
 	if strings.TrimSpace(title) == "" {
 		return "", fmt.Errorf("task title must not be empty")
+	}
+
+	// Validate mentions in title before storing (mirrors SetNotes validation)
+	for _, m := range mentions.ParseMentions(title) {
+		if _, err := s.GetTask(m.ID); err != nil {
+			return "", fmt.Errorf("mention @%s references non-existent task", m.ID)
+		}
 	}
 
 	id := NewID()
@@ -99,9 +108,18 @@ func (s *Store) CreateTask(listID, title string, parentID *string, notes string)
 // CreateTaskAfter creates a task and positions it immediately after a reference
 // sibling. If afterID is empty, behaves like CreateTask (appends to end).
 // The reference sibling and new task must share the same parent.
+//
+// Any @<ULID> mentions in the title are validated against existing tasks.
 func (s *Store) CreateTaskAfter(listID, title string, parentID *string, notes, afterID string) (string, error) {
 	if strings.TrimSpace(title) == "" {
 		return "", fmt.Errorf("task title must not be empty")
+	}
+
+	// Validate mentions in title before storing (mirrors SetNotes validation)
+	for _, m := range mentions.ParseMentions(title) {
+		if _, err := s.GetTask(m.ID); err != nil {
+			return "", fmt.Errorf("mention @%s references non-existent task", m.ID)
+		}
 	}
 
 	id := NewID()
@@ -240,10 +258,20 @@ func (s *Store) GetTask(id string) (Task, error) {
 }
 
 // RenameTask sets a task's title.
+//
+// Any @<ULID> mentions in the title are validated against existing tasks.
 func (s *Store) RenameTask(id, title string) error {
 	if strings.TrimSpace(title) == "" {
 		return fmt.Errorf("task title must not be empty")
 	}
+
+	// Validate mentions in title before storing (mirrors SetNotes validation)
+	for _, m := range mentions.ParseMentions(title) {
+		if _, err := s.GetTask(m.ID); err != nil {
+			return fmt.Errorf("mention @%s references non-existent task", m.ID)
+		}
+	}
+
 	res, err := s.db.Exec(`UPDATE Task SET title = ?, updated_at = ? WHERE id = ?`, title, time.Now().Unix(), id)
 	if err != nil {
 		return err
