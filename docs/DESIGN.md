@@ -150,10 +150,11 @@ path a user setting progress by hand uses. Because setting progress starts a
 task (§3), a pending parent becomes `in_progress` as a side effect: a parent
 that has subtasks is a parent that has started, and the derived percentage is
 what "auto percentage on parent tasks" means. An explicit kind (`simple`,
-`subtasks`, `percentage`) is never overridden by this rule, and a complete
-parent is never touched — it can hold no progress. Both add paths share the
-switch, so the CLI and the TUI cannot diverge on whether a new subtask starts
-its parent.
+`subtasks`, `percentage`) is never overridden by this rule. If the parent is
+complete, it is reopened to `pending` (lossy, per §3) before the auto-switch
+applies, because a complete task with a pending child is a forbidden state.
+Both add paths share the switch, so the CLI and the TUI cannot diverge on
+whether a new subtask starts its parent.
 
 **Auto-completion is asymmetric between the two derived-vs-declared kinds,
 and this is deliberate:**
@@ -1408,8 +1409,10 @@ new parent's children, closing the gap it leaves behind. **An empty
 the list root**; that is the documented representation of "no parent". `mv`
 rejects a target that would create a cycle (reparenting a task under its own
 descendant, which would break the tree walks in `store`), and moving a
-non-complete task under a complete parent, which §3 forbids to exist —
-complete the task first, then move.
+non-complete task under a complete parent reopens the parent (lossy, per §3)
+and switches it to `subtasks` mode so it derives progress from its children.
+A complete subtree may still be moved under a complete parent; the parent
+stays complete.
 
 ## 10. Package layout
 
