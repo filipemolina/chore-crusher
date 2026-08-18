@@ -79,7 +79,7 @@ Task
                  -- '' = no assignment. NOT presence: AgentActivity (0002)
                  -- is a 120-second heartbeat; this column has no TTL and
                  -- changes on explicit assign/unassign/complete, or when
-                 -- the holding MCP session ends (§3).
+                 -- the holding agent session ends (§3).
   assigned_at    integer          -- unix seconds; null unless assignee != ''
   priority       text not null default 'none'
                  -- 'none' | 'low' | 'medium' | 'high'. Stored, displayed,
@@ -193,9 +193,9 @@ cases (what if it was `subtasks`-derived and a child changed while it sat
 complete?). If this bites someone in practice, revisit it — but start from
 `pending`, not from resurrected history.
 
-**Agent activity is orthogonal to this machine.** A task or list can be claimed by an MCP agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (the agent's name rendered in the task row, not a spinner animation), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. When the present agent is also the durable assignee, the row de-dupes the two so the name is not printed twice: the presence unit already names the agent, so the `@tag` assignee badge is suppressed (backlog: "hermes @hermes" must not render the name twice). Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat; they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the agent front end also calls `store.ReleaseAgentClaims` when the agent's session ends (process exit), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected.
+**Agent activity is orthogonal to this machine.** A task or list can be claimed by an agent (auto-claimed on every task write that leaves a task behind — status, progress, comment, add, edit and grab — but **not** `delete_task`, which would claim a row that no longer exists; the durable, explicit grab is `assign_task`, §9) without changing its `status` — the claim is a UI signal (the agent's name rendered in the task row, not a spinner animation), not a state transition. Claiming a task does not move it from `pending` to `in_progress`; completing a task does not release an agent's claim. When the present agent is also the durable assignee, the row de-dupes the two so the name is not printed twice: the presence unit already names the agent, so the `@tag` assignee badge is suppressed (backlog: "hermes @hermes" must not render the name twice). Status and progress writes by the same agent refresh (extend) its live claim's `acquired_at` — a write-heartbeat; they never create or release claims. **A grab is a task write, so `assign_task` and `next_task` auto-claim the task they hand you**, and the payload they return already reports `assignee_live: true`: without that, an agent would read its own just-grabbed task back as abandoned by the §3 rule below, and the TUI's stale tier would light up on work nobody has let go of. `assign_task(release=true)` is the opposite — letting go — and claims nothing. The `AgentActivity` table stores which agent is on which entity and when; it is read by the same 1s poll that reads lists and tasks (§7), but it does not interact with the status machine above. Claims expire after `WorkTTL` (120s) of inactivity; the agent front end also calls `store.ReleaseAgentClaims` when the agent's session ends (process exit), so the exiting agent's own spinners vanish immediately rather than waiting for TTL, while other agents' claims remain unaffected.
 
-**Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) has no TTL and no background sweeper — it changes only when someone explicitly assigns, unassigns or completes the task (§9 `assign_task` / `next_task`), **or when the session holding it ends**. It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. **An assignment lives for the session that made it.** An MCP session's identity is unique to its process unless `FAROL_AGENT` pins it (§9), so a tag that will never return must not hold work forever: on shutdown the server releases its own claims and its own assignments, and removes the Inbox it auto-created if that Inbox is empty. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget.
+**Assignment is a third axis, orthogonal to both the status machine and presence.** `Task.assignee` (§2) has no TTL and no background sweeper — it changes only when someone explicitly assigns, unassigns or completes the task (§9 `assign_task` / `next_task`), **or when the session holding it ends**. It is not the same thing as the spinner above: presence says an agent is at the keyboard *right now*; assignment says who *owns* this work. **An assignment lives for the session that made it.** An agent session's identity is unique to its process unless `FAROL_AGENT` pins it (§9), so a tag that will never return must not hold work forever: on shutdown the server releases its own claims and its own assignments, and removes the Inbox it auto-created if that Inbox is empty. Completing a task auto-unassigns it and every descendant the cascade completes — one less step for an agent to forget.
 
 That leaves exactly one way for an assignment to outlive its owner: a session killed hard enough that it never runs its shutdown path. That case is what the reads and the TUI still describe — **`assignee != ''` and no live presence claim (`assignee_live: false`) means the work is abandoned**, and it is the only signal the stale-assignment tier needs. Nothing auto-releases it: reads report enough for a human to decide, and the human releases it from the TUI, per task or per list. Expect that tier to be rare rather than routine.
 
@@ -434,8 +434,8 @@ the comment thread is reachable even while empty, since `c` adds the first
 comment from there); **`←`/`→`** (or `h`/`l`) cycle through the three progress
 modes (`simple`/`subtasks`/`percentage`) while the progress selector is focused —
 the modal shows those modes under plain-language labels ("in progress (flag)",
-"from subtasks", "percentage"), never their stored names, which stay the CLI and
-MCP vocabulary (§9); in `percentage` mode **digits** type the value directly and
+"from subtasks", "percentage"), never their stored names, which stay the CLI
+vocabulary (§9); in `percentage` mode **digits** type the value directly and
 **`↑`/`↓`** step it by 5, clamped to 0–100 (typed input reports an out-of-range
 error instead of clamping — the user can see what they typed, unlike a held
 arrow key), and both affordances are advertised in the modal's hint line only
@@ -1187,7 +1187,7 @@ list"}`, because an empty board is a normal state, not a failure. Splitting
 this into "read the list, then assign one" would be inherently racy across
 two calls; as one atomic conditional update it cannot be raced at all —
 which matters because the store file is shared across processes (TUI, CLI,
-and every MCP session), where in-process serialisation buys nothing. With
+and every agent session), where in-process serialisation buys nothing. With
 `my_list` it makes session open two calls: what boards exist, then here is
 your task and everything about it.
 
@@ -1210,7 +1210,7 @@ rows, filtered.
 **List ownership, and what the agent front end refuses.** Every `List` carries a
 `created_by` tag (§2). The agent front end resolves its own identity once at start
 from the `FAROL_AGENT` environment variable; the *human* may set it per session
-in the MCP client config to get a tag that is stable across runs. **When it is
+in the CLI config to get a tag that is stable across runs. **When it is
 unset the identity is generated per process** — `agent-` plus six random hex
 digits — never a shared constant. A constant default was a real bug rather than
 a convenience: identity is what every cross-agent guard compares on, so two
@@ -1310,7 +1310,7 @@ the one-value rule.
   of the single-add `{"id": …}`, ids in input order); `complete`/`reopen`/`rm`
   with 2+ ids return an array of `{"id", "ok":true}` / `{"id", "error"}` rows
   in input order, a bad id becoming a `{id, error}` row rather than failing
-  the call (matching `show`'s batch and MCP `set_status`'s `batchApply`); a
+  the call (matching `show`'s batch shape); a
   single id keeps the legacy `{"ok": true}` / `{"id": …}` shapes. Batch
   mutators accept at most 50 ids, like `show`. `rm`'s `--force` gate runs
   before any resolution or delete, so a refused batch deletes nothing.
@@ -1790,7 +1790,7 @@ Two rules follow from that ordering:
   while dropping the label would read as a floating `● HIGH` with no state
   next to it. At 40 columns the question "who is actively working" and "who
   owns it" still outlive "what should I pick up next", and the assignee is
-  still readable in the Details modal and over every CLI and MCP read (§9).
+  still readable in the Details modal and over every CLI read (§9).
   That order is deliberate and is the reverse of what the
   row layout originally specified: the first version budgeted for overflow
   alone, with no notion of a floor, so a narrow
