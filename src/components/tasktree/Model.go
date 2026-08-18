@@ -16,8 +16,8 @@ import (
 
 // Model is the task-tree zone with hierarchical rendering, navigation,
 // and collapse state. Selection is preserved across refreshes by id
-// (docs/DESIGN.md §7), collapsed state is view-only and not persisted.
-// Phase 8 adds the local `/` fuzzy filter: while a filter is active the
+// (docs/DESIGN.md §7). Collapsed state is persisted per list and restored
+// on load (docs/DESIGN.md §8). Phase 8 adds the local `/` fuzzy filter: while a filter is active the
 // visible rows are narrowed to each match plus its ancestor chain, and the
 // collapse state stops driving visibility in favour of the filter set.
 type Model struct {
@@ -408,7 +408,7 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ←/h: if expanded with children, collapse (cursor stays);
 			// otherwise move to parent (no-op at root)
 			if row := m.findRow(m.selectedID); row != nil && row.HasChildren && !m.collapsed[row.Task.ID] {
-				m.toggleCollapse(false)
+				return m, m.toggleCollapse(false)
 			} else if row != nil && row.Task.ParentID != nil {
 				m.selectedID = *row.Task.ParentID
 			}
@@ -416,7 +416,7 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// →/l: if collapsed with children, expand (cursor stays);
 			// otherwise move to first child (no-op at leaf)
 			if row := m.findRow(m.selectedID); row != nil && row.HasChildren && m.collapsed[row.Task.ID] {
-				m.toggleCollapse(true)
+				return m, m.toggleCollapse(true)
 			} else if row := m.firstVisibleChild(m.selectedID); row != "" {
 				m.selectedID = row
 			}
@@ -919,16 +919,24 @@ func siblingRun(rows []apptypes.Row, parentID *string) []apptypes.Row {
 // independently choosable (docs/DESIGN.md task-tree section). Collapsing
 // resets every descendant's own collapse state rather than remembering it,
 // so re-expanding always reveals exactly one level, never however many were
-// open before.
-func (m *Model) toggleCollapse(expand bool) {
+// open before. Returns a command to notify AppModel of the state change for
+// persistence.
+func (m *Model) toggleCollapse(expand bool) tea.Cmd {
 	row := m.findRow(m.selectedID)
 	if row == nil || !row.HasChildren {
-		return
+		return nil
 	}
 	if expand {
 		delete(m.collapsed, m.selectedID)
 	} else if row.Depth == 0 || !m.isParentCollapsed(*row) {
 		m.collapseDeep(m.selectedID)
+	}
+	// Emit the updated collapsed state for persistence.
+	return func() tea.Msg {
+		return cmds.CollapsedStateChangedMsg{
+			ListID:    m.activeListID,
+			Collapsed: m.GetCollapsed(),
+		}
 	}
 }
 
@@ -1284,4 +1292,24 @@ func (m Model) createRenderAnchorID() string {
 		lastDesc = i
 	}
 	return visible[lastDesc].Task.ID
+}
+
+// GetCollapsed returns a copy of the current collapsed state map.
+// The caller can safely modify the returned map without affecting the model.
+func (m Model) GetCollapsed() map[string]bool {
+	collapsed := make(map[string]bool, len(m.collapsed))
+	for k, v := range m.collapsed {
+		collapsed[k] = v
+	}
+	return collapsed
+}
+
+// SetCollapsed replaces the collapsed state with the provided map.
+// This is used to restore persisted state on list load.
+func (m *Model) SetCollapsed(collapsed map[string]bool) {
+	if collapsed == nil {
+		m.collapsed = make(map[string]bool)
+	} else {
+		m.collapsed = collapsed
+	}
 }
