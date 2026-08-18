@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/filipemolina/farol/src/mentions"
 )
 
 // CreateTask creates a task in listID, with the given title, notes, and
@@ -235,7 +237,15 @@ func (s *Store) RenameTask(id, title string) error {
 
 // SetNotes replaces a task's notes wholesale (the CLI's notes command is
 // "replace, not append"; clearing notes is setting the empty string).
+// It validates that any @<ULID> mentions in the notes reference existing tasks.
 func (s *Store) SetNotes(id, notes string) error {
+	// Validate mentions before storing
+	for _, m := range mentions.ParseMentions(notes) {
+		if _, err := s.GetTask(m.ID); err != nil {
+			return fmt.Errorf("mention @%s references non-existent task", m.ID)
+		}
+	}
+
 	res, err := s.db.Exec(`UPDATE Task SET notes = ?, updated_at = ? WHERE id = ?`, notes, time.Now().Unix(), id)
 	if err != nil {
 		return err
