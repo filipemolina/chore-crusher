@@ -209,6 +209,86 @@ func TestSetNotes(t *testing.T) {
 	}
 }
 
+func TestSetNotesWithValidMention(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	target := mustTask(t, s, lid, "target task", nil)
+	id := mustTask(t, s, lid, "task", nil)
+
+	// SetNotes with a valid mention should succeed
+	notes := "See @" + target + " for context"
+	if err := s.SetNotes(id, notes); err != nil {
+		t.Fatalf("SetNotes with valid mention failed: %v", err)
+	}
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Notes != notes {
+		t.Fatalf("notes not stored as-is: got %q, want %q", task.Notes, notes)
+	}
+}
+
+func TestSetNotesWithInvalidMention(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	id := mustTask(t, s, lid, "task", nil)
+
+	// SetNotes with a non-existent mention should fail
+	notes := "See @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 for context"
+	err := s.SetNotes(id, notes)
+	if err == nil {
+		t.Fatal("SetNotes with invalid mention should have failed")
+	}
+	if !strings.Contains(err.Error(), "mention @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 references non-existent task") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+	// Verify notes were not changed
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Notes != "" {
+		t.Fatalf("notes should be unchanged, got %q", task.Notes)
+	}
+}
+
+func TestSetNotesWithMultipleMentionsOneInvalid(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	target := mustTask(t, s, lid, "target task", nil)
+	id := mustTask(t, s, lid, "task", nil)
+
+	// One valid, one invalid mention
+	notes := "Related to @" + target + " and @01ARZ8X5Y6Z7A8B9C0D1E2F3G4"
+	err := s.SetNotes(id, notes)
+	if err == nil {
+		t.Fatal("SetNotes with one invalid mention should have failed")
+	}
+	if !strings.Contains(err.Error(), "mention @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 references non-existent task") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestSetNotesWithNonULIDMentionIgnored(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	id := mustTask(t, s, lid, "task", nil)
+
+	// @user and @abc are not ULIDs, should be ignored
+	notes := "Hello @user and @abc123"
+	if err := s.SetNotes(id, notes); err != nil {
+		t.Fatalf("SetNotes with non-ULID mentions should succeed: %v", err)
+	}
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Notes != notes {
+		t.Fatalf("notes not stored as-is: got %q, want %q", task.Notes, notes)
+	}
+}
+
 // TestDeleteTaskCascadesToDescendants is the required coverage for the
 // "removes every descendant of it and leaves sibling subtrees untouched" rule.
 func TestDeleteTaskCascadesToDescendants(t *testing.T) {
