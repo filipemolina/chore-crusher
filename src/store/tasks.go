@@ -42,7 +42,8 @@ func (s *Store) CreateTask(listID, title string, parentID *string, notes string)
 
 	if parentID != nil {
 		var parentList string
-		err := tx.QueryRow(`SELECT list_id FROM Task WHERE id = ?`, *parentID).Scan(&parentList)
+		var parentStatus Status
+		err := tx.QueryRow(`SELECT list_id, status FROM Task WHERE id = ?`, *parentID).Scan(&parentList, &parentStatus)
 		if err != nil {
 			if isNoRows(err) {
 				return "", fmt.Errorf("parent task %q not found", *parentID)
@@ -51,6 +52,13 @@ func (s *Store) CreateTask(listID, title string, parentID *string, notes string)
 		}
 		if parentList != listID {
 			return "", fmt.Errorf("parent task %q belongs to a different list", *parentID)
+		}
+		// A complete parent cannot have a pending child (docs/DESIGN.md §3).
+		// Reopen the parent so the new child can be added under a pending parent.
+		if parentStatus == StatusComplete {
+			if err := reopenTaskTx(tx, *parentID, now); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -115,7 +123,8 @@ func (s *Store) CreateTaskAfter(listID, title string, parentID *string, notes, a
 
 	if parentID != nil {
 		var parentList string
-		err := tx.QueryRow(`SELECT list_id FROM Task WHERE id = ?`, *parentID).Scan(&parentList)
+		var parentStatus Status
+		err := tx.QueryRow(`SELECT list_id, status FROM Task WHERE id = ?`, *parentID).Scan(&parentList, &parentStatus)
 		if err != nil {
 			if isNoRows(err) {
 				return "", fmt.Errorf("parent task %q not found", *parentID)
@@ -124,6 +133,13 @@ func (s *Store) CreateTaskAfter(listID, title string, parentID *string, notes, a
 		}
 		if parentList != listID {
 			return "", fmt.Errorf("parent task %q belongs to a different list", *parentID)
+		}
+		// A complete parent cannot have a pending child (docs/DESIGN.md §3).
+		// Reopen the parent so the new child can be added under a pending parent.
+		if parentStatus == StatusComplete {
+			if err := reopenTaskTx(tx, *parentID, now); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -300,8 +316,17 @@ func (s *Store) Reparent(taskID string, parentID *string) error {
 		if err := ensureNotDescendant(tx, *parentID, taskID); err != nil {
 			return err
 		}
+		// A complete parent cannot have a pending child (docs/DESIGN.md §3).
+		// Reopen the parent instead of rejecting the move, then auto-switch
+		// to subtasks mode so the parent derives progress from its children.
 		if parent.Status == StatusComplete && task.Status != StatusComplete {
-			return fmt.Errorf("cannot move non-complete task %q under complete task %q; complete it first", taskID, *parentID)
+			now := time.Now().Unix()
+			if err := reopenTaskTx(tx, *parentID, now); err != nil {
+				return err
+			}
+			if err := autoSwitchParentToSubtasks(tx, *parentID, now); err != nil {
+				return err
+			}
 		}
 	}
 
