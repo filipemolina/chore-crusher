@@ -108,22 +108,23 @@ type listTasksResult struct {
 // inlined notes/comments) are MCP-compatible so the CLI can fully replace
 // the server. omitempty keeps the payload legible when the fields are empty.
 type taskRowJSON struct {
-	ID           string        `json:"id"`
-	ParentID     *string       `json:"parent_id"`
-	Title        string        `json:"title"`
-	Status       string        `json:"status"`
-	Progress     progressJSON  `json:"progress"`
-	Depth        int           `json:"depth"`
-	ListOwner    string        `json:"list_owner"`
-	Assignee     string        `json:"assignee"`
-	AssignedAt   *int64        `json:"assigned_at,omitempty"`
-	AssigneeLive bool          `json:"assignee_live"`
-	Priority     string        `json:"priority"`
-	HasNotes     bool          `json:"has_notes"`
-	NotesLen     int           `json:"notes_len"`
-	Notes        string        `json:"notes,omitempty"`
-	ContextOnly  bool          `json:"context_only,omitempty"`
-	Comments     []commentJSON `json:"comments,omitempty"`
+	ID            string                     `json:"id"`
+	ParentID      *string                    `json:"parent_id"`
+	Title         string                     `json:"title"`
+	TitleMentions []mentions.MentionMetadata `json:"title_mentions"`
+	Status        string                     `json:"status"`
+	Progress      progressJSON               `json:"progress"`
+	Depth         int                        `json:"depth"`
+	ListOwner     string                     `json:"list_owner"`
+	Assignee      string                     `json:"assignee"`
+	AssignedAt    *int64                     `json:"assigned_at,omitempty"`
+	AssigneeLive  bool                       `json:"assignee_live"`
+	Priority      string                     `json:"priority"`
+	HasNotes      bool                       `json:"has_notes"`
+	NotesLen      int                        `json:"notes_len"`
+	Notes         string                     `json:"notes,omitempty"`
+	ContextOnly   bool                       `json:"context_only,omitempty"`
+	Comments      []commentJSON              `json:"comments,omitempty"`
 }
 
 // taskView is one flattened row with its derived progress computed once, so
@@ -416,12 +417,19 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			payload = append(payload, v.payload)
 		}
 		// Human mode: print the tree (without section headers)
+		resolver := func(mentionID string) string {
+			task, err := s.GetTask(mentionID)
+			if err != nil {
+				return ""
+			}
+			return task.Title
+		}
 		printResult(jsonMode, func() {
 			if len(views) == 0 {
 				return // print nothing in human mode
 			}
 			for _, v := range views {
-				renderRow(v)
+				renderRow(v, resolver)
 			}
 		}, payload)
 		return nil
@@ -526,23 +534,33 @@ func runTasks(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
+		// Resolver for mention metadata: looks up task titles by ID.
+		resolver := func(mentionID string) string {
+			task, err := s.GetTask(mentionID)
+			if err != nil {
+				return ""
+			}
+			return task.Title
+		}
+
 		payload := make([]taskRowJSON, 0, len(pendingViews)+len(completeViews))
 		for _, v := range append(pendingViews, completeViews...) {
 			t := v.row.Task
 			payload = append(payload, taskRowJSON{
-				ID:           t.ID,
-				ParentID:     t.ParentID,
-				Title:        t.Title,
-				Status:       string(t.Status),
-				Progress:     v.prog,
-				Depth:        v.row.Depth,
-				ListOwner:    l.CreatedBy,
-				Assignee:     t.Assignee,
-				AssignedAt:   t.AssignedAt,
-				AssigneeLive: assigneeLive(live, t.Assignee),
-				Priority:     string(t.Priority),
-				HasNotes:     t.Notes != "",
-				NotesLen:     len(t.Notes),
+				ID:            t.ID,
+				ParentID:      t.ParentID,
+				Title:         t.Title,
+				TitleMentions: mentions.BuildMentionMetadata(t.Title, resolver),
+				Status:        string(t.Status),
+				Progress:      v.prog,
+				Depth:         v.row.Depth,
+				ListOwner:     l.CreatedBy,
+				Assignee:      t.Assignee,
+				AssignedAt:    t.AssignedAt,
+				AssigneeLive:  assigneeLive(live, t.Assignee),
+				Priority:      string(t.Priority),
+				HasNotes:      t.Notes != "",
+				NotesLen:      len(t.Notes),
 			})
 		}
 
@@ -583,12 +601,12 @@ func runTasks(cmd *cobra.Command, args []string) error {
 				return // an empty result prints nothing in human mode (§9)
 			}
 			if flat {
-				renderFlat(pendingViews)
-				renderFlat(completeViews)
+				renderFlat(pendingViews, resolver)
+				renderFlat(completeViews, resolver)
 				return
 			}
-			renderSection("Pending", pendingViews)
-			renderSection("Complete", completeViews)
+			renderSection("Pending", pendingViews, resolver)
+			renderSection("Complete", completeViews, resolver)
 		}, listTasksResult{Tasks: payload, Elided: elided, BudgetExceeded: budgetExceeded})
 		return nil
 	})
@@ -614,13 +632,13 @@ func parseInclude(values []string) (notes, comments bool, err error) {
 // renderSection prints a §6 section header and its rows — the header shows
 // only when the section has rows, and the count is the row count, so the
 // two numbers a reader sees always agree.
-func renderSection(name string, views []taskView) {
+func renderSection(name string, views []taskView, resolver func(string) string) {
 	if len(views) == 0 {
 		return
 	}
 	fmt.Fprintf(os.Stdout, "%s (%d)\n", name, len(views))
 	for _, v := range views {
-		renderRow(v)
+		renderRow(v, resolver)
 	}
 }
 
@@ -628,8 +646,9 @@ func renderSection(name string, views []taskView) {
 // {2 spaces × depth}{expand-glyph-or-blank}{space}{checkbox}{space}{title}
 // {progress suffix if any}. The CLI's tree is always fully expanded, so a
 // non-leaf row draws the expanded glyph ▾.
-func renderRow(v taskView) {
+func renderRow(v taskView, resolver func(string) string) {
 	t := v.row.Task
+	titleDisplay := mentions.RenderMentions(t.Title, resolver)
 	fmt.Fprint(os.Stdout, strings.Repeat("  ", v.row.Depth))
 	if v.row.HasChildren {
 		fmt.Fprint(os.Stdout, "▾")
@@ -645,7 +664,7 @@ func renderRow(v taskView) {
 	default:
 		fmt.Fprint(os.Stdout, "[ ]")
 	}
-	fmt.Fprint(os.Stdout, " ", t.Title)
+	fmt.Fprint(os.Stdout, " ", titleDisplay)
 	if !v.prog.DisplayAsSimple {
 		fmt.Fprintf(os.Stdout, " (%d%%)", *v.prog.Percent)
 	}
@@ -654,9 +673,10 @@ func renderRow(v taskView) {
 
 // renderFlat prints id, status, and title per line — the script-greppable
 // view; the tree structure is recoverable via --json's depth column.
-func renderFlat(views []taskView) {
+func renderFlat(views []taskView, resolver func(string) string) {
 	for _, v := range views {
-		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", v.row.Task.ID, v.row.Task.Status, v.row.Task.Title)
+		titleDisplay := mentions.RenderMentions(v.row.Task.Title, resolver)
+		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", v.row.Task.ID, v.row.Task.Status, titleDisplay)
 	}
 }
 
@@ -812,18 +832,29 @@ func buildShowJSON(s *store.Store, id string) (showView, error) {
 		return showView{}, err
 	}
 
+	// Build mention metadata for title and notes.
+	// The resolver looks up task titles by ID; empty string means deleted.
+	resolver := func(mentionID string) string {
+		task, err := s.GetTask(mentionID)
+		if err != nil {
+			return ""
+		}
+		return task.Title
+	}
+
 	children := make([]taskRowJSON, 0, len(childViews))
 	for _, v := range childViews {
 		children = append(children, taskRowJSON{
-			ID:        v.row.Task.ID,
-			ParentID:  v.row.Task.ParentID,
-			Title:     v.row.Task.Title,
-			Status:    string(v.row.Task.Status),
-			Progress:  v.prog,
-			Depth:     v.row.Depth,
-			ListOwner: l.CreatedBy,
-			Assignee:  v.row.Task.Assignee,
-			Priority:  string(v.row.Task.Priority),
+			ID:            v.row.Task.ID,
+			ParentID:      v.row.Task.ParentID,
+			Title:         v.row.Task.Title,
+			TitleMentions: mentions.BuildMentionMetadata(v.row.Task.Title, resolver),
+			Status:        string(v.row.Task.Status),
+			Progress:      v.prog,
+			Depth:         v.row.Depth,
+			ListOwner:     l.CreatedBy,
+			Assignee:      v.row.Task.Assignee,
+			Priority:      string(v.row.Task.Priority),
 		})
 	}
 
@@ -833,14 +864,6 @@ func buildShowJSON(s *store.Store, id string) (showView, error) {
 	}
 
 	// Build mention metadata for comments using the same resolver.
-	resolver := func(mentionID string) string {
-		task, err := s.GetTask(mentionID)
-		if err != nil {
-			return ""
-		}
-		return task.Title
-	}
-
 	commentJSONs := make([]commentJSON, 0, len(comments))
 	for _, c := range comments {
 		commentJSONs = append(commentJSONs, commentJSON{
@@ -995,8 +1018,12 @@ func renderShowHuman(w *strings.Builder, v showView) {
 	}
 	if len(v.childViews) > 0 {
 		fmt.Fprintf(w, "Children (%d):\n", len(v.childViews))
-		for _, cv := range v.childViews {
-			renderRowTo(w, cv)
+		for i, cv := range v.childViews {
+			var titleMentions []mentions.MentionMetadata
+			if i < len(v.payload.Children) {
+				titleMentions = v.payload.Children[i].TitleMentions
+			}
+			renderRowTo(w, cv, titleMentions)
 		}
 	}
 	if len(v.comments) > 0 {
@@ -1043,9 +1070,11 @@ func renderMentionsFromMetadata(text string, metadata []mentions.MentionMetadata
 }
 
 // renderRowTo writes one tree row to w (the batch show path prints to a
-// buffer rather than stdout directly).
-func renderRowTo(w *strings.Builder, v taskView) {
+// buffer rather than stdout directly). It uses the pre-resolved
+// TitleMentions from the showView payload for mention rendering.
+func renderRowTo(w *strings.Builder, v taskView, titleMentions []mentions.MentionMetadata) {
 	t := v.row.Task
+	titleDisplay := renderMentionsFromMetadata(t.Title, titleMentions)
 	fmt.Fprint(w, strings.Repeat("  ", v.row.Depth))
 	if v.row.HasChildren {
 		fmt.Fprint(w, "▾")
@@ -1061,7 +1090,7 @@ func renderRowTo(w *strings.Builder, v taskView) {
 	default:
 		fmt.Fprint(w, "[ ]")
 	}
-	fmt.Fprint(w, " ", t.Title)
+	fmt.Fprint(w, " ", titleDisplay)
 	if !v.prog.DisplayAsSimple {
 		fmt.Fprintf(w, " (%d%%)", *v.prog.Percent)
 	}

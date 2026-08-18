@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/mentions"
 	"github.com/filipemolina/farol/src/store"
 )
 
@@ -232,8 +233,12 @@ func renderInboxBlock(w *strings.Builder, label string, block inboxListJSON) {
 		return
 	}
 	views := rowsToViews(block.Tasks)
-	for _, v := range views {
-		renderRowTo(w, v)
+	for i, v := range views {
+		var titleMentions []mentions.MentionMetadata
+		if i < len(block.Tasks) {
+			titleMentions = block.Tasks[i].TitleMentions
+		}
+		renderRowTo(w, v, titleMentions)
 	}
 }
 

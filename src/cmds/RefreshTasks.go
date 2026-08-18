@@ -3,6 +3,7 @@ package cmds
 import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/farol/src/apptypes"
+	"github.com/filipemolina/farol/src/mentions"
 	"github.com/filipemolina/farol/src/store"
 )
 
@@ -46,6 +47,21 @@ func RefreshTasks(s *store.Store, listID string, sortMode apptypes.SortMode) tea
 			appTasks = apptypes.SortTasks(appTasks, sortMode)
 		}
 		rows := apptypes.Flatten(appTasks)
+
+		// Resolver for mention rendering: looks up task titles by ID.
+		resolver := func(mentionID string) string {
+			task, err := s.GetTask(mentionID)
+			if err != nil {
+				return ""
+			}
+			return task.Title
+		}
+
+		// Resolve mentions in titles for display.
+		for i := range rows {
+			rows[i].Task.Title = mentions.RenderMentions(rows[i].Task.Title, resolver)
+		}
+
 		// One batch query for which tasks in this list have comments, so the
 		// tasktree can draw the comments glyph on every row without an N+1
 		// per-row lookup.

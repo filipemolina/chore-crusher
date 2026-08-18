@@ -289,6 +289,163 @@ func TestSetNotesWithNonULIDMentionIgnored(t *testing.T) {
 	}
 }
 
+// TestCreateTaskWithValidMentionInTitle verifies that creating a task with
+// a valid mention in the title succeeds and stores the title as-is.
+func TestCreateTaskWithValidMentionInTitle(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	target := mustTask(t, s, lid, "target task", nil)
+
+	title := "See @" + target + " for context"
+	id, err := s.CreateTask(lid, title, nil, "")
+	if err != nil {
+		t.Fatalf("CreateTask with valid mention failed: %v", err)
+	}
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != title {
+		t.Fatalf("title not stored as-is: got %q, want %q", task.Title, title)
+	}
+}
+
+// TestCreateTaskWithInvalidMentionInTitle verifies that creating a task with
+// an invalid mention in the title fails with a clear error.
+func TestCreateTaskWithInvalidMentionInTitle(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	title := "See @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 for context"
+	_, err := s.CreateTask(lid, title, nil, "")
+	if err == nil {
+		t.Fatal("CreateTask with invalid mention should have failed")
+	}
+	if !strings.Contains(err.Error(), "mention @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 references non-existent task") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+// TestCreateTaskWithMultipleMentionsOneInvalidInTitle verifies that creating
+// a task with multiple mentions where one is invalid fails.
+func TestCreateTaskWithMultipleMentionsOneInvalidInTitle(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	target := mustTask(t, s, lid, "target task", nil)
+
+	title := "Related to @" + target + " and @01ARZ8X5Y6Z7A8B9C0D1E2F3G4"
+	_, err := s.CreateTask(lid, title, nil, "")
+	if err == nil {
+		t.Fatal("CreateTask with one invalid mention should have failed")
+	}
+	if !strings.Contains(err.Error(), "mention @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 references non-existent task") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+// TestCreateTaskWithNonULIDMentionInTitleIgnored verifies that non-ULID
+// @patterns in the title are ignored (not treated as mentions).
+func TestCreateTaskWithNonULIDMentionInTitleIgnored(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	title := "Hello @user and @abc123"
+	id, err := s.CreateTask(lid, title, nil, "")
+	if err != nil {
+		t.Fatalf("CreateTask with non-ULID mentions should succeed: %v", err)
+	}
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != title {
+		t.Fatalf("title not stored as-is: got %q, want %q", task.Title, title)
+	}
+}
+
+// TestRenameTaskWithValidMentionInTitle verifies that renaming a task to
+// include a valid mention succeeds.
+func TestRenameTaskWithValidMentionInTitle(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	target := mustTask(t, s, lid, "target task", nil)
+	id := mustTask(t, s, lid, "original title", nil)
+
+	newTitle := "Updated to reference @" + target
+	if err := s.RenameTask(id, newTitle); err != nil {
+		t.Fatalf("RenameTask with valid mention failed: %v", err)
+	}
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != newTitle {
+		t.Fatalf("title not stored as-is: got %q, want %q", task.Title, newTitle)
+	}
+}
+
+// TestRenameTaskWithInvalidMentionInTitle verifies that renaming a task to
+// include an invalid mention fails with a clear error.
+func TestRenameTaskWithInvalidMentionInTitle(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	id := mustTask(t, s, lid, "original title", nil)
+
+	newTitle := "See @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 for context"
+	err := s.RenameTask(id, newTitle)
+	if err == nil {
+		t.Fatal("RenameTask with invalid mention should have failed")
+	}
+	if !strings.Contains(err.Error(), "mention @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 references non-existent task") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+	// Verify title was not changed
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != "original title" {
+		t.Fatalf("title should be unchanged, got %q", task.Title)
+	}
+}
+
+// TestCreateTaskAfterWithValidMentionInTitle verifies that CreateTaskAfter
+// also validates mentions in titles.
+func TestCreateTaskAfterWithValidMentionInTitle(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+	target := mustTask(t, s, lid, "target task", nil)
+
+	title := "Follow up on @" + target
+	id, err := s.CreateTaskAfter(lid, title, nil, "", "")
+	if err != nil {
+		t.Fatalf("CreateTaskAfter with valid mention failed: %v", err)
+	}
+	task, err := s.GetTask(id)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != title {
+		t.Fatalf("title not stored as-is: got %q, want %q", task.Title, title)
+	}
+}
+
+// TestCreateTaskAfterWithInvalidMentionInTitle verifies that CreateTaskAfter
+// rejects invalid mentions in titles.
+func TestCreateTaskAfterWithInvalidMentionInTitle(t *testing.T) {
+	s := newTestStore(t)
+	lid := mustList(t, s, "list")
+
+	title := "See @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 for context"
+	_, err := s.CreateTaskAfter(lid, title, nil, "", "")
+	if err == nil {
+		t.Fatal("CreateTaskAfter with invalid mention should have failed")
+	}
+	if !strings.Contains(err.Error(), "mention @01ARZ8X5Y6Z7A8B9C0D1E2F3G4 references non-existent task") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
 // TestDeleteTaskCascadesToDescendants is the required coverage for the
 // "removes every descendant of it and leaves sibling subtrees untouched" rule.
 func TestDeleteTaskCascadesToDescendants(t *testing.T) {
