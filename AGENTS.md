@@ -335,10 +335,16 @@ should stay rare, because it's timing-based.
 Drive the app through its CLI: read the inbox with `farol inbox` at the start
 of every session — your list, every foreign list, and their top 20 pending
 tasks with notes inlined. Keep their status current as you work, on your own,
-without being asked: assign what you take, flip it to `in_progress` with a
-progress percentage, advance the percentage at milestones, comment at decision
-points, and complete it when done. The human watches the TUI; the statuses are
-the report.
+without being asked: assign what you take, set progress when you start, and
+complete it when done. The human watches the TUI; the statuses are the report.
+
+Follow the progress discipline in `farol skill`: a trivial task takes `simple`
+progress and is done; a multi-step task gets a `farol comment` at each
+milestone (a comment is a write-heartbeat, so the TUI spinner stays lit and
+the task never looks abandoned); on a list you own you may decompose into
+subtasks and use `subtasks` mode so the percentage derives from completed
+children. Never set a `percentage` you will not maintain — a stale number is
+worse than none. Plan your checkpoints when you plan the implementation.
 
 The agent interaction protocol — set `FAROL_AGENT` to a unique tag, grab the
 top task with `farol next <list-id>`, update with `farol progress <id> --mode

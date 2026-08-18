@@ -177,7 +177,7 @@ func TestSkillEmitsMarkdown(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("skill: exit %d, want 0", code)
 	}
-	for _, want := range []string{"FAROL_AGENT", "farol inbox", "Presence vs. assignment", "JSON contract"} {
+	for _, want := range []string{"FAROL_AGENT", "farol inbox", "Presence vs. assignment", "JSON contract", "Progress discipline", "write-heartbeat"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("skill output missing %q", want)
 		}

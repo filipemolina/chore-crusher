@@ -22,7 +22,7 @@ When anything disagrees with `docs/DESIGN.md`, **`docs/DESIGN.md` wins**: an iss
 - **The app's own task lists** — farol tracks its own work (Bugs, Features, UI lists). Read them with `farol inbox` at the start of a session.
 - **A GitHub issue** — the project's issue tracker.
 
-Keep the status of what you take current as you work: assign what you take, flip it to `in_progress` with a progress percentage, advance the percentage at milestones, comment at decision points, and complete it when done. The human watches the TUI; the statuses are the report.
+Keep the status of what you take current as you work: assign what you take, set progress when you start, and complete it when done. Follow the progress discipline in `farol skill`: a trivial task takes `simple` progress and is done; a multi-step task gets a `farol comment` at each milestone (a comment is a write-heartbeat, so the TUI spinner stays lit and the task never looks abandoned); on a list you own you may decompose into subtasks and use `subtasks` mode so the percentage derives from completed children. Never set a `percentage` you will not maintain — a stale number is worse than none. The human watches the TUI; the statuses are the report.
 
 ## Create a branch, commit small
 

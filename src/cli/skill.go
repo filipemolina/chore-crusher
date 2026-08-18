@@ -67,6 +67,28 @@ presence claims, not assignments - see "Presence vs. assignment" below.
 ` + "`farol agent help`" + ` prints this protocol; docs/AGENT_PROTOCOL.md carries the
 full version.
 
+== Progress discipline ==
+
+The human reads the TUI; progress and comments are the report. Keep them
+current as you work, without being asked:
+
+- Trivial task: set ` + "`simple`" + ` progress when you start, complete when done.
+  No percentage.
+- Multi-step task: post a ` + "`farol comment`" + ` at each milestone - what you just
+  finished and what is next. A comment is a write-heartbeat: it refreshes your
+  presence claim (the 120s TTL), so the TUI spinner stays lit and the task
+  never looks abandoned between milestones. Comments are ungated, so they
+  work on owned and foreign lists alike.
+- On a list you own, you may also decompose a multi-step task into subtasks
+  and switch it to ` + "`subtasks`" + ` mode: the percentage then derives from
+  completed children and cannot go stale.
+- Never set a ` + "`percentage`" + ` you will not maintain. A percentage is an
+  unverifiable claim, not a fact the store can check; a stale number is worse
+  than none. If you are not going to keep it honest, use ` + "`simple`" + ` or
+  ` + "`subtasks`" + ` instead.
+- Plan your checkpoints when you plan the implementation: decide the
+  milestones up front, then hit them as you work.
+
 == Working a task ==
 
     farol next <list-id>   # grab the top eligible task (highest priority, then tree order) and show it
@@ -83,7 +105,9 @@ researching the same work.
     farol complete <id>    # mark complete (cascades to descendants)
     farol toggle <id>      # complete <-> reopen, whichever applies
     farol reopen <id>      # back to pending (does not cascade)
+    farol progress <id> --mode simple
     farol progress <id> --mode percentage --percent <0-100>
+    farol progress <id> --mode subtasks
     farol notes <id> "<text>"        # replaces the whole notes field
     farol comment <id> "<text>"      # append a comment; prints its id
     farol add <list-id> "<title>" [--parent <id>] [--notes <text>]
