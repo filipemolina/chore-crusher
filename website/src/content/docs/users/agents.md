@@ -47,7 +47,7 @@ farol progress <task-id> --mode percentage --percent 50
 farol comment <task-id> "callback verified against staging"
 
 # 4. Mark it complete when done.
-farol <task-id>
+farol complete <task-id>   # or the shorthand: farol <task-id>
 
 # 5. On the way out, drop every claim.
 farol release --all

@@ -115,7 +115,8 @@ Every id in that transcript is an 8-character prefix. Everything after the prefi
 | `farol show <task-id> [<task-id> …]` | Show one or more tasks (up to 50): title, notes, status, progress, children, comments, attachments. |
 | `farol rename <task-id> <title>` | Rename a task. |
 | `farol notes <task-id> <text>` | Replace a task's notes (whole text, not append). |
-| `farol reopen <task-id>` | Mark pending (does not cascade). |
+| `farol complete <task-id> [<task-id> …]` | Mark one or more tasks complete (cascades to descendants). `farol <task-id>` is the single-task shorthand. |
+| `farol reopen <task-id> [<task-id> …]` | Mark one or more tasks pending (does not cascade). |
 | `farol toggle <task-id>` | Complete ↔ reopen, whichever applies. |
 | `farol comment <task-id> <note>` | Add a comment; prints its id. |
 | `farol comment rm <comment-id> --force` | Delete a comment. |
