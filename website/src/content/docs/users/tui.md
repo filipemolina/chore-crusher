@@ -113,6 +113,8 @@ Inside the panel: `n` creates a list (named in a modal), `R` renames the highlig
 
 `A` opens the Archived Lists page — a dedicated screen that replaces Tasks and Lists entirely while it's open (not a modal layered over them, and not reachable with `tab`). It lists every archived list, most recently archived first, alongside a read-only preview of the selected list's tasks.
 
+![The Archived Lists page: an archived list on the left, a read-only preview of its tasks on the right](/screenshot-archive-dark.png)
+
 - `↑`/`↓` (or `k`/`j`) move the selection; `g`/`G` jump to the first/last list.
 - `/` filters the list by name, live, the same way `/` filters the Lists panel.
 - `u` restores the selected list to normal discovery, immediately — no confirmation, since unlike deleting it's reversible.

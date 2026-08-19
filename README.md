@@ -104,6 +104,11 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 |![Theme picker](demo/screenshot-theme.png)|![Help](demo/screenshot-help.png)|![Complete](demo/screenshot-complete.png)|
 |Live theme preview|Full keybinding catalog|Tasks cascade to Complete on `space`|
 
+| Archived Lists |
+|-----------------|
+|![Archived Lists](demo/screenshot-archive.png)|
+|Browse, unarchive, or permanently delete (`A`)|
+
 ---
 
 ## Get started
