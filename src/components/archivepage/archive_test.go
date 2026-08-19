@@ -1,6 +1,7 @@
 package archivepage
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,6 +78,30 @@ func readyModel(t *testing.T) (Model, *store.Store) {
 	}
 	if err := s.ArchiveList(chores); err != nil {
 		t.Fatalf("archive list: %v", err)
+	}
+
+	m := New(s).(Model)
+	m = step(t, m, cmds.SetBodyLayoutMsg{Height: 30, TerminalWidth: 100})
+	m = step(t, m, cmds.SetFocusMsg(constants.COMPONENT_ARCHIVE_PAGE))
+	m = step(t, m, cmds.OpenArchivePageMsg{})
+	m = step(t, m, cmds.RefreshArchivedListsMsg{Lists: apptypes.FromStoreLists(mustArchivedLists(t, s))})
+	return m, s
+}
+
+// manyArchivedListsModel builds a Model with n archived, empty lists — enough
+// to overflow a small terminal's list-column viewport for the scroll tests,
+// which readyModel's fixed two entries never would.
+func manyArchivedListsModel(t *testing.T, n int) (Model, *store.Store) {
+	t.Helper()
+	s := openTestStore(t)
+	for i := range n {
+		id, err := s.CreateList(fmt.Sprintf("List %02d", i), "")
+		if err != nil {
+			t.Fatalf("create list: %v", err)
+		}
+		if err := s.ArchiveList(id); err != nil {
+			t.Fatalf("archive list: %v", err)
+		}
 	}
 
 	m := New(s).(Model)
@@ -174,7 +199,7 @@ func TestPreviewShowsTaskTitlesAndEmptyState(t *testing.T) {
 	})
 
 	out := ansi.Strip(m.View().Content)
-	if sel.List.Name == "Groceries" {
+	if strings.HasPrefix(sel.List.Name, "Groceries") {
 		if !strings.Contains(out, "Buy milk") || !strings.Contains(out, "Buy eggs") {
 			t.Errorf("preview missing Groceries' tasks:\n%s", out)
 		}
@@ -238,7 +263,7 @@ func TestFilterNarrowsVisibleEntries(t *testing.T) {
 	}
 
 	visible := m.visibleEntries()
-	if len(visible) != 1 || visible[0].List.Name != "Groceries" {
+	if len(visible) != 1 || !strings.HasPrefix(visible[0].List.Name, "Groceries") {
 		t.Fatalf("visibleEntries after filtering \"Groc\" = %v, want just Groceries", visible)
 	}
 
@@ -302,90 +327,54 @@ func TestEscClearsAppliedFilterBeforeClosingPage(t *testing.T) {
 	}
 }
 
-// TestUnarchiveRemovesSelectedEntryAndSelectsNext proves u restores the
-// selected list to normal discovery (it must show up again in
-// store.ListLists) and that the page's own list narrows to reflect it,
-// landing selection on whatever now occupies the vacated slot — the same
-// "select what's now there" outcome clampSelection already gives for free
-// after any set-shrinking refresh.
-func TestUnarchiveRemovesSelectedEntryAndSelectsNext(t *testing.T) {
+// TestUnarchiveKeyRequestsConfirmationWithName proves u does not restore
+// anything itself — it only asks AppModel to confirm, carrying the selected
+// list's name so the (AppModel-owned) dialog can name what it is about to
+// restore, matching Delete's own request shape (docs/DESIGN.md §9).
+func TestUnarchiveKeyRequestsConfirmationWithName(t *testing.T) {
+	m, _ := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
+	if cmd == nil {
+		t.Fatal("u produced no command")
+	}
+	msg, ok := cmd().(cmds.UnarchiveArchivedListMsg)
+	if !ok {
+		t.Fatalf("u command produced %T, want cmds.UnarchiveArchivedListMsg", cmd())
+	}
+	if msg.ListID != sel.List.ID {
+		t.Errorf("ListID = %q, want %q", msg.ListID, sel.List.ID)
+	}
+	if msg.ListName != sel.List.Name {
+		t.Errorf("ListName = %q, want %q", msg.ListName, sel.List.Name)
+	}
+}
+
+// TestUnarchiveKeyDoesNotItselfWriteToTheStore proves u, like d, performs no
+// store write on its own — the list must still be archived immediately
+// after the keypress, since only AppModel's confirm modal may call
+// store.UnarchiveList.
+func TestUnarchiveKeyDoesNotItselfWriteToTheStore(t *testing.T) {
 	m, s := readyModel(t)
 	sel, ok := m.selectedEntry()
 	if !ok {
 		t.Fatal("nothing selected after refresh")
 	}
-	unarchivedID := sel.List.ID
 
-	updated, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
-	m = updated.(Model)
-	if cmd == nil {
-		t.Fatal("u produced no command")
-	}
-	msg, ok := cmd().(cmds.RefreshArchivedListsMsg)
-	if !ok {
-		t.Fatalf("u command produced %T, want cmds.RefreshArchivedListsMsg", cmd())
-	}
-	m = step(t, m, msg)
+	m.Update(tea.KeyPressMsg{Text: "u"})
 
-	for _, e := range m.entries {
-		if e.List.ID == unarchivedID {
-			t.Fatalf("unarchived list %q is still in the Archive page's entries", e.List.Name)
-		}
-	}
 	lists, err := s.ListLists()
 	if err != nil {
 		t.Fatalf("list lists: %v", err)
 	}
-	found := false
 	for _, l := range lists {
-		if l.List.ID == unarchivedID {
-			found = true
+		if l.List.ID == sel.List.ID {
+			t.Errorf("list %q reappeared in normal discovery after u alone (no confirmation happened)", sel.List.Name)
 		}
-	}
-	if !found {
-		t.Error("unarchived list did not reappear in normal list discovery (store.ListLists)")
-	}
-	if len(m.entries) > 0 {
-		if _, ok := m.selectedEntry(); !ok {
-			t.Error("selection is out of bounds after the set shrank")
-		}
-	}
-}
-
-// TestUnarchiveFailureSurfacesActionErrWithoutLosingTheList proves a failed
-// write (here: the list vanished from under the page, simulating a race with
-// another agent) shows an inline message rather than blowing away the
-// already-loaded list with the full-page error state.
-func TestUnarchiveFailureSurfacesActionErrWithoutLosingTheList(t *testing.T) {
-	m, s := readyModel(t)
-	sel, ok := m.selectedEntry()
-	if !ok {
-		t.Fatal("nothing selected after refresh")
-	}
-	if err := s.DeleteList(sel.List.ID); err != nil {
-		t.Fatalf("delete list out from under the page: %v", err)
-	}
-
-	updated, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
-	m = updated.(Model)
-	if cmd == nil {
-		t.Fatal("u produced no command")
-	}
-	msg, ok := cmd().(archiveActionErrMsg)
-	if !ok {
-		t.Fatalf("u command produced %T, want archiveActionErrMsg", cmd())
-	}
-	m = step(t, m, msg)
-
-	if m.actionErr == "" {
-		t.Error("failed unarchive did not set actionErr")
-	}
-	if len(m.entries) == 0 {
-		t.Error("a failed unarchive should not clear the already-loaded entries")
-	}
-	out := ansi.Strip(m.View().Content)
-	if !strings.Contains(out, sel.List.Name) {
-		t.Errorf("failed unarchive's view lost the list it was acting on:\n%s", out)
 	}
 }
 
@@ -420,7 +409,7 @@ func TestDeleteKeyRequestsConfirmationWithNameAndTaskCount(t *testing.T) {
 	}
 }
 
-// TestDeleteKeyDoesNotItselfWriteToTheStore proves d, unlike u, performs no
+// TestDeleteKeyDoesNotItselfWriteToTheStore proves d, like u, performs no
 // store write on its own — the list must still exist (archived or not)
 // immediately after the keypress, since only AppModel's confirm modal may
 // call store.DeleteList.
@@ -453,6 +442,179 @@ func TestOpenArchivePageMsgResetsStaleState(t *testing.T) {
 	}
 	if !m.loading || len(m.entries) != 0 {
 		t.Error("OpenArchivePageMsg did not reset to a loading, empty state")
+	}
+}
+
+// TestFocusPreviewTogglesWithTabAndShiftTab proves both tab and shift+tab
+// cycle keyboard focus between the archived-list column and the task
+// preview — with exactly two columns, either key just toggles it.
+func TestFocusPreviewTogglesWithTabAndShiftTab(t *testing.T) {
+	m, _ := readyModel(t)
+	if m.previewFocused {
+		t.Fatal("preview should not start focused")
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	if !m.previewFocused {
+		t.Fatal("tab should move focus to the preview column")
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	if m.previewFocused {
+		t.Fatal("a second tab should move focus back to the list column")
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "shift+tab"})
+	if !m.previewFocused {
+		t.Fatal("shift+tab should also toggle focus to the preview column")
+	}
+}
+
+// TestNavigateScrollsPreviewInsteadOfSelectionWhenFocused proves that once
+// tab has moved focus to the preview column, up/down/j/k scroll its task
+// list rather than moving the archived-list selection — the two columns
+// scroll independently.
+func TestNavigateScrollsPreviewInsteadOfSelectionWhenFocused(t *testing.T) {
+	m, _ := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+
+	viewport := m.previewViewportRows()
+	rows := make([]apptypes.Row, 0, viewport+5)
+	for i := range viewport + 5 {
+		rows = append(rows, apptypes.Row{Task: apptypes.Task{Title: fmt.Sprintf("task %d", i)}})
+	}
+	m = step(t, m, cmds.RefreshArchivedListPreviewMsg{ListID: sel.List.ID, Rows: rows})
+
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	m = step(t, m, tea.KeyPressMsg{Text: "down"})
+
+	if m.selectedIdx != 0 {
+		t.Errorf("selectedIdx = %d after down with preview focused, want unchanged (0)", m.selectedIdx)
+	}
+	if m.previewScroll != 1 {
+		t.Errorf("previewScroll = %d after one down press with preview focused, want 1", m.previewScroll)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "j"})
+	if m.previewScroll != 2 {
+		t.Errorf("previewScroll = %d after a second down press, want 2", m.previewScroll)
+	}
+}
+
+// TestPreviewGoToEndAndStartClampToBounds proves G/end and g/home jump the
+// preview scroll to its last and first valid offsets rather than past the
+// end of the row list.
+func TestPreviewGoToEndAndStartClampToBounds(t *testing.T) {
+	m, _ := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+
+	viewport := m.previewViewportRows()
+	n := viewport + 7
+	rows := make([]apptypes.Row, 0, n)
+	for i := range n {
+		rows = append(rows, apptypes.Row{Task: apptypes.Task{Title: fmt.Sprintf("task %d", i)}})
+	}
+	m = step(t, m, cmds.RefreshArchivedListPreviewMsg{ListID: sel.List.ID, Rows: rows})
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+
+	m = step(t, m, tea.KeyPressMsg{Text: "end"})
+	if want := n - viewport; m.previewScroll != want {
+		t.Errorf("previewScroll after end = %d, want %d", m.previewScroll, want)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "home"})
+	if m.previewScroll != 0 {
+		t.Errorf("previewScroll after home = %d, want 0", m.previewScroll)
+	}
+}
+
+// TestListScrollFollowsSelectionPastViewport proves the archived-list column
+// scrolls to keep the selection visible once it moves past the first
+// screenful — without this, a selection driven below the viewport would
+// simply vanish off the bottom of a column that never scrolls itself.
+func TestListScrollFollowsSelectionPastViewport(t *testing.T) {
+	m, _ := manyArchivedListsModel(t, 40)
+	viewport := m.listViewportRows()
+	if viewport <= 0 || viewport >= 40 {
+		t.Fatalf("test needs a viewport smaller than the entry count, got %d rows for 40 entries", viewport)
+	}
+
+	for range viewport + 3 {
+		m = step(t, m, tea.KeyPressMsg{Text: "down"})
+	}
+
+	if m.selectedIdx < m.listScroll || m.selectedIdx >= m.listScroll+viewport {
+		t.Errorf("selection %d fell outside the scrolled window [%d, %d)", m.selectedIdx, m.listScroll, m.listScroll+viewport)
+	}
+	if m.listScroll == 0 {
+		t.Error("listScroll should have advanced once the selection moved past the first viewport")
+	}
+}
+
+// TestFilterKeyReturnsFocusToListColumn proves pressing / while the preview
+// column has focus brings focus back to the list column, since the filter
+// row it opens lives there.
+func TestFilterKeyReturnsFocusToListColumn(t *testing.T) {
+	m, _ := readyModel(t)
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	if !m.previewFocused {
+		t.Fatal("precondition: tab should have focused the preview column")
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "/"})
+	if m.previewFocused {
+		t.Error("/ should return keyboard focus to the list column")
+	}
+}
+
+// TestUnarchiveActsOnListSelectionEvenWhenPreviewFocused proves Unarchive
+// (and, by the same code path, Delete) still reads the archived-list
+// column's own selection regardless of which column currently has keyboard
+// focus for scrolling.
+func TestUnarchiveActsOnListSelectionEvenWhenPreviewFocused(t *testing.T) {
+	m, _ := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
+	if cmd == nil {
+		t.Fatal("u produced no command")
+	}
+	msg, ok := cmd().(cmds.UnarchiveArchivedListMsg)
+	if !ok {
+		t.Fatalf("u command produced %T, want cmds.UnarchiveArchivedListMsg", cmd())
+	}
+	if msg.ListID != sel.List.ID {
+		t.Errorf("ListID = %q, want %q", msg.ListID, sel.List.ID)
+	}
+}
+
+// TestOpenArchivePageMsgResetsFocusAndScroll extends
+// TestOpenArchivePageMsgResetsStaleState to the focus/scroll state this task
+// added: reopening the page must not resume a stale preview focus or scroll
+// position any more than it resumes a stale filter.
+func TestOpenArchivePageMsgResetsFocusAndScroll(t *testing.T) {
+	m, _ := readyModel(t)
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	m = step(t, m, tea.KeyPressMsg{Text: "down"})
+
+	m = step(t, m, cmds.OpenArchivePageMsg{})
+
+	if m.previewFocused {
+		t.Error("OpenArchivePageMsg did not reset preview focus")
+	}
+	if m.listScroll != 0 || m.previewScroll != 0 {
+		t.Errorf("OpenArchivePageMsg did not reset scroll state: listScroll=%d previewScroll=%d", m.listScroll, m.previewScroll)
 	}
 }
 

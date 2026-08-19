@@ -19,19 +19,40 @@ func openArchivePage(t *testing.T, width, height int) AppModel {
 	return m
 }
 
-// TestArchiveKeyOpensPage proves the A binding (keys.Global.ArchivePage) is
+// TestArchiveKeyOpensPage proves the 2 binding (keys.Global.PageArchived) is
 // actually wired in AppModel.Update, not just the OpenArchivePageMsg plumbing.
 func TestArchiveKeyOpensPage(t *testing.T) {
 	m := seedOneList(t)
 	m = refresh(t, m, tea.WindowSizeMsg{Width: 80, Height: 40})
 
-	m = refresh(t, m, tea.KeyPressMsg{Text: "A"})
+	m = refresh(t, m, tea.KeyPressMsg{Text: "2"})
 
 	if !m.archivePageVisible {
-		t.Fatal("A did not open the Archive page")
+		t.Fatal("2 did not open the Archive page")
 	}
 	if m.focusedZone != constants.COMPONENT_ARCHIVE_PAGE {
 		t.Fatalf("focusedZone = %d, want COMPONENT_ARCHIVE_PAGE", m.focusedZone)
+	}
+}
+
+// TestPageActiveKeyClosesArchivePage proves 1 (keys.Global.PageActive) is a
+// second way off the Archive page, alongside esc — it is the Archive page's
+// own handleKey that reacts to it (docs/DESIGN.md §5), since AppModel routes
+// every keypress there while the page is open.
+func TestPageActiveKeyClosesArchivePage(t *testing.T) {
+	m := openArchivePage(t, 80, 40)
+
+	out, cmd := m.Update(tea.KeyPressMsg{Text: "1"})
+	m = out.(AppModel)
+	if cmd != nil {
+		m = refresh(t, m, cmd())
+	}
+
+	if m.archivePageVisible {
+		t.Fatal("1 did not close the Archive page")
+	}
+	if m.focusedZone != constants.COMPONENT_TASK_TREE {
+		t.Fatalf("focusedZone = %d, want COMPONENT_TASK_TREE", m.focusedZone)
 	}
 }
 
@@ -201,6 +222,105 @@ func TestArchiveDeleteConfirmedPermanentlyRemovesTheList(t *testing.T) {
 		if l.List.ID == listID {
 			t.Error("list still appears in ListAllLists (--include-archived) after permanent delete")
 		}
+	}
+}
+
+// TestArchiveUnarchiveOpensModalOverThePage proves u on the Archive page
+// opens AppModel's confirm modal on top of the page (not instead of it),
+// naming the list the same way Lists.Delete's own dialog does
+// (docs/DESIGN.md §9), and that esc cancels back to the Archive page
+// unchanged — nothing restored, the list still archived.
+func TestArchiveUnarchiveOpensModalOverThePage(t *testing.T) {
+	m := seedOneList(t)
+	lists, err := m.store.ListLists()
+	if err != nil || len(lists) == 0 {
+		t.Fatalf("seed: no lists (err=%v)", err)
+	}
+	listID := lists[0].List.ID
+	if err := m.store.ArchiveList(listID); err != nil {
+		t.Fatalf("archive list: %v", err)
+	}
+	archived, err := m.store.GetList(listID)
+	if err != nil {
+		t.Fatalf("get archived list: %v", err)
+	}
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = refresh(t, m, cmds.OpenArchivePage()())
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "u"})
+
+	if m.activeModal == nil {
+		t.Fatal("u did not open a confirm modal")
+	}
+	body := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(body, archived.Name) {
+		t.Errorf("confirm dialog does not name the list %q:\n%s", archived.Name, body)
+	}
+	if !m.archivePageVisible {
+		t.Error("the Archive page closed underneath the modal")
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "esc"})
+
+	if m.activeModal != nil {
+		t.Error("esc should have closed the confirm modal")
+	}
+	if !m.archivePageVisible {
+		t.Error("esc closing the modal should not also close the Archive page underneath it")
+	}
+	stillArchived, err := m.store.GetList(listID)
+	if err != nil {
+		t.Fatalf("list should still exist after cancelling: %v", err)
+	}
+	if stillArchived.ArchivedAt == nil {
+		t.Error("cancelling should leave the list archived")
+	}
+}
+
+// TestArchiveUnarchiveConfirmedRestoresTheList proves confirming the dialog
+// actually calls store.UnarchiveList — the list must reappear in
+// store.ListLists (normal discovery).
+func TestArchiveUnarchiveConfirmedRestoresTheList(t *testing.T) {
+	m := seedOneList(t)
+	lists, err := m.store.ListLists()
+	if err != nil || len(lists) == 0 {
+		t.Fatalf("seed: no lists (err=%v)", err)
+	}
+	listID := lists[0].List.ID
+	if err := m.store.ArchiveList(listID); err != nil {
+		t.Fatalf("archive list: %v", err)
+	}
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = refresh(t, m, cmds.OpenArchivePage()())
+	m = refresh(t, m, tea.KeyPressMsg{Text: "u"})
+	if m.activeModal == nil {
+		t.Fatal("precondition: u should have opened the confirm modal")
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "y", Code: 'y'})
+
+	if m.activeModal != nil {
+		t.Error("confirming should have closed the modal")
+	}
+	restored, err := m.store.GetList(listID)
+	if err != nil {
+		t.Fatalf("get list: %v", err)
+	}
+	if restored.ArchivedAt != nil {
+		t.Error("list is still archived after confirming unarchive")
+	}
+	lists, err = m.store.ListLists()
+	if err != nil {
+		t.Fatalf("list lists: %v", err)
+	}
+	found := false
+	for _, l := range lists {
+		if l.List.ID == listID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("restored list does not appear in ListLists after confirming unarchive")
 	}
 }
 

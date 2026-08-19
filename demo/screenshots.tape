@@ -99,9 +99,10 @@ Escape
 Sleep 500ms
 
 # --- Archive page: the seeded archived list + its task preview -------------
-# A (capital) opens the Archived Lists page. seed.sh archives "Q2 roadmap"
-# ahead of time, so this captures a real list + preview, not an empty state.
-Type "A"
+# 2 opens the Archived Lists page, the top nav's second tab. seed.sh archives
+# "Q2 roadmap" ahead of time, so this captures a real list + preview, not an
+# empty state.
+Type "2"
 Sleep 1200ms
 Screenshot demo/screenshot-archive.png
 Escape

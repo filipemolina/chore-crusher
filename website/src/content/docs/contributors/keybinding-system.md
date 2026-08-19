@@ -15,8 +15,8 @@ The keybinding system is built around one rule, stated in `docs/DESIGN.md` §5 a
 
 | Struct | Scope |
 | --- | --- |
-| `keys.Global` | Keys that work anywhere no overlay owns the keyboard: `tab`/`shift+tab`, `L`, `A`, `q`, `ctrl+c`, `esc`, `?`, `T`, `/`, `F`, `ctrl+y`, `s`, `a` |
-| `keys.Tree` | The task tree: navigation, expand/collapse, `space` toggle, `enter` details, `n` new, `d` delete, `[`/`]` outdent/indent, `alt+↑/↓` move, `u`/`U` release assignment, `g`/`G`/`pgup`/`pgdown` |
+| `keys.Global` | Keys that work anywhere no overlay owns the keyboard: `tab`/`shift+tab`, `L`, `1`/`2` (page switch), `q`, `ctrl+c`, `esc`, `?`, `T`, `/`, `F`, `ctrl+y`, `s`, `a` |
+| `keys.Tree` | The task tree: navigation, expand/collapse, `space` toggle, `enter` details, `n` new, `d` delete, `[`/`]` outdent/indent, `alt+↑/↓` move, `u`/`U` release assignment, `g`/`G`/`pgup`/`pgdown`, `v` cycle view |
 | `keys.Create` | The inline create row: `enter` submit, `esc` cancel |
 | `keys.Lists` | The lists panel: navigate, `enter` select, `n` new list, `R` rename, `d` delete, `alt+↑/↓` move, `e` export, `i` import |
 | `keys.Details` | The Details modal: `ctrl+s` save, `tab` next field, `←`/`→` cycle mode/priority, `↑`/`↓` percent nudge, `c`/`enter`/`y`/`d` comment actions, `ctrl+y` copy task id |

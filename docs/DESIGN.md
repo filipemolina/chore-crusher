@@ -333,32 +333,75 @@ visible rather than off-screen at the end. The comment thread renders as selecta
 chrome, §12); `↑`/`↓` move the highlight and `y` copies the highlighted
 comment's id to the system clipboard.
 
-**The Archive page (`A`) is a full-body takeover, not a modal.** Unlike
-Details it does not layer a centered box over the body: while
-`archivePageVisible` is true, `renderBody()` returns the Archive page's own
-`View` in place of the Tasks/Lists split entirely — the same "one surface
-replaces the whole row" shape Tasks-alone already has with Lists hidden, not
-a second thing composited on top of it. This is why neither of this
-section's opening claims changes: Archive is not a third tab-cycle target
-(it is entered and left by the explicit `A`/close transitions, exactly like
-Details, never by `tab`), and it is not a second side surface either (it
-*replaces* the row Tasks and Lists would otherwise occupy, rather than
-sharing it). It owns the keyboard the same way Details does — AppModel
-intercepts every keypress ahead of the normal dispatch and routes it to the
-page exclusively, right after the Details check and before the ordinary
-`esc`-handling `switch` — so no global key, task-tree binding, or Lists
-panel key acts while it is open; only its own bindings
-(`keys.ArchivePageKeys`: `↑`/`↓`/`g`/`G` navigate, `/` filters by name, `u`
-unarchives the selected list with no confirmation, `d` opens the same
-confirmmodal `Lists.Delete` uses to permanently delete one) plus `esc` are
-live, and the footer bar goes blank the same way it does for Details — the
-page renders its own hint line in the space that would otherwise sit empty.
+**farol has two top-level pages, Active and Archived, switched with `1` and
+`2` (`keys.Global.PageActive`/`PageArchived`) — a digit-tab header styled
+after `../cais`'s mainmenu.** The header renders both tabs at all times,
+digit-prefixed (`1 Active`, `2 Archived`), the selected one lifted with the
+same accent `▌` bar cais's `tabLabel` uses. `1` and `2` work from anywhere no
+text input owns the keyboard, including from inside the *other* page — the
+same "the digit always jumps there" contract cais's `pageForNavKey`
+establishes, not a toggle limited to opening from Active.
+
+**The Archive page is a full-body takeover, not a modal.** Unlike Details it
+does not layer a centered box over the body: while `archivePageVisible` is
+true, `renderBody()` returns the Archive page's own `View` in place of the
+Tasks/Lists split entirely — the same "one surface replaces the whole row"
+shape Tasks-alone already has with Lists hidden, not a second thing
+composited on top of it. This is why neither of this section's opening
+claims changes: Archive is not a third tab-cycle target (it is entered and
+left by the explicit `2`/`1`/close transitions, exactly like Details, never
+by `tab`), and it is not a second side surface either (it *replaces* the row
+Tasks and Lists would otherwise occupy, rather than sharing it). It owns the
+keyboard the same way Details does — AppModel intercepts every keypress
+ahead of the normal dispatch and routes it to the page exclusively, right
+after the Details check and before the ordinary `esc`-handling `switch` — so
+no global key, task-tree binding, or Lists panel key acts while it is open;
+only its own bindings (`keys.ArchivePageKeys`: `↑`/`↓`/`g`/`G` navigate, `tab`/
+`shift+tab` (`FocusPreview`) switch which of the two columns those navigate
+keys act on, `/` filters by name, `u` unarchives the selected list with no
+confirmation, `d` opens the same confirmmodal `Lists.Delete` uses to
+permanently delete one) plus `esc` and `Global.PageActive` (`1`) are live, and
+the footer bar goes blank the same way it does for Details — the page renders
+its own hint line in the space that would otherwise sit empty. `1` is a
+second way off the page besides `esc`'s ladder below: `archivepage`'s own
+`handleKey` matches it directly (after the filtering guard, so `1` typed into
+the name filter still lands there) and emits the same `CloseArchivePageMsg`
+a second `esc` would.
 The list column and the read-only task preview beside it split the body row
 the way `../cais`'s `backuppage` does, though the outer page-switching
 mechanism deliberately does *not* copy `cais`'s `AppModel.pages` map: a
 single boolean flag mirroring `detailsPanelVisible`'s own shape is enough
 for one additional surface, and cais's registry solves a problem (four or
-more pages) this app does not have.
+more pages) this app does not have. Only the header's tab *rendering*
+borrows cais's look; the state underneath it is still one bool.
+
+**The two columns scroll independently, each keyed off `previewFocused`
+rather than a second focus zone AppModel knows about.** `tab`/`shift+tab`
+inside the page are entirely local to `archivepage` — they never reach
+AppModel's own `Global.NextPanel`/`PrevPanel` cycle, since the page
+intercepts every keypress first (this is what the previous paragraph's "not
+a third tab-cycle target" means: no *AppModel*-level zone changes hands).
+With exactly two columns, `previewFocused` is a bool, not an enum, and both
+keys just flip it — there is no third state to cycle through. `↑`/`↓`/`j`/`k`
+and `g`/`G`/`home`/`end` read that bool: with it false (the default) they
+move the archived-list selection exactly as before, loading a fresh preview
+on every change; with it true they instead move `previewScroll`, a plain
+viewport offset with no selection of its own, leaving the archived-list
+selection — and therefore what `u`/`d` act on — untouched. Pressing `/`
+always drops `previewFocused` back to false first, since the filter row it
+opens lives in the list column. Neither column had a working scrollbar
+before this: the list column silently clipped rows past its height with no
+way to reach them, and the preview column showed a static "N more" line
+instead of letting the user actually see the rest. `Model.listScroll` follows
+the selection with the minimal-shift window `clampWindowStart` computes (the
+same idea as the task tree's own `clampScroll`, adapted from lines to this
+column's fixed two-line rows); `Model.previewScroll` is clamped to bounds by
+`clampScrollOffset` after every `Update` rather than driven by a selection.
+Both are recomputed by an exported `Update` wrapper around an unexported
+`update` so no call site has to remember to reclamp after a resize, a filter
+keystroke, or a fresh preview load — one place owns keeping them in range,
+mirroring the task tree's own `scrollFor` being the one place that advances
+`scrollOffset`.
 
 Archive's `esc` is its own ladder before it ever reaches AppModel's, and it
 mirrors the tree's own `/`-filter exactly rather than inventing a new shape:
@@ -370,9 +413,10 @@ makes). Only a further `esc`, with nothing left to clear, emits
 the checks above it, the full precedence a keypress meets is: a modal (if one
 is open) first, then Details (if open) handles its own `esc` internally (the
 dirty-discard prompt, then a clean close), then the Archive page (if open)
-runs the clear-then-close ladder just described, and only once none of those
-three apply does AppModel's own `switch` on `Global.Back` run — a focused
-child's own `KeepsEsc` (the tree or Lists panel's filter) claims it before
+runs the clear-then-close ladder just described (or the `1` shortcut past
+it), and only once none of those three apply does AppModel's own `switch` on
+`Global.Back` run — a focused child's own `KeepsEsc` (the tree or Lists
+panel's filter) claims it before
 the Lists panel's own open/close fallback does.
 
 `tab`/`shift+tab` cycle **only through the targets currently visible** —
@@ -742,16 +786,19 @@ while its parent is still pending** — that would separate a task from the
 tree it belongs to for a reader trying to see the shape of remaining work,
 which defeats the reason the tree exists at all.
 
-**`1`/`2`/`3` filter which of the two sections are shown** — Pending only,
-Complete only, or both (`3`, the default: today's behavior, unchanged for
-anyone who never presses the other two). This is a visibility filter over
-the same section model above, not a second navigation mode: the cursor still
-walks the flat `pending + complete` concatenation, just over whichever of the
-two the mode leaves non-empty. Hiding a section drops its header the same
-way an empty `Complete` section's header is already omitted below — filtering
-and natural emptiness are the same rendering case with two different causes.
-The active mode is shown in the header (mainmenu), low-emphasis, next to the
-version.
+**`v` cycles which of the two sections are shown** — both (the default),
+then Pending only, then Complete only, then back to both — unchanged for
+anyone who never presses it. One cycling key rather than three direct-select
+digits because `1` and `2` are the top-level page-switch keys (§5); `v` is
+free everywhere. This is a visibility filter over the same section model
+above, not a second navigation mode: the cursor still walks the flat
+`pending + complete` concatenation, just over whichever of the two the mode
+leaves non-empty. Hiding a section drops its header the same way an empty
+`Complete` section's header is already omitted below — filtering and natural
+emptiness are the same rendering case with two different causes. The active
+mode is shown in the header (mainmenu), low-emphasis, next to the version,
+except while the Archive page is open — that mode describes the Active
+page's task tree, which is not on screen (§5).
 
 A list with no tasks yet auto-shows the inline "new task" input as its only
 row, under the `Pending` header — the input creates a pending task, so it

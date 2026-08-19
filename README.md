@@ -87,7 +87,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | **Notes, comments, attachments** | Long-form notes per task, threaded comments, and file attachments (path, stdin, or URL) added via `farol attach`; view and delete them in the details modal |
 | **Change feed** | `farol diff <list-id> --since <unix-seconds>` returns tasks added or changed since a timestamp — cheap to poll |
 | **Export / Import** | `farol export` / `farol import` (or `e` / `i` in the Lists panel) move lists and tasks between stores as versioned JSON |
-| **Archiving** | `farol lists archive`/`unarchive` hides a finished list from the sidebar and agent discovery without deleting it; browse, unarchive, or permanently delete archived lists from the TUI's Archived Lists page (`A`) |
+| **Archiving** | `farol lists archive`/`unarchive` hides a finished list from the sidebar and agent discovery without deleting it; browse, unarchive, or permanently delete archived lists from the TUI's Archived Lists page (`2`) |
 | **Themes** | 14 themes: four of the app's own (`farol-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
 
 ---
@@ -107,7 +107,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | Archived Lists |
 |-----------------|
 |![Archived Lists](demo/screenshot-archive.png)|
-|Browse, unarchive, or permanently delete (`A`)|
+|Browse, unarchive, or permanently delete (`2`)|
 
 ---
 
@@ -167,13 +167,15 @@ The default list `Inbox` is created automatically; the app opens on the
 | `U` | Release every assignment you hold on the current list |
 | `ctrl+y` | Copy the selected task's id |
 | `s` | Sort the current list |
+| `v` | Cycle the task tree's view: both sections, Pending only, Complete only |
 | `/` | Filter current list (fuzzy search) |
 | `F` | Global search across all lists |
 | `e` | Export the store or highlighted list to JSON |
 | `i` | Import lists from a JSON file |
 | `T` | Toggle theme picker |
 | `L` | Toggle lists panel visibility |
-| `A` | Open the Archived Lists page (`u` unarchives, `d` permanently deletes, `esc` to leave) |
+| `1` | Switch to the Active page (tasks and lists) |
+| `2` | Switch to the Archived Lists page (`u` unarchives, `d` permanently deletes, `esc` or `1` to leave) |
 | `a` | Open the About modal |
 | `?` | Show help overlay |
 | `q` / `Ctrl+C` | Quit |

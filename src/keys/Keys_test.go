@@ -23,7 +23,8 @@ func TestGlobalBindingsAreFixed(t *testing.T) {
 		{"Theme", Global.Theme, "T"},
 		{"Filter", Global.Filter, "/"},
 		{"Picker", Global.Picker, "F"},
-		{"ArchivePage", Global.ArchivePage, "A"},
+		{"PageActive", Global.PageActive, "1"},
+		{"PageArchived", Global.PageArchived, "2"},
 	}
 
 	for _, tc := range cases {
@@ -60,7 +61,7 @@ func TestCatalogContainsEveryGlobalBinding(t *testing.T) {
 	for _, g := range []key.Binding{
 		Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
 		Global.Back, Global.ForceQuit, Global.Help, Global.Theme,
-		Global.Filter, Global.Picker, Global.ArchivePage,
+		Global.Filter, Global.Picker, Global.PageActive, Global.PageArchived,
 	} {
 		if !containsBinding(bindings, g) {
 			t.Errorf("catalog is missing %q", g.Help().Key)
@@ -193,7 +194,9 @@ func TestActiveReturnsArchivePageBindingsWhenVisible(t *testing.T) {
 
 	want := []key.Binding{
 		ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd,
-		ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete, Global.Back,
+		ArchivePage.FocusPreview,
+		ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete,
+		Global.Back, Global.PageActive,
 	}
 	if len(bindings) != len(want) {
 		t.Fatalf("expected %d Archive page bindings, got %d: %v", len(want), len(bindings), bindings)
@@ -213,7 +216,7 @@ func TestActiveReturnsArchivePageBindingsWhenVisible(t *testing.T) {
 	for _, banned := range []key.Binding{
 		Tree.OpenDetails, Lists.New,
 		Global.NextPanel, Global.Picker, Global.Theme, Global.ToggleListsPanel,
-		Global.ArchivePage,
+		Global.PageArchived,
 	} {
 		if containsBinding(bindings, banned) {
 			t.Errorf("Archive page context wrongly advertises %q", banned.Help().Key)
@@ -236,7 +239,10 @@ func TestPressableNowArchivePageOmitsGlobals(t *testing.T) {
 	if !containsBinding(live, Global.Back) || !containsBinding(live, Global.ForceQuit) {
 		t.Fatalf("pressableNow for the Archive page = %v, want Back and ForceQuit", live)
 	}
-	if containsBinding(live, Global.ArchivePage) || containsBinding(live, Global.ToggleListsPanel) {
+	if !containsBinding(live, Global.PageActive) {
+		t.Errorf("pressableNow for the Archive page = %v, want PageActive (1 leaves the page)", live)
+	}
+	if containsBinding(live, Global.PageArchived) || containsBinding(live, Global.ToggleListsPanel) {
 		t.Errorf("pressableNow wrongly advertises a global while the Archive page owns the keyboard: %v", live)
 	}
 }

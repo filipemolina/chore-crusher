@@ -30,13 +30,9 @@ func (m Model) View() tea.View {
 	// error, empty, and the normal split alike — since it stands in for the
 	// footer bar, which goes blank entirely while the page owns the keyboard
 	// (mirroring Details). Without it here too, the loading/empty states
-	// would give no clue how to leave the page. A failed unarchive's message
-	// (actionErr) sits just above it, its own row so it never crowds the
-	// hint out — the same "status strip above the footer" shape AppModel's
-	// own lastError uses.
+	// would give no clue how to leave the page.
 	hint := m.renderHint(bg)
-	errRow := m.renderActionErr(bodyW, bg)
-	reserved := lipgloss.Height(hint) + lipgloss.Height(errRow) + 1 // +1 for the blank spacer above the hint
+	reserved := lipgloss.Height(hint) + 1 // +1 for the blank spacer above the hint
 	contentH := max(0, bodyH-reserved)
 
 	var content string
@@ -54,12 +50,7 @@ func (m Model) View() tea.View {
 	}
 
 	blank := lipgloss.NewStyle().Background(bg).Width(bodyW).Render("")
-	parts := []string{content, blank}
-	if errRow != "" {
-		parts = append(parts, errRow)
-	}
-	parts = append(parts, hint)
-	body := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	body := lipgloss.JoinVertical(lipgloss.Left, content, blank, hint)
 
 	title := "Archived Lists"
 	return tea.NewView(chrome.PanelFrameWithRightTitle(title, m.countLabel(), m.focused, width, height, body))
@@ -89,8 +80,11 @@ func (m Model) renderSplit(bodyW, bodyH int, bg color.Color) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, listCol, previewCol)
 }
 
-// renderListColumn renders the filter row and the archived-list rows (or an
-// inline "no matches" message when the filter leaves nothing).
+// renderListColumn renders the filter row and the window of archived-list
+// rows starting at m.listScroll (or an inline "no matches" message when the
+// filter leaves nothing) — Update keeps m.listScroll clamped to the current
+// entry count and selection, so render just windows into it rather than
+// re-deriving the offset itself.
 func (m Model) renderListColumn(width, height int, bg color.Color) string {
 	if width < 1 {
 		width = 1
@@ -107,8 +101,10 @@ func (m Model) renderListColumn(width, height int, bg color.Color) string {
 			Width(width).
 			Render("No archived lists match \""+m.filterInput.Value()+"\""))
 	} else {
-		for i, e := range visible {
-			rows = append(rows, m.renderRow(i, e, width))
+		start := min(m.listScroll, len(visible))
+		end := min(len(visible), start+m.listViewportRows())
+		for i := start; i < end; i++ {
+			rows = append(rows, m.renderRow(i, visible[i], width))
 		}
 	}
 
@@ -132,7 +128,12 @@ func (m Model) renderFilterRow(width int, bg color.Color) string {
 // an accent bar on the left when selected (mirroring backuppage's own row).
 func (m Model) renderRow(idx int, e apptypes.ListSummary, width int) string {
 	isSelected := idx == m.selectedIdx
-	rowBg := chrome.ListRowBg(isSelected, m.focused)
+	// The selection highlight lifts only while the list column itself has
+	// keyboard focus — with previewFocused true it drops to the unfocused
+	// tier, the same elevated-vs-lifted cue the Lists/Tasks split uses across
+	// panels, so it reads as "still selected, but tab is scrolling the
+	// preview right now" rather than looking like the highlight vanished.
+	rowBg := chrome.ListRowBg(isSelected, m.focused && !m.previewFocused)
 
 	name := lipgloss.NewStyle().
 		Foreground(appstyles.Active.TextPrimary).
@@ -149,7 +150,7 @@ func (m Model) renderRow(idx int, e apptypes.ListSummary, width int) string {
 	row := lipgloss.JoinVertical(lipgloss.Left, name, metaLine)
 
 	barColor := rowBg
-	if isSelected {
+	if isSelected && m.focused && !m.previewFocused {
 		barColor = appstyles.Active.Accent
 	}
 	bar := chrome.BarColumn(barColor, rowBg, row)
@@ -161,20 +162,25 @@ func (m Model) renderRow(idx int, e apptypes.ListSummary, width int) string {
 // renderPreviewColumn renders the selected archived list's tasks, read-only:
 // a status glyph (mirroring the task tree's own vocabulary, docs/DESIGN.md
 // §12) plus the title, indented by depth. It is plain text, not the
-// interactive tree — there is nothing here to select or edit.
+// interactive tree — there is nothing here to select or edit, only scroll
+// (ArchivePage.Navigate/GoToStart/GoToEnd, while FocusPreview has moved
+// keyboard focus here).
+//
+// The header doubles as this column's focus cue (bold/primary when it has
+// keyboard focus, dim otherwise — the list column's own cue is its row
+// highlight tier, renderRow) and, once there are tasks, as the "N above /
+// N below" overflow indicator the task tree's own pinned-header suffix uses
+// (docs/DESIGN.md §12), simplified here since this column has no sections to
+// pin.
 func (m Model) renderPreviewColumn(width, height int, bg color.Color) string {
 	if width < 1 {
 		width = 1
 	}
 
 	sel, ok := m.selectedEntry()
-	header := ""
+	label := ""
 	if ok {
-		header = lipgloss.NewStyle().
-			Foreground(appstyles.Active.TextDim).
-			Background(bg).
-			Width(width).
-			Render(chrome.Truncate("preview · "+sel.List.Name, width))
+		label = "preview · " + sel.List.Name
 	}
 
 	var content string
@@ -188,39 +194,59 @@ func (m Model) renderPreviewColumn(width, height int, bg color.Color) string {
 	case len(m.previewRows) == 0:
 		content = lipgloss.NewStyle().Foreground(appstyles.Active.TextDim).Background(bg).Render("No tasks in this list.")
 	default:
-		content = m.renderPreviewRows(width, max(0, height-1))
+		visible := max(0, height-1)
+		content = m.renderPreviewRows(width, visible)
+		above, below := m.previewScroll, max(0, len(m.previewRows)-m.previewScroll-visible)
+		if suffix := scrollSuffix(above, below); suffix != "" {
+			label += "  " + suffix
+		}
+	}
+
+	headerStyle := lipgloss.NewStyle().Background(bg).Width(width)
+	if m.focused && m.previewFocused {
+		headerStyle = headerStyle.Foreground(appstyles.Active.TextPrimary).Bold(true)
+	} else {
+		headerStyle = headerStyle.Foreground(appstyles.Active.TextDim)
+	}
+	header := ""
+	if ok {
+		header = headerStyle.Render(chrome.Truncate(label, width))
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, header, content)
 	return lipgloss.NewStyle().Width(width).MaxHeight(height).Render(appstyles.FillBackground(bg, body))
 }
 
-// renderPreviewRows renders as many task lines as fit in maxLines, with a
-// trailing "N more" line when the list overflows — the same "N below"
-// overflow idiom the Lists panel and the task tree both use, kept to a
-// single static count here since the preview has no scroll of its own (v1
-// keeps this deliberately simple; see the task notes).
+// scrollSuffix renders the "N above" / "N below" overflow text, empty when
+// nothing is hidden in either direction.
+func scrollSuffix(above, below int) string {
+	switch {
+	case above > 0 && below > 0:
+		return fmt.Sprintf("%d above · %d below", above, below)
+	case above > 0:
+		return fmt.Sprintf("%d above", above)
+	case below > 0:
+		return fmt.Sprintf("%d below", below)
+	default:
+		return ""
+	}
+}
+
+// renderPreviewRows renders the window of task lines starting at
+// m.previewScroll, up to maxLines of them — Update keeps previewScroll
+// clamped to previewViewportRows() against the current row count, so render
+// just windows into it.
 func (m Model) renderPreviewRows(width, maxLines int) string {
 	if maxLines <= 0 {
 		return ""
 	}
 	rows := m.previewRows
-	shown := rows
-	overflow := 0
-	if len(rows) > maxLines {
-		// Reserve the last line for the overflow notice.
-		shown = rows[:max(0, maxLines-1)]
-		overflow = len(rows) - len(shown)
-	}
+	start := min(m.previewScroll, len(rows))
+	end := min(len(rows), start+maxLines)
 
-	lines := make([]string, 0, len(shown)+1)
-	for _, r := range shown {
+	lines := make([]string, 0, end-start)
+	for _, r := range rows[start:end] {
 		lines = append(lines, m.renderPreviewRow(r, width))
-	}
-	if overflow > 0 {
-		lines = append(lines, lipgloss.NewStyle().
-			Foreground(appstyles.Active.TextDim).
-			Render(fmt.Sprintf("  %d more", overflow)))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
@@ -258,6 +284,11 @@ func (m Model) renderPreviewRow(r apptypes.Row, width int) string {
 // filtering shows only what the filter input answers to; browsing shows
 // navigation plus whichever of "filter"/"clear filter" applies, plus back.
 func (m Model) renderHint(bg color.Color) string {
+	navDesc := "navigate"
+	if m.previewFocused {
+		navDesc = "scroll"
+	}
+
 	var hints []chrome.KeyHint
 	switch {
 	case m.filtering:
@@ -267,13 +298,15 @@ func (m Model) renderHint(bg color.Color) string {
 		}
 	case m.filterInput.Value() != "":
 		hints = []chrome.KeyHint{
-			chrome.HintFor(keys.ArchivePage.Navigate),
+			chrome.HintAs(keys.ArchivePage.Navigate, navDesc),
+			chrome.HintAs(keys.ArchivePage.FocusPreview, "switch column"),
 			chrome.HintAs(keys.ArchivePage.Filter, "edit filter"),
 			chrome.HintAs(keys.Global.Back, "clear filter"),
 		}
 	default:
 		hints = []chrome.KeyHint{
-			chrome.HintFor(keys.ArchivePage.Navigate),
+			chrome.HintAs(keys.ArchivePage.Navigate, navDesc),
+			chrome.HintAs(keys.ArchivePage.FocusPreview, "switch column"),
 			chrome.HintFor(keys.ArchivePage.Filter),
 			chrome.HintFor(keys.Global.Back),
 		}
@@ -285,21 +318,6 @@ func (m Model) renderHint(bg color.Color) string {
 	}
 	line := chrome.RenderKeyHints(hints, appstyles.Active.TextDim)
 	return lipgloss.NewStyle().Background(bg).Render(line)
-}
-
-// renderActionErr renders a failed unarchive's message as a single danger-
-// colored row, mirroring AppModel's own lastError strip. Returns "" (a
-// zero-height row) when there is nothing to show, so the layout above it
-// does not reserve dead space.
-func (m Model) renderActionErr(width int, bg color.Color) string {
-	if m.actionErr == "" {
-		return ""
-	}
-	return lipgloss.NewStyle().
-		Foreground(appstyles.Active.Danger).
-		Background(bg).
-		Width(width).
-		Render(chrome.Truncate(m.actionErr, width))
 }
 
 func plural(n int) string {

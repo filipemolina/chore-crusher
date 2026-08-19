@@ -11,26 +11,31 @@ import (
 	"github.com/filipemolina/farol/src/cmds"
 )
 
-// TestViewModeFromDigit pins the 1/2/3 mapping: 1 is Pending, 2 is Complete,
-// 3 is All, and anything outside that range is rejected (mirrors
-// ../pulso/src/components/resultslist/free_test.go's TestViewModeFromDigitFree).
-func TestViewModeFromDigit(t *testing.T) {
+// TestViewModeNext pins the v-cycle order: All (default) -> Pending ->
+// Complete -> All, wrapping indefinitely.
+func TestViewModeNext(t *testing.T) {
 	cases := []struct {
-		digit string
-		want  ViewMode
+		from ViewMode
+		want ViewMode
 	}{
-		{"1", ViewPending},
-		{"2", ViewComplete},
-		{"3", ViewAll},
+		{ViewAll, ViewPending},
+		{ViewPending, ViewComplete},
+		{ViewComplete, ViewAll},
 	}
 	for _, c := range cases {
-		if v, ok := viewModeFromDigit(c.digit); !ok || v != c.want {
-			t.Errorf("viewModeFromDigit(%q) = %v/%v, want %v/true", c.digit, v, ok, c.want)
+		if got := c.from.Next(); got != c.want {
+			t.Errorf("%v.Next() = %v, want %v", c.from, got, c.want)
 		}
 	}
-	for _, d := range []string{"0", "4", "9", "a", ""} {
-		if _, ok := viewModeFromDigit(d); ok {
-			t.Errorf("viewModeFromDigit(%q) offered; only 1-3 must be accepted", d)
+
+	// Three presses from any starting point return to that same mode.
+	for _, start := range []ViewMode{ViewAll, ViewPending, ViewComplete} {
+		v := start
+		for range 3 {
+			v = v.Next()
+		}
+		if v != start {
+			t.Errorf("three Next() calls from %v landed on %v, want back at %v", start, v, start)
 		}
 	}
 }
@@ -232,27 +237,34 @@ func TestViewModeHidesSectionHeader(t *testing.T) {
 	}
 }
 
-// TestViewKeyUpdatesModeAndEmitsHeaderMsg pins the key handler: pressing 1/2/3
-// sets m.view and returns the cmds.SetTaskTreeViewMsg the header listens for.
+// TestViewKeyUpdatesModeAndEmitsHeaderMsg pins the key handler: pressing v
+// three times cycles m.view through All -> Pending -> Complete -> All,
+// returning the cmds.SetTaskTreeViewMsg the header listens for each time.
 func TestViewKeyUpdatesModeAndEmitsHeaderMsg(t *testing.T) {
 	m := Model{collapsed: make(map[string]bool), focused: true}
 	m.rows = viewModeTestRows()
 	m.selectedID = "p1"
 
-	updated, cmd := m.Update(tea.KeyPressMsg{Text: "1", Code: '1'})
-	tm := updated.(Model)
-	if tm.CurrentView() != ViewPending {
-		t.Fatalf("pressing 1 = view %v, want ViewPending", tm.CurrentView())
-	}
-	if cmd == nil {
-		t.Fatal("pressing 1 returned a nil cmd, want cmds.SetTaskTreeView")
-	}
-	msg := cmd()
-	setMsg, ok := msg.(cmds.SetTaskTreeViewMsg)
-	if !ok {
-		t.Fatalf("pressing 1's cmd produced %T, want cmds.SetTaskTreeViewMsg", msg)
-	}
-	if setMsg.View != "pending" {
-		t.Errorf("SetTaskTreeViewMsg.View = %q, want \"pending\"", setMsg.View)
+	wantModes := []ViewMode{ViewPending, ViewComplete, ViewAll}
+	wantStrings := []string{"pending", "complete", "all"}
+
+	for i, want := range wantModes {
+		updated, cmd := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+		tm := updated.(Model)
+		if tm.CurrentView() != want {
+			t.Fatalf("press %d: view = %v, want %v", i+1, tm.CurrentView(), want)
+		}
+		if cmd == nil {
+			t.Fatalf("press %d returned a nil cmd, want cmds.SetTaskTreeView", i+1)
+		}
+		msg := cmd()
+		setMsg, ok := msg.(cmds.SetTaskTreeViewMsg)
+		if !ok {
+			t.Fatalf("press %d's cmd produced %T, want cmds.SetTaskTreeViewMsg", i+1, msg)
+		}
+		if setMsg.View != wantStrings[i] {
+			t.Errorf("press %d: SetTaskTreeViewMsg.View = %q, want %q", i+1, setMsg.View, wantStrings[i])
+		}
+		m = tm
 	}
 }

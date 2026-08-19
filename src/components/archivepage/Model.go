@@ -13,7 +13,6 @@
 package archivepage
 
 import (
-	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -74,13 +73,26 @@ type Model struct {
 	previewLoading bool
 	previewErr     error
 
-	// actionErr is a failed unarchive's message, shown inline near the hint
-	// line without disturbing the loaded list — distinct from loadErr, which
-	// replaces the whole page (there is nothing wrong with the page itself,
-	// only with one write against it). Cleared on the next keypress or
-	// successful refresh, the same "any key clears the flash" idiom
-	// detailspanel's own errMsg/flash fields use.
-	actionErr string
+	// previewFocused reports which of the page's two scrollable columns tab
+	// and shift+tab (ArchivePage.FocusPreview) currently route Navigate/
+	// GoToStart/GoToEnd to: false is the archived-list column (the default,
+	// and where selection-driven actions like Unarchive/Delete always read
+	// from regardless of which column has this focus), true is the read-only
+	// task preview. Exactly two zones, so tab and shift+tab both just toggle
+	// it — there is no third state to cycle through.
+	previewFocused bool
+	// listScroll is the index of the first archived-list entry currently
+	// rendered, kept just far enough from 0 to keep selectedIdx inside the
+	// viewport (see listViewportRows/clampWindowStart) — the list column's
+	// own scroll, driven indirectly by moving the selection.
+	listScroll int
+	// previewScroll is the index of the first preview task row currently
+	// rendered. Unlike listScroll it is not tied to a selection — it is a
+	// plain viewport offset the user drives directly with Navigate/
+	// GoToStart/GoToEnd while previewFocused is true, clamped to
+	// previewViewportRows() after every Update (see the exported Update
+	// wrapper below).
+	previewScroll int
 }
 
 // New builds the Archive page.
@@ -94,7 +106,22 @@ func New(s *store.Store) tea.Model {
 
 func (m Model) Init() tea.Cmd { return nil }
 
+// Update runs the message through update and then reclamps both columns'
+// scroll offsets against whatever state came out of it — a resize, a
+// selection change, a filter keystroke, or a fresh preview load can all
+// shrink the valid range out from under a scroll position set before it, and
+// this is the one place that has to know that, rather than every branch of
+// update remembering to call it (docs/DESIGN.md §12's viewport pattern,
+// mirroring the task tree's own scrollFor).
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	out := next.(Model)
+	out.listScroll = clampWindowStart(len(out.visibleEntries()), out.selectedIdx, out.listViewportRows(), out.listScroll)
+	out.previewScroll = clampScrollOffset(len(out.previewRows), out.previewViewportRows(), out.previewScroll)
+	return out, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case cmds.SetBodyLayoutMsg:
 		m.body = msg
@@ -121,6 +148,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.previewRows = nil
 		m.previewLoading = false
 		m.previewErr = nil
+		m.previewFocused = false
+		m.listScroll = 0
+		m.previewScroll = 0
 		return m, nil
 
 	case cmds.RefreshArchivedListsMsg:
@@ -137,10 +167,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.previewRows = msg.Rows
 		}
-		return m, nil
-
-	case archiveActionErrMsg:
-		m.actionErr = msg.text
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -173,8 +199,6 @@ func (m Model) handleRefreshArchivedLists(msg cmds.RefreshArchivedListsMsg) (tea
 // (docs/DESIGN.md §5's rule that a key is declared in keys.go exactly once
 // and components match against it, not against ad hoc strings).
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	m.actionErr = ""
-
 	if m.filtering {
 		return m.handleFilterKey(msg)
 	}
@@ -191,26 +215,71 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmds.CloseArchivePage(nil)
 
+	// PageActive (1) is the page-tab way off this page, alongside esc — it
+	// only reaches here (rather than the filter input) because m.filtering
+	// is checked above this switch, so a "1" typed into the name filter
+	// lands there instead. No filter-clearing ladder: unlike esc, 1 always
+	// jumps straight to the Active page in one press.
+	case key.Matches(msg, keys.Global.PageActive):
+		return m, cmds.CloseArchivePage(nil)
+
 	case key.Matches(msg, keys.ArchivePage.Filter):
+		// The filter row lives in the archived-list column, so typing into
+		// it always brings that column's focus back — the same way pressing
+		// / elsewhere in the app moves the cursor to whatever it is about to
+		// filter.
+		m.previewFocused = false
 		m.filtering = true
 		m.filterInput.Focus()
 		return m, textinput.Blink
 
-	case key.Matches(msg, keys.ArchivePage.GoToStart):
-		return m.setSelection(0)
-	case key.Matches(msg, keys.ArchivePage.GoToEnd):
-		return m.setSelection(len(m.visibleEntries()) - 1)
-	case key.Matches(msg, keys.ArchivePage.Navigate):
-		switch msg.String() {
-		case "up", "k":
-			return m.moveSelection(-1)
-		case "down", "j":
-			return m.moveSelection(1)
-		}
+	case key.Matches(msg, keys.ArchivePage.FocusPreview):
+		// Exactly two columns, so tab and shift+tab both just toggle which
+		// one Navigate/GoToStart/GoToEnd act on next.
+		m.previewFocused = !m.previewFocused
 		return m, nil
 
+	case key.Matches(msg, keys.ArchivePage.GoToStart):
+		if m.previewFocused {
+			m.previewScroll = 0
+			return m, nil
+		}
+		return m.setSelection(0)
+	case key.Matches(msg, keys.ArchivePage.GoToEnd):
+		if m.previewFocused {
+			// Any value at or past the last valid offset works: Update's
+			// wrapper reclamps it to previewViewportRows()'s actual max right
+			// after this returns.
+			m.previewScroll = len(m.previewRows)
+			return m, nil
+		}
+		return m.setSelection(len(m.visibleEntries()) - 1)
+	case key.Matches(msg, keys.ArchivePage.Navigate):
+		delta := 0
+		switch msg.String() {
+		case "up", "k":
+			delta = -1
+		case "down", "j":
+			delta = 1
+		default:
+			return m, nil
+		}
+		if m.previewFocused {
+			m.previewScroll += delta
+			return m, nil
+		}
+		return m.moveSelection(delta)
+
 	case key.Matches(msg, keys.ArchivePage.Unarchive):
-		return m, m.unarchiveSelectedCmd()
+		// Routes through AppModel's confirmmodal the same way Delete does
+		// (docs/DESIGN.md §9): restoring a list to normal discovery acts on
+		// the whole list with one keystroke and no visible undo in the
+		// moment, so it warrants a confirmation even though it is
+		// reversible from the Lists panel's own Archive. The component only
+		// requests it; only AppModel opens a modal.
+		if sel, ok := m.selectedEntry(); ok {
+			return m, cmds.UnarchiveArchivedList(sel.List.ID, sel.List.Name)
+		}
 
 	case key.Matches(msg, keys.ArchivePage.Delete):
 		// Irreversible, unlike Unarchive — routes through AppModel's
@@ -223,30 +292,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
-// unarchiveSelectedCmd restores the selected list to normal discovery
-// (store.UnarchiveList) and reloads the archived set — no confirmation, the
-// reversible direction (see keys.ArchivePageKeys.Unarchive). A write failure
-// surfaces as actionErr rather than replacing the loaded list with a
-// full-page error.
-func (m Model) unarchiveSelectedCmd() tea.Cmd {
-	sel, ok := m.selectedEntry()
-	if !ok {
-		return nil
-	}
-	s := m.store
-	id, name := sel.List.ID, sel.List.Name
-	return func() tea.Msg {
-		if err := s.UnarchiveList(id); err != nil {
-			return archiveActionErrMsg{fmt.Sprintf("failed to unarchive %q: %v", name, err)}
-		}
-		return cmds.RefreshArchivedLists(s)()
-	}
-}
-
-// archiveActionErrMsg carries a failed write's message into actionErr,
-// without going through the full-page loadErr path (see its doc comment).
-type archiveActionErrMsg struct{ text string }
 
 // handleFilterKey drives the inline filter input. esc and enter both commit
 // (stop typing, keep the query); every other key edits the query and
@@ -348,6 +393,7 @@ func (m *Model) loadPreviewIfSelectionChanged() tea.Cmd {
 	m.previewRows = nil
 	m.previewErr = nil
 	m.previewLoading = true
+	m.previewScroll = 0
 	return cmds.RefreshArchivedListPreview(m.store, sel.List.ID)
 }
 
@@ -376,4 +422,57 @@ func (m *Model) setColumnWidths() {
 	half := bodyW / 2
 	m.listWidth = max(1, half)
 	m.previewWidth = max(1, bodyW-m.listWidth-1)
+}
+
+// columnContentHeight is the vertical space either column has for its own
+// content, below the shared frame chrome and above the docked hint line —
+// the same quantity View computes as contentH. The hint is always exactly
+// one line (chrome.RenderKeyHints joins its parts horizontally, never
+// wrapping), so the "+1 for the blank spacer above it" View's own comment
+// describes is a constant 2 rather than something that has to be rendered
+// here just to measure.
+func (m Model) columnContentHeight() int {
+	return max(0, max(1, chrome.PanelBodyHeight(m.body.Height))-2)
+}
+
+// listViewportRows is how many archived-list entries (each a fixed two
+// display lines: name, then metadata) fit in the list column at once, below
+// its filter row and the rule under it.
+func (m Model) listViewportRows() int {
+	return max(0, m.columnContentHeight()-2) / 2
+}
+
+// previewViewportRows is how many preview task lines fit in the preview
+// column at once, below its one-line "preview · <list>" header.
+func (m Model) previewViewportRows() int {
+	return max(0, m.columnContentHeight()-1)
+}
+
+// clampWindowStart returns the minimal-shift window start that keeps idx
+// inside [start, start+visible) of an n-long collection, moving prev the
+// least distance necessary rather than re-centering on every call — the same
+// idea as the task tree's own clampScroll, adapted from lines to fixed-height
+// rows since every entry in this column is exactly two lines tall.
+func clampWindowStart(n, idx, visible, prev int) int {
+	if visible <= 0 || n == 0 || idx < 0 {
+		return 0
+	}
+	maxStart := max(0, n-visible)
+	start := min(max(prev, 0), maxStart)
+	switch {
+	case idx < start:
+		start = idx
+	case idx >= start+visible:
+		start = idx - visible + 1
+	}
+	return min(max(start, 0), maxStart)
+}
+
+// clampScrollOffset keeps a plain viewport offset (not tied to a selection)
+// within the valid range for an n-long collection shown visible rows at a
+// time — used for the preview column, which the user scrolls directly rather
+// than via a moving selection.
+func clampScrollOffset(n, visible, offset int) int {
+	maxStart := max(0, n-visible)
+	return min(max(offset, 0), maxStart)
 }

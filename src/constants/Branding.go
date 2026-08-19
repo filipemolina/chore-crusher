@@ -1,7 +1,7 @@
 package constants
 
 // WORDMARK is the one-line badge rendered in the main menu bar.
-var WORDMARK = "▌ Farol"
+var WORDMARK = "▌ farol"
 
 // APP_NAME is the lowercase, command-friendly name of the app.
 var APP_NAME = "farol"

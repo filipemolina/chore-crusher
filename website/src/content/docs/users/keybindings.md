@@ -17,7 +17,8 @@ Work anywhere that no overlay owns the keyboard.
 | --- | --- |
 | `tab` / `shift+tab` | Cycle focus between the visible surfaces (Lists ↔ Tasks). Dropped from the footer while the inline create input is live — focus is locked to the input then. |
 | `L` | Toggle the Lists panel; opening it also moves focus into it. |
-| `A` | Open the Archived Lists page — a full-screen surface that replaces Tasks and Lists, not a modal. |
+| `1` | Switch to the Active page (Tasks and Lists) — works from anywhere, including from inside the Archived Lists page. |
+| `2` | Switch to the Archived Lists page — a full-screen surface that replaces Tasks and Lists, not a modal. Works from anywhere. |
 | `q` | Quit — yields to anything typing a `q` (a modal, the inline create row, a filter). |
 | `ctrl+c` | Force quit — yields to nothing, so it quits from a modal or a text input alike. |
 | `esc` | Back — a ladder of claims: closes a modal, closes the Details modal, clears/closes the Archive page's own filter-then-page ladder, clears a filter being typed, clears an applied filter, closes the Lists panel. |
@@ -52,6 +53,7 @@ Act on the selected task in the tree.
 | `G` `end` | Jump to the last row. |
 | `pgup` | Move one viewport height up. |
 | `pgdown` | Move one viewport height down. |
+| `v` | Cycle the view: both sections (the default), then Pending only, then Complete only. |
 
 `u` releases the selected task's assignment and `U` releases every assignment in the list — an assignment has no expiry, so these are the only thing that frees a task whose agent went away.
 
@@ -151,8 +153,9 @@ Act inside the Archived Lists page, which owns the keyboard while open — it is
 | `u` | Unarchive the selected list — no confirmation, it's reversible. |
 | `d` | Permanently delete the selected list and its tasks (confirm-guarded). |
 | `esc` | Clear the filter first; with nothing left to clear, leave the page. |
+| `1` | Leave the page for Active — a second way off it, alongside `esc`. |
 
-`A` opens the page from anywhere. There is no key to *archive* a list — that's CLI-only (`farol lists archive <list-id>`); the page is for browsing, restoring, and permanently deleting what's already archived.
+`2` opens the page from anywhere; `1` leaves it from anywhere. There is no key to *archive* a list — that's CLI-only (`farol lists archive <list-id>`); the page is for browsing, restoring, and permanently deleting what's already archived.
 
 ## Overlays
 

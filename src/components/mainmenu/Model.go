@@ -5,8 +5,11 @@ import (
 	"github.com/filipemolina/farol/src/cmds"
 )
 
-// Model is the top menu bar. It is not focusable and handles no keys; it
-// just renders the wordmark (and version, when it fits) on a tier-2 strip.
+// Model is the top menu bar. It is not focusable and handles no keys — page
+// switching is a global digit key (keys.Global.PageActive/PageArchived)
+// handled in AppModel, not a click target here — it renders two page tabs
+// (1 Active, 2 Archived), the wordmark, and the version (when it fits) on a
+// tier-2 strip.
 type Model struct {
 	terminalWidth int
 	// treeView is the task tree's current Pending/Complete/All view mode,
@@ -15,12 +18,12 @@ type Model struct {
 	// the tree's own default, so the header agrees with the tree before any
 	// SetTaskTreeViewMsg has arrived.
 	treeView string
-	// archiveOpen tracks the Archive page (docs/DESIGN.md §5): while true the
-	// header shows "Archived Lists" where the tree's view mode normally sits,
-	// since that mode describes a surface the Archive page has replaced.
-	// mainmenu learns this from the same Open/CloseArchivePageMsg AppModel
-	// itself reacts to, via the ordinary component fan-out — there is no
-	// separate broadcast for it.
+	// archiveOpen tracks the Archive page (docs/DESIGN.md §5): it selects
+	// which of the two tabs is highlighted, and blanks the tree's view-mode
+	// slot while true (that mode describes a surface the Archive page has
+	// replaced). mainmenu learns this from the same Open/CloseArchivePageMsg
+	// AppModel itself reacts to, via the ordinary component fan-out — there
+	// is no separate broadcast for it.
 	archiveOpen bool
 }
 

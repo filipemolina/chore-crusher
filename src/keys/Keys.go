@@ -50,11 +50,15 @@ type GlobalKeys struct {
 	Sort key.Binding
 	// About opens the about modal.
 	About key.Binding
-	// ArchivePage opens the Archived Lists page (capital A — lowercase a is
-	// already Global.About), matching the shifted-letter idiom
-	// ToggleListsPanel already establishes for a full-surface toggle
-	// (docs/DESIGN.md §5).
-	ArchivePage key.Binding
+	// PageActive (1) and PageArchived (2) switch the top-level page — the
+	// Active tasks page (Tasks/Lists, today's default) and the Archived
+	// Lists page — the same digit-tab scheme ../cais's mainmenu uses
+	// (docs/DESIGN.md §5). Both work from anywhere no text input owns the
+	// keyboard, including from inside the other page: PageActive is the
+	// Archive page's own way to leave (alongside esc), mirroring cais's
+	// pageForNavKey working regardless of which page is currently active.
+	PageActive   key.Binding
+	PageArchived key.Binding
 }
 
 // TaskTreeKeys act on the task tree: navigation, expand/collapse, toggling
@@ -97,10 +101,12 @@ type TaskTreeKeys struct {
 	GoToEnd   key.Binding
 	PageUp    key.Binding
 	PageDown  key.Binding
-	// View is one binding for all three Pending/Complete/All view modes: 1
-	// is Pending, 2 is Complete, 3 is All (default). Scoped to the tree's
-	// own key handling, like Toggle and Delete, not Global — it only applies
-	// while the tree is focused.
+	// View cycles the Pending/Complete/All view mode: All (default) → Pending
+	// → Complete → All. One key rather than direct-select digits because 1
+	// and 2 are the top-level page-switch keys (Global.PageActive/
+	// PageArchived); v is free everywhere. Scoped to the tree's own key
+	// handling, like Toggle and Delete, not Global — it only applies while
+	// the tree is focused.
 	View key.Binding
 }
 
@@ -133,6 +139,15 @@ type ListsPanelKeys struct {
 	// Import reads a JSON file and recreates its lists as new ones
 	// (docs/DESIGN.md §9, export/import). i is free in the Lists context.
 	Import key.Binding
+	// Archive moves the highlighted list to the Archived Lists page
+	// (store.ArchiveList). Lowercase a is Global.About everywhere including
+	// the lists panel, so this takes the shifted form — the same reason
+	// Rename is R rather than r. Routed through the same confirmmodal
+	// pattern as Delete (docs/DESIGN.md §9): archiving hides the list from
+	// the active sidebar and from farol next/work/inbox discovery, so it
+	// warrants a confirmation even though it is reversible from the Archive
+	// page's own Unarchive.
+	Archive key.Binding
 }
 
 // ExportModalKeys act inside the export modal: tab moves focus from the path
@@ -187,10 +202,17 @@ type ArchivePageKeys struct {
 	GoToStart key.Binding
 	GoToEnd   key.Binding
 	Filter    key.Binding
+	// FocusPreview cycles keyboard focus between the archived-list column and
+	// the read-only task preview beside it — tab moves forward, shift+tab
+	// back, and with exactly two columns both do the same thing. Whichever
+	// column has focus is the one Navigate/GoToStart/GoToEnd scroll;
+	// Unarchive/Delete always act on the list's own selection regardless.
+	FocusPreview key.Binding
 	// Unarchive restores the selected list to normal discovery
-	// (store.UnarchiveList). No confirmation — like archiving itself (the
-	// CLI's `farol lists archive` is not gated behind --force), this is the
-	// reversible direction.
+	// (store.UnarchiveList). Routes through the same confirmmodal pattern as
+	// Delete (docs/DESIGN.md §9): it acts on the whole list with one
+	// keystroke and no visible undo in the moment, the same reasoning that
+	// gates Delete, even though the underlying store write is reversible.
 	Unarchive key.Binding
 	// Delete permanently removes the selected list and every one of its
 	// tasks (store.DeleteList) — irreversible, so unlike Unarchive it routes
@@ -228,7 +250,8 @@ var Global = GlobalKeys{
 	CopyID:           key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "copy id")),
 	Sort:             key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
 	About:            key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
-	ArchivePage:      key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "archive")),
+	PageActive:       key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "active")),
+	PageArchived:     key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "archived")),
 }
 
 var Tree = TaskTreeKeys{
@@ -253,7 +276,7 @@ var Tree = TaskTreeKeys{
 	GoToEnd:   key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "last")),
 	PageUp:    key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
 	PageDown:  key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "page down")),
-	View:      key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1-3", "view")),
+	View:      key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view")),
 }
 
 var Create = CreateKeys{
@@ -278,8 +301,9 @@ var Lists = ListsPanelKeys{
 	// e and i are free in the Lists context: the existing Lists bindings are
 	// navigate/select/new/rename/delete/move, and i is unused by the task
 	// tree too (docs/DESIGN.md §9, export/import).
-	Export: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "export")),
-	Import: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import")),
+	Export:  key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "export")),
+	Import:  key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import")),
+	Archive: key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "archive")),
 }
 
 var ExportModal = ExportModalKeys{
@@ -386,6 +410,10 @@ var ArchivePage = ArchivePageKeys{
 	// bind d).
 	Unarchive: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unarchive")),
 	Delete:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	FocusPreview: key.NewBinding(
+		key.WithKeys("tab", "shift+tab"),
+		key.WithHelp("tab", "switch column"),
+	),
 }
 
 var Overlay = OverlayKeys{
@@ -457,11 +485,14 @@ func Active(ctx Context) []key.Binding {
 	// The Archive page owns the keyboard while open, the same way Details
 	// does just above: only its own bindings plus Esc are live — no
 	// task-tree, Lists, tab, search, theme, or panel-toggle key acts
-	// (docs/DESIGN.md §5).
+	// (docs/DESIGN.md §5). PageActive (1) is also live here — it is the
+	// Archive page's second way to leave, alongside Esc.
 	if ctx.ArchivePageVisible {
 		return []key.Binding{
 			ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd,
-			ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete, Global.Back,
+			ArchivePage.FocusPreview,
+			ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete,
+			Global.Back, Global.PageActive,
 		}
 	}
 
@@ -482,7 +513,7 @@ func Active(ctx Context) []key.Binding {
 		if ctx.ListsPanelVisible {
 			return []key.Binding{
 				Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete,
-				Lists.MoveUp, Lists.MoveDown, Lists.Export, Lists.Import,
+				Lists.MoveUp, Lists.MoveDown, Lists.Export, Lists.Import, Lists.Archive,
 				Global.NextPanel, Global.Quit,
 			}
 		}
@@ -620,7 +651,7 @@ func Catalog(ctx Context) []Scope {
 			Title: "Global",
 			Entries: entries(
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
-				Global.ArchivePage,
+				Global.PageActive, Global.PageArchived,
 				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
 				Global.Theme, Global.Filter, Global.Picker, Global.CopyID, Global.About,
 			),
@@ -634,7 +665,7 @@ func Catalog(ctx Context) []Scope {
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
 				Tree.Unassign, Tree.ReleaseList, Tree.View,
 			),
-			Note: "u releases the selected task's assignment and U releases every assignment in the list — an assignment has no expiry, so this is the only thing that frees a task whose agent went away. 1 shows Pending only, 2 shows Complete only, 3 (the default) shows both.",
+			Note: "u releases the selected task's assignment and U releases every assignment in the list — an assignment has no expiry, so this is the only thing that frees a task whose agent went away. v cycles the view: both sections (the default), then Pending only, then Complete only.",
 		},
 		{
 			Title:   "Creating a task",
@@ -648,8 +679,8 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Lists",
-			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete, Lists.MoveUp, Lists.MoveDown, Lists.Export, Lists.Import),
-			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively. alt+↑/alt+k and alt+↓/alt+j reorder the highlighted list. e exports the store or the highlighted list to a JSON file; i imports lists from a JSON file.",
+			Entries: entries(Lists.Navigate, Lists.Select, Lists.New, Lists.Rename, Lists.Delete, Lists.MoveUp, Lists.MoveDown, Lists.Export, Lists.Import, Lists.Archive),
+			Note:    "L shows the lists panel and moves focus into it; tab moves focus back. enter and esc also close it, on the selected list and on cancel respectively. alt+↑/alt+k and alt+↓/alt+j reorder the highlighted list. e exports the store or the highlighted list to a JSON file; i imports lists from a JSON file. A prompts for confirmation, then moves the highlighted list to the Archived Lists page (2); u there restores it.",
 		},
 		{
 			Title:   "Renaming a list",
@@ -662,8 +693,8 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Archived Lists",
-			Entries: entries(Global.ArchivePage, ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd, ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete),
-			Note:    "A opens the page from anywhere. Esc commits an open filter first, clears an applied one on the next press, and only then leaves the page. d prompts for confirmation before permanently deleting a list and its tasks; u restores one with no confirmation.",
+			Entries: entries(Global.PageActive, Global.PageArchived, ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd, ArchivePage.FocusPreview, ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete),
+			Note:    "1 and 2 switch between the Active and Archived pages from anywhere. Esc also leaves the Archive page: it commits an open filter first, clears an applied one on the next press, and only then leaves. tab/shift+tab switch keyboard focus between the archived-list column and the task preview beside it; ↑/↓ and home/end/g/G scroll whichever one currently has it. d prompts for confirmation before permanently deleting a list and its tasks; u prompts for confirmation before restoring one to normal discovery.",
 		},
 		{
 			Title:   "Overlays",
@@ -690,7 +721,7 @@ func pressableNow(ctx Context) []key.Binding {
 	// When a modal owns the keyboard, or the user is typing a create or
 	// filter input, only the always-available keys remain pressable.
 	if !ctx.HasModal && !ctx.Creating && !ctx.Filtering {
-		live = append(live, Global.Back, Global.Theme, Global.ToggleListsPanel, Global.ArchivePage, Global.Filter, Global.Picker, Global.CopyID)
+		live = append(live, Global.Back, Global.Theme, Global.ToggleListsPanel, Global.PageActive, Global.PageArchived, Global.Filter, Global.Picker, Global.CopyID)
 	}
 
 	// shift+tab is tab's twin: live wherever tab is.

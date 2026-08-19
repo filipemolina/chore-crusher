@@ -7,7 +7,7 @@ sidebar:
 
 This page is the reference for the person at the keyboard. If you are setting up an agent to drive farol from a shell, see [Working with coding agents](/users/agents/); if you want the shape of every command, see [The CLI](/users/cli/).
 
-The TUI is two body surfaces — **Lists** on the left, **Tasks** on the right — plus a **Details modal** that layers over both, an **Archived Lists page** (`A`) that replaces both while it's open, and a footer bar that advertises the keys live right now. `tab`/`shift+tab` cycle focus between the surfaces that are actually visible; `↑`/`↓` (or `k`/`j`) move the cursor.
+The header bar at the top of the screen shows two pages, `1 Active` and `2 Archived` — press `1`/`2` to jump between them from anywhere, the way most terminal apps' tabs work. The TUI is two body surfaces — **Lists** on the left, **Tasks** on the right — plus a **Details modal** that layers over both, and an **Archived Lists page** (`2`) that replaces both while it's open, and a footer bar that advertises the keys live right now. `tab`/`shift+tab` cycle focus between the surfaces that are actually visible; `↑`/`↓` (or `k`/`j`) move the cursor.
 
 ## The task tree
 
@@ -27,7 +27,7 @@ The tree is split into two sections, headed `Pending` and `Complete`. One cursor
 
 Crossing the section boundary wraps — `↓` from the last pending row lands on the first complete row, and `↑` from the first complete row returns to the last pending one.
 
-`1`/`2`/`3` narrow the view to Pending only, Complete only, or both (`3`, the default — nothing changes until you press one of the other two). A hidden section's header disappears too, the same as an empty one does. The current mode shows in the header bar at the top of the screen, next to the version.
+`v` cycles the view: both (the default), then Pending only, then Complete only, then back to both. A hidden section's header disappears too, the same as an empty one does. The current mode shows in the header bar at the top of the screen, next to the version.
 
 ## Adding tasks
 
@@ -111,7 +111,7 @@ Inside the panel: `n` creates a list (named in a modal), `R` renames the highlig
 
 ## Archived lists
 
-`A` opens the Archived Lists page — a dedicated screen that replaces Tasks and Lists entirely while it's open (not a modal layered over them, and not reachable with `tab`). It lists every archived list, most recently archived first, alongside a read-only preview of the selected list's tasks.
+`2` opens the Archived Lists page — a dedicated screen that replaces Tasks and Lists entirely while it's open (not a modal layered over them, and not reachable with `tab`). It lists every archived list, most recently archived first, alongside a read-only preview of the selected list's tasks.
 
 ![The Archived Lists page: an archived list on the left, a read-only preview of its tasks on the right](/screenshot-archive-dark.png)
 
@@ -119,7 +119,7 @@ Inside the panel: `n` creates a list (named in a modal), `R` renames the highlig
 - `/` filters the list by name, live, the same way `/` filters the Lists panel.
 - `u` restores the selected list to normal discovery, immediately — no confirmation, since unlike deleting it's reversible.
 - `d` permanently deletes the selected list and every one of its tasks, through the same confirm modal every destructive action in the TUI uses.
-- `esc` clears an active filter first; press it again, with nothing left to clear, to leave the page and return to the task tree.
+- `esc` clears an active filter first; press it again, with nothing left to clear, to leave the page and return to the task tree. `1` also leaves the page, in one press, from anywhere.
 
 There is no key to *archive* a list from the TUI yet — do that from the CLI (`farol lists archive <list-id>`, see [The CLI](/users/cli/#lists)) and it shows up here. Archiving hides a list from the normal sidebar and from agent discovery (`farol next`, `farol work`, `farol inbox`) without deleting anything; it's the reversible way to get a finished list out of the way.
 

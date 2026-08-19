@@ -580,3 +580,96 @@ func TestSuccessfulRoundTripClearsLastError(t *testing.T) {
 		t.Error("View should not contain the stale error after refresh")
 	}
 }
+
+// TestPressArchiveOpensConfirmation verifies that pressing 'A' in the Lists
+// panel opens a confirmation modal, and that the list is untouched until it
+// is answered.
+func TestPressArchiveOpensConfirmation(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+	target := listsPanelSelectedID(t, m)
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "A", Code: 'A'})
+
+	if m.activeModal == nil {
+		t.Fatal("pressing 'A' should have opened the archive confirmation modal")
+	}
+	view := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(view, "Archive") {
+		t.Errorf("modal view should contain \"Archive\", got: %q", view)
+	}
+
+	lists, _ := m.store.ListLists()
+	found := false
+	for _, l := range lists {
+		if l.List.ID == target {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("list must not be archived before the confirmation is answered")
+	}
+}
+
+// TestArchiveConfirmedRemovesListFromActiveDiscoveryButKeepsIt verifies that
+// confirming the archive prompt hides the list from ListLists (the active
+// sidebar / farol next/work/inbox discovery) without deleting it, mirroring
+// ArchivePage's own contract (docs/DESIGN.md §9).
+func TestArchiveConfirmedRemovesListFromActiveDiscoveryButKeepsIt(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+	target := listsPanelSelectedID(t, m)
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "A", Code: 'A'})
+	m = refresh(t, m, tea.KeyPressMsg{Text: "y"})
+
+	lists, _ := m.store.ListLists()
+	for _, l := range lists {
+		if l.List.ID == target {
+			t.Error("archived list should no longer appear in ListLists")
+		}
+	}
+	if _, err := m.store.GetList(target); err != nil {
+		t.Errorf("archived list should still exist via GetList: %v", err)
+	}
+}
+
+// TestArchiveCancelledLeavesListActive verifies that answering 'n' to the
+// archive confirmation leaves the list exactly where it was.
+func TestArchiveCancelledLeavesListActive(t *testing.T) {
+	m := seedOneList(t)
+	m = openListsFocused(t, m)
+	target := listsPanelSelectedID(t, m)
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "A", Code: 'A'})
+	m = refresh(t, m, tea.KeyPressMsg{Text: "n"})
+
+	if m.activeModal != nil {
+		t.Error("'n' should have closed the confirmation modal")
+	}
+	lists, _ := m.store.ListLists()
+	found := false
+	for _, l := range lists {
+		if l.List.ID == target {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("cancelling the archive prompt must leave the list active")
+	}
+}
+
+// TestArchiveKeyInertWhenPanelNotFocused verifies that 'A' does nothing when
+// the Lists panel is not focused (matching the guard used for
+// Lists.New/Rename/Delete/Export/Import).
+func TestArchiveKeyInertWhenPanelNotFocused(t *testing.T) {
+	m := seedOneList(t)
+	if m.focusedZone == constants.COMPONENT_LISTS_PANEL && m.listsPanelVisible {
+		t.Fatal("precondition: Lists should not be focused")
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "A", Code: 'A'})
+	if m.activeModal != nil {
+		t.Error("'A' should be inert when Lists panel is not focused")
+	}
+}

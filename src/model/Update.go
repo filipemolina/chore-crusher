@@ -172,7 +172,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				finalCmds = append(finalCmds, cmds.OpenAboutModal())
 			}
 
-		case key.Matches(msg, keys.Global.ArchivePage):
+		// PageActive (1) and PageArchived (2) switch the top-level page. This
+		// switch only runs while the Archive page isn't already capturing
+		// keys (see its own early-return block above), i.e. we're already on
+		// Active — so PageActive is a no-op here and PageArchived is the only
+		// one that does anything. Leaving the Archive page for Active is
+		// handled inside archivepage's own handleKey (docs/DESIGN.md §5),
+		// the same way its esc ladder is.
+		case key.Matches(msg, keys.Global.PageActive):
+
+		case key.Matches(msg, keys.Global.PageArchived):
 			if !keyboardOwned() {
 				finalCmds = append(finalCmds, cmds.OpenArchivePage())
 			}
@@ -297,6 +306,28 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Report through the same channel a failed refresh uses
 						// (the RefreshListsMsg handler records it in lastError)
 						// instead of swallowing it like the old nil return did.
+						return cmds.RefreshListsMsg{Err: err}
+					}
+					return cmds.RefreshLists(m.store)()
+				})
+			}
+
+		// Archive hides the highlighted list from the active sidebar and from
+		// farol next/work/inbox discovery (store.ArchiveList) but keeps its
+		// tasks intact and reachable from the Archived Lists page (2), where
+		// u also prompts for confirmation before restoring it. Unlike Delete
+		// this is reversible, but it still routes through confirmmodal
+		// (docs/DESIGN.md §9): it acts on the whole list with one keystroke
+		// and no visible undo in the moment, the same reasoning that gates
+		// Delete.
+		case m.listsPanelVisible && m.focusedZone == constants.COMPONENT_LISTS_PANEL && !keyboardOwned() && key.Matches(msg, keys.Lists.Archive):
+			if target := m.highlightedListID(); target != "" {
+				body := "Archive this list? It will move to the Archived Lists page."
+				if l, err := m.store.GetList(target); err == nil {
+					body = fmt.Sprintf("Archive %q? It will move to the Archived Lists page.", l.Name)
+				}
+				m.activeModal = confirmmodal.New("Archive list", body, func() tea.Msg {
+					if err := m.store.ArchiveList(target); err != nil {
 						return cmds.RefreshListsMsg{Err: err}
 					}
 					return cmds.RefreshLists(m.store)()
@@ -576,6 +607,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			body := fmt.Sprintf("Delete %q and its %d tasks? This cannot be undone.", msg.ListName, msg.TaskCount)
 			m.activeModal = confirmmodal.New("Delete list", body, func() tea.Msg {
 				if err := m.store.DeleteList(listID); err != nil {
+					return cmds.RefreshArchivedListsMsg{Err: err}
+				}
+				return cmds.RefreshArchivedLists(m.store)()
+			})
+		}
+
+	case cmds.UnarchiveArchivedListMsg:
+		// The Archive page's u binding emitted this (it owns the keypress);
+		// route it through the same confirmmodal pattern as
+		// DeleteArchivedListMsg above, triggered from the same surface
+		// (docs/DESIGN.md §9). The modal composes over the Archive page the
+		// same way.
+		if msg.ListID != "" {
+			listID := msg.ListID
+			body := fmt.Sprintf("Restore %q to normal discovery?", msg.ListName)
+			m.activeModal = confirmmodal.New("Unarchive list", body, func() tea.Msg {
+				if err := m.store.UnarchiveList(listID); err != nil {
 					return cmds.RefreshArchivedListsMsg{Err: err}
 				}
 				return cmds.RefreshArchivedLists(m.store)()

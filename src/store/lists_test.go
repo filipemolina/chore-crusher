@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreateListAndListLists(t *testing.T) {
@@ -623,6 +624,79 @@ func TestArchiveListMissing(t *testing.T) {
 	}
 	if err := s.UnarchiveList("no-such-id"); err == nil {
 		t.Error("UnarchiveList of a missing list did not error")
+	}
+}
+
+// TestArchiveListAppendsDateToName: archiving a list appends the archive
+// date to its name, so an entry on the Archived Lists page is self-labeled.
+func TestArchiveListAppendsDateToName(t *testing.T) {
+	s := newTestStore(t)
+	id := mustList(t, s, "Groceries")
+
+	if err := s.ArchiveList(id); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+
+	l, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	want := "Groceries (" + time.Now().UTC().Format("2006-01-02") + ")"
+	if l.Name != want {
+		t.Errorf("Name = %q, want %q", l.Name, want)
+	}
+}
+
+// TestArchiveListIsIdempotentOnName: re-archiving an already-archived list
+// only refreshes archived_at — it must not append the date a second time.
+func TestArchiveListIsIdempotentOnName(t *testing.T) {
+	s := newTestStore(t)
+	id := mustList(t, s, "Groceries")
+
+	if err := s.ArchiveList(id); err != nil {
+		t.Fatalf("ArchiveList (first): %v", err)
+	}
+	first, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+
+	if err := s.ArchiveList(id); err != nil {
+		t.Fatalf("ArchiveList (second): %v", err)
+	}
+	second, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if second.Name != first.Name {
+		t.Errorf("Name changed on re-archive: %q -> %q", first.Name, second.Name)
+	}
+}
+
+// TestUnarchiveListDoesNotStripDateSuffix: unarchiving restores discovery but
+// leaves the archive-date suffix ArchiveList appended — it is a one-way label,
+// not something Unarchive undoes.
+func TestUnarchiveListDoesNotStripDateSuffix(t *testing.T) {
+	s := newTestStore(t)
+	id := mustList(t, s, "Groceries")
+
+	if err := s.ArchiveList(id); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+	archived, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+
+	if err := s.UnarchiveList(id); err != nil {
+		t.Fatalf("UnarchiveList: %v", err)
+	}
+	restored, err := s.GetList(id)
+	if err != nil {
+		t.Fatalf("GetList: %v", err)
+	}
+	if restored.Name != archived.Name {
+		t.Errorf("Name = %q after unarchiving, want unchanged %q", restored.Name, archived.Name)
 	}
 }
 

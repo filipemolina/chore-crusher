@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/farol/src/cmds"
 )
 
@@ -12,8 +13,59 @@ func TestHeaderRendersWordmark(t *testing.T) {
 	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
 
 	out := updated.(Model).View().Content
-	if !strings.Contains(out, "Farol") {
+	if !strings.Contains(out, "farol") {
 		t.Errorf("header output does not contain wordmark:\n%s", out)
+	}
+}
+
+// TestHeaderRendersBothTabs proves the header always shows both page tabs,
+// digit-prefixed (1 Active, 2 Archived) — the primary navigation, never
+// dropped for width the way the mode/version are (docs/DESIGN.md §5).
+func TestHeaderRendersBothTabs(t *testing.T) {
+	m := New()
+	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
+
+	out := ansi.Strip(updated.(Model).View().Content)
+	if !strings.Contains(out, "1 Active") {
+		t.Errorf("header does not render the Active tab:\n%s", out)
+	}
+	if !strings.Contains(out, "2 Archived") {
+		t.Errorf("header does not render the Archived tab:\n%s", out)
+	}
+}
+
+// TestHeaderHighlightsActiveTabByDefault and
+// TestHeaderHighlightsArchivedTabWhilePageIsOpen pin which tab carries the
+// accent "▌" bar — the selected-tab cue ../cais's mainmenu uses — before and
+// after Open/CloseArchivePageMsg.
+func TestHeaderHighlightsActiveTabByDefault(t *testing.T) {
+	m := New()
+	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
+
+	// The selected tab is preceded by the accent "▌" bar (activeCellStyle's
+	// one-column left padding, unlike the unselected cell's two) — stripping
+	// ANSI first collapses each tab's separately-styled digit/label render
+	// calls into one contiguous run, so this substring check is reliable.
+	out := ansi.Strip(updated.(Model).View().Content)
+	if !strings.Contains(out, "▌ 1 Active") {
+		t.Errorf("the Active tab is not highlighted by default:\n%s", out)
+	}
+	if strings.Contains(out, "▌ 2 Archived") {
+		t.Errorf("the Archived tab is highlighted by default, want Active:\n%s", out)
+	}
+}
+
+func TestHeaderHighlightsArchivedTabWhilePageIsOpen(t *testing.T) {
+	m := New()
+	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
+	updated, _ = updated.(Model).Update(cmds.OpenArchivePageMsg{})
+
+	out := ansi.Strip(updated.(Model).View().Content)
+	if !strings.Contains(out, "▌ 2 Archived") {
+		t.Errorf("the Archived tab is not highlighted while the Archive page is open:\n%s", out)
+	}
+	if strings.Contains(out, "▌ 1 Active") {
+		t.Errorf("the Active tab is still highlighted while the Archive page is open:\n%s", out)
 	}
 }
 
@@ -70,25 +122,23 @@ func TestHeaderShedsViewModeBeforeWordmark(t *testing.T) {
 	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: droppedAt})
 	updated, _ = updated.(Model).Update(cmds.SetTaskTreeViewMsg{View: "pending"})
 	out := updated.(Model).View().Content
-	if !strings.Contains(out, "Farol") {
+	if !strings.Contains(out, "farol") {
 		t.Errorf("wordmark missing at width %d, the width the view mode first dropped at:\n%s", droppedAt, out)
 	}
 }
 
-// TestHeaderShowsArchivedListsWhilePageIsOpen proves the header replaces the
-// task tree's view-mode indicator with "Archived Lists" while the Archive
-// page is open — that mode describes a surface the page has replaced, so it
-// must not still be named in the header.
-func TestHeaderShowsArchivedListsWhilePageIsOpen(t *testing.T) {
+// TestHeaderBlanksViewModeWhilePageIsOpen proves the header drops the task
+// tree's view-mode indicator while the Archive page is open — that mode
+// describes a surface the page has replaced, so it must not still be shown.
+// Which page is on screen is now carried by the tabs (TestHeaderHighlights*
+// above), not by a text label taking over this slot.
+func TestHeaderBlanksViewModeWhilePageIsOpen(t *testing.T) {
 	m := New()
 	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
 	updated, _ = updated.(Model).Update(cmds.SetTaskTreeViewMsg{View: "pending"})
 	updated, _ = updated.(Model).Update(cmds.OpenArchivePageMsg{})
 
 	out := updated.(Model).View().Content
-	if !strings.Contains(out, "Archived Lists") {
-		t.Errorf("header does not show \"Archived Lists\" while the Archive page is open:\n%s", out)
-	}
 	if strings.Contains(out, "pending") {
 		t.Errorf("header still shows the stale task-tree view mode while the Archive page is open:\n%s", out)
 	}
@@ -104,9 +154,6 @@ func TestHeaderRestoresTreeViewAfterArchivePageCloses(t *testing.T) {
 	updated, _ = updated.(Model).Update(cmds.CloseArchivePageMsg{})
 
 	out := updated.(Model).View().Content
-	if strings.Contains(out, "Archived Lists") {
-		t.Errorf("header still shows \"Archived Lists\" after the Archive page closed:\n%s", out)
-	}
 	if !strings.Contains(out, "pending") {
 		t.Errorf("header did not restore the task-tree view mode after the Archive page closed:\n%s", out)
 	}

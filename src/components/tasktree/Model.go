@@ -38,18 +38,19 @@ func (v ViewMode) String() string {
 	}
 }
 
-// viewModeFromDigit maps the 1-3 keys to their view modes: 1 is Pending, 2
-// is Complete, 3 is All.
-func viewModeFromDigit(text string) (ViewMode, bool) {
-	switch text {
-	case "1":
-		return ViewPending, true
-	case "2":
-		return ViewComplete, true
-	case "3":
-		return ViewAll, true
+// Next returns the mode v's cycles to on the next v keypress: All (the
+// default) → Pending → Complete → All. One key rather than three direct-select
+// digits, since 1 and 2 are now the top-level page-switch keys
+// (keys.Global.PageActive/PageArchived) — see keys.Tree.View.
+func (v ViewMode) Next() ViewMode {
+	switch v {
+	case ViewAll:
+		return ViewPending
+	case ViewPending:
+		return ViewComplete
+	default:
+		return ViewAll
 	}
-	return ViewAll, false
 }
 
 // Model is the task-tree zone with hierarchical rendering, navigation,
@@ -65,9 +66,9 @@ type Model struct {
 	selectedID string
 	activeList bool
 	collapsed  map[string]bool // view-only collapse state, taskID -> is collapsed
-	// view is the Pending/Complete/All visibility filter (digits 1-3),
+	// view is the Pending/Complete/All visibility filter (v cycles it),
 	// default ViewAll so nothing changes for existing users until they press
-	// 1 or 2. splitSections is the single choke point that applies it, so
+	// v. splitSections is the single choke point that applies it, so
 	// both the cursor walk (selectionOrder) and the render (linePlan) stay
 	// in lockstep (docs/DESIGN.md §6).
 	view ViewMode
@@ -500,10 +501,8 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmds.ReleaseList(m.activeListID)
 			}
 		case key.Matches(msg, keys.Tree.View):
-			if v, ok := viewModeFromDigit(msg.Text); ok {
-				m.view = v
-				return m, cmds.SetTaskTreeView(v.String())
-			}
+			m.view = m.view.Next()
+			return m, cmds.SetTaskTreeView(m.view.String())
 		}
 
 		// If selection changed, broadcast it to add-input

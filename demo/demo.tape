@@ -13,10 +13,10 @@
 #
 # The recording starts the instant the TUI window appears — all shell setup
 # (build, seed, env vars) happens with Show suppressed, so the GIF is 100%
-# TUI. The demo walks the 1/2/3 view-mode filter on the seeded list, opens
-# the lists panel, creates a list, adds a root task and a nested subtask (one
+# TUI. The demo walks the v view-mode cycle on the seeded list, opens the
+# lists panel, creates a list, adds a root task and a nested subtask (one
 # level deep via ]), previews the theme picker, then opens the Archived
-# Lists page (A) to show the seeded archived list and its task preview.
+# Lists page (2) to show the seeded archived list and its task preview.
 
 Output demo/demo.gif
 
@@ -50,15 +50,15 @@ Enter
 Sleep 3s
 Show
 
-# --- View-mode filter: 1 = Pending only, 2 = Complete only, 3 = All --------
+# --- View-mode cycle: v -> Pending only, v -> Complete only, v -> All ------
 # The seeded "api" list already has both pending and complete tasks (Drop
 # the legacy /v1 routes cascaded to Complete in seed.sh), so filtering here
 # is visibly meaningful before the walkthrough moves on to lists/creation.
-Type@1ms "1"
+Type@1ms "v"
 Sleep 1200ms
-Type@1ms "2"
+Type@1ms "v"
 Sleep 1200ms
-Type@1ms "3"
+Type@1ms "v"
 Sleep 1200ms
 
 # --- Open the lists side panel ----------------------------------------------
@@ -125,10 +125,10 @@ Escape
 Sleep 2000ms
 
 # --- Archive page: browse the archived list + its task preview, then back --
-# A (capital) opens the Archived Lists page (src/keys/Keys.go). seed.sh
-# archives "Q2 roadmap" ahead of time, so this shows a real list + preview,
-# not an empty state. Esc returns to Home.
-Type@1ms "A"
+# 2 opens the Archived Lists page, the top nav's second tab
+# (src/keys/Keys.go). seed.sh archives "Q2 roadmap" ahead of time, so this
+# shows a real list + preview, not an empty state. 1 returns to Active.
+Type@1ms "2"
 Sleep 1500ms
-Escape
+Type@1ms "1"
 Sleep 1200ms

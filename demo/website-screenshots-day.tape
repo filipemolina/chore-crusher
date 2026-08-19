@@ -91,7 +91,7 @@ Escape
 Sleep 500ms
 
 # --- Archive page: the seeded archived list + its task preview -------------
-Type "A"
+Type "2"
 Sleep 1200ms
 Screenshot website/public/screenshot-archive-day.png
 Escape

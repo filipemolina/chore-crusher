@@ -147,10 +147,27 @@ func scanListSummaries(rows *sql.Rows) ([]ListSummary, error) {
 
 // ArchiveList marks the list archived (removing it from the TUI sidebar and
 // from farol next/work/inbox discovery, but not from direct id resolution
-// or export). Archiving an already-archived list is idempotent: it just
-// refreshes archived_at.
+// or export). On the transition into the archived state it also appends the
+// archive date to the list's name (e.g. "Groceries" -> "Groceries
+// (2026-08-19)"), so an entry on the Archived Lists page is self-labeled
+// without a second lookup. Archiving an already-archived list is idempotent:
+// it only refreshes archived_at and leaves the name (and its date suffix,
+// already applied by the first archive) untouched.
 func (s *Store) ArchiveList(id string) error {
-	res, err := s.db.Exec(`UPDATE List SET archived_at = ? WHERE id = ?`, time.Now().Unix(), id)
+	l, err := getList(s.db, id)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	if l.ArchivedAt != nil {
+		res, err := s.db.Exec(`UPDATE List SET archived_at = ? WHERE id = ?`, now.Unix(), id)
+		if err != nil {
+			return err
+		}
+		return requireAffected(res, "list", id)
+	}
+	name := fmt.Sprintf("%s (%s)", l.Name, now.UTC().Format("2006-01-02"))
+	res, err := s.db.Exec(`UPDATE List SET archived_at = ?, name = ? WHERE id = ?`, now.Unix(), name, id)
 	if err != nil {
 		return err
 	}
