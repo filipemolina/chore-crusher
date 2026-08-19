@@ -73,6 +73,9 @@ type List struct {
 	CreatedAt     int64
 	Position      int
 	Collaborative bool
+	// ArchivedAt is nil for an active list; a non-nil value is the unix
+	// timestamp it was archived at, mirroring store.List.ArchivedAt.
+	ArchivedAt *int64
 }
 
 // ListSummary is a List plus its task counts, mirroring store.ListSummary.
@@ -127,6 +130,7 @@ func FromStoreList(l store.List) List {
 		CreatedAt:     l.CreatedAt,
 		Position:      l.Position,
 		Collaborative: l.Collaborative,
+		ArchivedAt:    l.ArchivedAt,
 	}
 }
 

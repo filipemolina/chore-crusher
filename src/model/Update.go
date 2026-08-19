@@ -359,6 +359,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.detailsPanelVisible && m.detailsTaskID != "" {
 			finalCmds = append(finalCmds, cmds.RefreshDetails(m.store, m.detailsTaskID))
 		}
+		// Keep the open Archive page current with external CLI archive/
+		// unarchive writes, the same live-refresh contract every other open
+		// surface gets (docs/DESIGN.md §7).
+		if m.archivePageVisible {
+			finalCmds = append(finalCmds, cmds.RefreshArchivedLists(m.store))
+		}
 
 	case cmds.AnimTickMsg:
 		m.animFrame = (m.animFrame + 1) % 8
@@ -528,14 +534,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case cmds.OpenArchivePageMsg:
-		// The archive-page toggle key emits this (wired in a follow-up task).
-		// Entering follows the same shape as OpenDetailsMsg: take the keyboard,
-		// move focus onto the new surface, and refresh the footer for it.
+		// The archive-page toggle key emits this. Entering follows the same
+		// shape as OpenDetailsMsg: take the keyboard, move focus onto the new
+		// surface, refresh the footer for it, and load the archived set —
+		// AppModel drives when this query runs (open, and every poll tick
+		// below while the page stays open), the same way it drives
+		// RefreshLists/RefreshTasks; the component only renders what arrives.
 		m.archivePageVisible = true
 		m.focusedZone = constants.COMPONENT_ARCHIVE_PAGE
 		finalCmds = append(finalCmds,
 			cmds.SetFocus(constants.COMPONENT_ARCHIVE_PAGE),
 			m.footerContextCmd(),
+			cmds.RefreshArchivedLists(m.store),
 		)
 
 	case cmds.CloseArchivePageMsg:

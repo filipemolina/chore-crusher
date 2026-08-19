@@ -114,3 +114,79 @@ func TestArchivePageForceQuitStillWorks(t *testing.T) {
 		t.Fatal("ctrl+c produced no command while the Archive page was open")
 	}
 }
+
+// TestOpeningArchivePageLoadsRealArchivedLists proves AppModel actually
+// drives the archived-set query on open (cmds.RefreshArchivedLists), not
+// just the visibility flag — an archived list's name must show up in the
+// rendered body without any further interaction.
+func TestOpeningArchivePageLoadsRealArchivedLists(t *testing.T) {
+	m := seedOneList(t)
+	lists, err := m.store.ListLists()
+	if err != nil || len(lists) == 0 {
+		t.Fatalf("seed: no lists (err=%v)", err)
+	}
+	if err := m.store.ArchiveList(lists[0].List.ID); err != nil {
+		t.Fatalf("archive list: %v", err)
+	}
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	m = refresh(t, m, cmds.OpenArchivePage()())
+
+	body := m.renderBody()
+	if !strings.Contains(body, lists[0].List.Name) {
+		t.Fatalf("rendered body does not show the archived list %q:\n%s", lists[0].List.Name, body)
+	}
+}
+
+// TestPollTickRefreshesArchivePageWhileOpen proves the Archive page gets the
+// same live-refresh contract as every other open surface (docs/DESIGN.md
+// §7): a list archived by another process shows up after a poll tick without
+// the page being reopened.
+//
+// PollTickMsg's own batch includes cmds.PollTick itself, a real tea.Tick
+// that blocks for the poll interval — resolving the batch's children (the
+// only way to see what RefreshArchivedLists actually produced) means that
+// blocking is unavoidable here, so the interval is dropped to 1ms first.
+// Nothing recurses back into PollTickMsg (mirrors TestPollTickReissuesItself's
+// own note: that message re-issues itself forever, so a test must never feed
+// it back into Update).
+func TestPollTickRefreshesArchivePageWhileOpen(t *testing.T) {
+	m := openArchivePage(t, 100, 40)
+	m.cfg.PollIntervalMs = 1
+
+	lists, err := m.store.ListLists()
+	if err != nil || len(lists) == 0 {
+		t.Fatalf("seed: no lists (err=%v)", err)
+	}
+	if err := m.store.ArchiveList(lists[0].List.ID); err != nil {
+		t.Fatalf("archive list: %v", err)
+	}
+
+	updated, cmd := m.Update(cmds.PollTickMsg{})
+	m = updated.(AppModel)
+	if cmd == nil {
+		t.Fatal("PollTickMsg returned no command")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("PollTickMsg command produced %T, want tea.BatchMsg", cmd())
+	}
+	found := false
+	for _, c := range batch {
+		if c == nil {
+			continue
+		}
+		if msg, ok := c().(cmds.RefreshArchivedListsMsg); ok {
+			found = true
+			m = refresh(t, m, msg)
+		}
+	}
+	if !found {
+		t.Fatal("PollTickMsg's batch did not include a RefreshArchivedListsMsg while the Archive page was open")
+	}
+
+	body := m.renderBody()
+	if !strings.Contains(body, lists[0].List.Name) {
+		t.Fatalf("poll tick did not refresh the Archive page with the newly archived list %q:\n%s", lists[0].List.Name, body)
+	}
+}
