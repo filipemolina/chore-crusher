@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/filipemolina/farol/src/cmds"
 	"github.com/filipemolina/farol/src/constants"
 )
@@ -112,6 +113,94 @@ func TestArchivePageForceQuitStillWorks(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg{Text: "ctrl+c"})
 	if cmd == nil {
 		t.Fatal("ctrl+c produced no command while the Archive page was open")
+	}
+}
+
+// TestArchiveDeleteOpensModalOverThePage proves d on the Archive page opens
+// AppModel's confirm modal on top of the page (not instead of it), naming
+// the list and its task count the same way Lists.Delete's own dialog does
+// (docs/DESIGN.md §9), and that esc cancels back to the Archive page
+// unchanged — nothing deleted, the page still open.
+func TestArchiveDeleteOpensModalOverThePage(t *testing.T) {
+	m := seedOneList(t)
+	lists, err := m.store.ListLists()
+	if err != nil || len(lists) == 0 {
+		t.Fatalf("seed: no lists (err=%v)", err)
+	}
+	listID, listName := lists[0].List.ID, lists[0].List.Name
+	if err := m.store.ArchiveList(listID); err != nil {
+		t.Fatalf("archive list: %v", err)
+	}
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = refresh(t, m, cmds.OpenArchivePage()())
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "d"})
+
+	if m.activeModal == nil {
+		t.Fatal("d did not open a confirm modal")
+	}
+	body := ansi.Strip(m.activeModal.View().Content)
+	if !strings.Contains(body, listName) {
+		t.Errorf("confirm dialog does not name the list %q:\n%s", listName, body)
+	}
+	if !m.archivePageVisible {
+		t.Error("the Archive page closed underneath the modal")
+	}
+	pageBody := ansi.Strip(m.renderBody())
+	if !strings.Contains(pageBody, listName) {
+		t.Errorf("the Archive page underneath the modal lost the list:\n%s", pageBody)
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "esc"})
+
+	if m.activeModal != nil {
+		t.Error("esc should have closed the confirm modal")
+	}
+	if !m.archivePageVisible {
+		t.Error("esc closing the modal should not also close the Archive page underneath it")
+	}
+	if _, err := m.store.GetList(listID); err != nil {
+		t.Errorf("list %q should still exist after cancelling: %v", listName, err)
+	}
+}
+
+// TestArchiveDeleteConfirmedPermanentlyRemovesTheList proves confirming the
+// dialog actually calls store.DeleteList — the list must be gone from
+// --include-archived discovery entirely, not merely off the Archive page's
+// own rendered list.
+func TestArchiveDeleteConfirmedPermanentlyRemovesTheList(t *testing.T) {
+	m := seedOneList(t)
+	lists, err := m.store.ListLists()
+	if err != nil || len(lists) == 0 {
+		t.Fatalf("seed: no lists (err=%v)", err)
+	}
+	listID := lists[0].List.ID
+	if err := m.store.ArchiveList(listID); err != nil {
+		t.Fatalf("archive list: %v", err)
+	}
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = refresh(t, m, cmds.OpenArchivePage()())
+	m = refresh(t, m, tea.KeyPressMsg{Text: "d"})
+	if m.activeModal == nil {
+		t.Fatal("precondition: d should have opened the confirm modal")
+	}
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "y", Code: 'y'})
+
+	if m.activeModal != nil {
+		t.Error("confirming should have closed the modal")
+	}
+	if _, err := m.store.GetList(listID); err == nil {
+		t.Error("list still resolves after confirming permanent delete")
+	}
+	all, err := m.store.ListAllLists()
+	if err != nil {
+		t.Fatalf("list all lists: %v", err)
+	}
+	for _, l := range all {
+		if l.List.ID == listID {
+			t.Error("list still appears in ListAllLists (--include-archived) after permanent delete")
+		}
 	}
 }
 

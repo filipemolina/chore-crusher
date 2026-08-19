@@ -209,6 +209,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.ArchivePage.Unarchive):
 		return m, m.unarchiveSelectedCmd()
+
+	case key.Matches(msg, keys.ArchivePage.Delete):
+		// Irreversible, unlike Unarchive — routes through AppModel's
+		// confirmmodal the same way Tree.Delete and Lists.Delete do
+		// (docs/DESIGN.md §9). The component only requests it; only AppModel
+		// opens a modal.
+		if sel, ok := m.selectedEntry(); ok {
+			return m, cmds.DeleteArchivedList(sel.List.ID, sel.List.Name, sel.PendingCount+sel.CompleteCount)
+		}
 	}
 	return m, nil
 }

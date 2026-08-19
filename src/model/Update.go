@@ -562,6 +562,26 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, msg.Follow)
 		}
 
+	case cmds.DeleteArchivedListMsg:
+		// The Archive page's d binding emitted this (it owns the keypress);
+		// route it through the same confirmmodal pattern as Lists.Delete —
+		// this is the same irreversible action (store.DeleteList), triggered
+		// from a different surface (docs/DESIGN.md §9). The modal composes
+		// over the Archive page for free: the modal-owns-the-keyboard check
+		// at the very top of Update runs before the Archive page's own
+		// keypress interception, and View layers activeModal over renderBody
+		// unconditionally.
+		if msg.ListID != "" {
+			listID := msg.ListID
+			body := fmt.Sprintf("Delete %q and its %d tasks? This cannot be undone.", msg.ListName, msg.TaskCount)
+			m.activeModal = confirmmodal.New("Delete list", body, func() tea.Msg {
+				if err := m.store.DeleteList(listID); err != nil {
+					return cmds.RefreshArchivedListsMsg{Err: err}
+				}
+				return cmds.RefreshArchivedLists(m.store)()
+			})
+		}
+
 	case cmds.CloseModalMsg:
 		m.activeModal = nil
 		if msg.Follow != nil {

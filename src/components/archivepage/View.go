@@ -277,7 +277,7 @@ func (m Model) renderHint(bg color.Color) string {
 	}
 	if !m.filtering {
 		if _, ok := m.selectedEntry(); ok {
-			hints = append(hints, chrome.HintFor(keys.ArchivePage.Unarchive))
+			hints = append(hints, chrome.HintFor(keys.ArchivePage.Unarchive), chrome.HintFor(keys.ArchivePage.Delete))
 		}
 	}
 	line := chrome.RenderKeyHints(hints, appstyles.Active.TextDim)

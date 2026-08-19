@@ -193,7 +193,7 @@ func TestActiveReturnsArchivePageBindingsWhenVisible(t *testing.T) {
 
 	want := []key.Binding{
 		ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd,
-		ArchivePage.Filter, ArchivePage.Unarchive, Global.Back,
+		ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete, Global.Back,
 	}
 	if len(bindings) != len(want) {
 		t.Fatalf("expected %d Archive page bindings, got %d: %v", len(want), len(bindings), bindings)
@@ -204,13 +204,14 @@ func TestActiveReturnsArchivePageBindingsWhenVisible(t *testing.T) {
 		}
 	}
 
-	// Tree.Navigate and Lists.Navigate are deliberately not in this list:
-	// their keystrokes and help text are identical to ArchivePage.Navigate's
-	// (all three are "↑/↓ navigate"), and sameBinding compares by content,
-	// not identity — they are legitimately indistinguishable that way, so it
-	// would be a false positive here, not a real leak.
+	// Tree.Navigate/Lists.Navigate and Tree.Delete/Lists.Delete are
+	// deliberately not in this list: their keystrokes and help text are
+	// identical to ArchivePage.Navigate's and ArchivePage.Delete's (all
+	// three "↑/↓ navigate", both "d delete"), and sameBinding compares by
+	// content, not identity — they are legitimately indistinguishable that
+	// way, so it would be a false positive here, not a real leak.
 	for _, banned := range []key.Binding{
-		Tree.OpenDetails, Tree.Delete, Lists.New, Lists.Delete,
+		Tree.OpenDetails, Lists.New,
 		Global.NextPanel, Global.Picker, Global.Theme, Global.ToggleListsPanel,
 		Global.ArchivePage,
 	} {

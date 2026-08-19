@@ -376,6 +376,55 @@ func TestUnarchiveFailureSurfacesActionErrWithoutLosingTheList(t *testing.T) {
 	}
 }
 
+// TestDeleteKeyRequestsConfirmationWithNameAndTaskCount proves d does not
+// delete anything itself — it only asks AppModel to confirm, carrying the
+// selected list's name and task count so the (AppModel-owned) dialog can
+// name what it is about to destroy, matching Lists.Delete's own body text
+// style (docs/DESIGN.md §9).
+func TestDeleteKeyRequestsConfirmationWithNameAndTaskCount(t *testing.T) {
+	m, _ := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "d"})
+	if cmd == nil {
+		t.Fatal("d produced no command")
+	}
+	msg, ok := cmd().(cmds.DeleteArchivedListMsg)
+	if !ok {
+		t.Fatalf("d command produced %T, want cmds.DeleteArchivedListMsg", cmd())
+	}
+	if msg.ListID != sel.List.ID {
+		t.Errorf("ListID = %q, want %q", msg.ListID, sel.List.ID)
+	}
+	if msg.ListName != sel.List.Name {
+		t.Errorf("ListName = %q, want %q", msg.ListName, sel.List.Name)
+	}
+	if msg.TaskCount != sel.PendingCount+sel.CompleteCount {
+		t.Errorf("TaskCount = %d, want %d", msg.TaskCount, sel.PendingCount+sel.CompleteCount)
+	}
+}
+
+// TestDeleteKeyDoesNotItselfWriteToTheStore proves d, unlike u, performs no
+// store write on its own — the list must still exist (archived or not)
+// immediately after the keypress, since only AppModel's confirm modal may
+// call store.DeleteList.
+func TestDeleteKeyDoesNotItselfWriteToTheStore(t *testing.T) {
+	m, s := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+
+	m.Update(tea.KeyPressMsg{Text: "d"})
+
+	if _, err := s.GetList(sel.List.ID); err != nil {
+		t.Errorf("list %q no longer resolves after d alone (no confirmation happened): %v", sel.List.Name, err)
+	}
+}
+
 // TestOpenArchivePageMsgResetsStaleState proves reopening the page after it
 // was left mid-filter starts clean rather than resuming a stale query and
 // selection.

@@ -192,6 +192,14 @@ type ArchivePageKeys struct {
 	// CLI's `farol lists archive` is not gated behind --force), this is the
 	// reversible direction.
 	Unarchive key.Binding
+	// Delete permanently removes the selected list and every one of its
+	// tasks (store.DeleteList) — irreversible, so unlike Unarchive it routes
+	// through the same confirmmodal pattern as Tree.Delete and Lists.Delete
+	// (docs/DESIGN.md §9). d is free in this component's own key scope
+	// (Navigate/GoToStart/GoToEnd/Filter/Unarchive claim up/down/k/j, home/g,
+	// end/G, /, and u) even though Tree.Delete and Lists.Delete also bind d —
+	// this codebase scopes keys per-component, not globally unique.
+	Delete key.Binding
 }
 
 // OverlayKeys are the keys every modal answers to. Cancel is one binding for
@@ -377,6 +385,7 @@ var ArchivePage = ArchivePageKeys{
 	// requiring global uniqueness (e.g. Tree.Delete and Lists.Delete both
 	// bind d).
 	Unarchive: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unarchive")),
+	Delete:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 }
 
 var Overlay = OverlayKeys{
@@ -448,12 +457,11 @@ func Active(ctx Context) []key.Binding {
 	// The Archive page owns the keyboard while open, the same way Details
 	// does just above: only its own bindings plus Esc are live — no
 	// task-tree, Lists, tab, search, theme, or panel-toggle key acts
-	// (docs/DESIGN.md §5). Permanent-delete's key lands here in a follow-up
-	// task.
+	// (docs/DESIGN.md §5).
 	if ctx.ArchivePageVisible {
 		return []key.Binding{
 			ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd,
-			ArchivePage.Filter, ArchivePage.Unarchive, Global.Back,
+			ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete, Global.Back,
 		}
 	}
 
@@ -654,8 +662,8 @@ func Catalog(ctx Context) []Scope {
 		},
 		{
 			Title:   "Archived Lists",
-			Entries: entries(Global.ArchivePage, ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd, ArchivePage.Filter, ArchivePage.Unarchive),
-			Note:    "A opens the page from anywhere. Esc commits an open filter first, clears an applied one on the next press, and only then leaves the page.",
+			Entries: entries(Global.ArchivePage, ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd, ArchivePage.Filter, ArchivePage.Unarchive, ArchivePage.Delete),
+			Note:    "A opens the page from anywhere. Esc commits an open filter first, clears an applied one on the next press, and only then leaves the page. d prompts for confirmation before permanently deleting a list and its tasks; u restores one with no confirmation.",
 		},
 		{
 			Title:   "Overlays",
