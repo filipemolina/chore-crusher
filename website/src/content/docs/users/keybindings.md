@@ -119,7 +119,7 @@ Act inside the Details modal, which owns the keyboard while open.
 | Key | Action |
 | --- | --- |
 | `ctrl+s` | Save title, notes, progress, and priority changes; close the modal. |
-| `tab` / `shift+tab` | Cycle the zones: Title → Notes → Progress → Priority → Comments. |
+| `tab` / `shift+tab` | Cycle the zones: Title → Notes → Progress → Priority → Comments → Attachments. |
 | `←` `→` `h` `l` | Cycle the progress modes (`simple` / `subtasks` / `percentage`) — Progress zone. |
 | `←` `→` `h` `l` | Cycle the priority (`none` → `low` → `medium` → `high`, wrapping) — Priority zone. |
 | `↑` `↓` | Step the percentage by 5, clamped to 0–100 — percentage mode only. |
@@ -129,7 +129,11 @@ Act inside the Details modal, which owns the keyboard while open.
 | `enter` | Post the comment — compose card. |
 | `y` | Copy the highlighted comment's id — Comments zone. |
 | `d` | Delete the highlighted comment (confirm-guarded) — Comments zone. |
+| `↑` `↓` `k` `j` | Move the attachment highlight — Attachments zone. |
+| `d` | Delete the highlighted attachment (confirm-guarded) — Attachments zone. |
 | `esc` | Close a clean modal; on a dirty one, raise the `Discard changes? (y/n)` prompt. |
+
+Attaching a file has no TUI key — it is CLI-only (`farol attach <task-id> <path>`); the Attachments zone is view-and-delete.
 
 The `Discard changes?` prompt answers to `y` and `n` only — it has no visible default for `enter` to act on.
 

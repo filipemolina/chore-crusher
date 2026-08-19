@@ -153,9 +153,11 @@ Assignment reserves the subtree: it is refused when any ancestor or descendant i
 
 | Command | What it does |
 | --- | --- |
-| `farol attach <task-id> <path>` | Attach a file to a task. |
-| `farol attachments <task-id>` | List a task's attachments. |
+| `farol attach <task-id> [source]` | Attach a file to a task. `source` is a local file path (stored as-is, no copy), `-` or omitted to read from stdin, or an `http(s)://` URL to download. Stdin and URL sources are materialized under `$XDG_DATA_HOME/farol/attachments`; a local path is stored exactly as given, unvalidated. |
+| `farol attachments <task-id>` | List a task's attachments (id and path). |
 | `farol detach <attachment-id>` | Remove an attachment. |
+
+The store only ever holds a path reference, never file content — `farol show <task-id>` lists a task's attachments alongside its other fields, but opening or moving the underlying file is left to you.
 
 ### Search
 

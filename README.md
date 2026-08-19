@@ -84,7 +84,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | **Live agent presence** | Animated spinner lights on task writes. You see exactly what's working. |
 | **4-value priority** | `high` > `medium` > `low` > `none` (drives `next_task` ordering) |
 | **Agent CLI** | a single agent-facing front end: every operation is a `farol` subcommand emitting one JSON value with `--json` |
-| **Notes, comments, attachments** | Long-form notes per task, threaded comments, and file attachments via `farol attach` |
+| **Notes, comments, attachments** | Long-form notes per task, threaded comments, and file attachments (path, stdin, or URL) added via `farol attach`; view and delete them in the details modal |
 | **Change feed** | `farol diff <list-id> --since <unix-seconds>` returns tasks added or changed since a timestamp — cheap to poll |
 | **Export / Import** | `farol export` / `farol import` (or `e` / `i` in the Lists panel) move lists and tasks between stores as versioned JSON |
 | **Themes** | 14 themes: four of the app's own (`farol-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
@@ -171,6 +171,12 @@ The default list `Inbox` is created automatically; the app opens on the
 | `?` | Show help overlay |
 | `q` / `Ctrl+C` | Quit |
 
+The details modal (`enter` on a task) has one more tab-cycled zone beyond
+Title/Notes/Progress/Priority/Comments: **Attachments**, listing the task's
+files. `↑`/`↓` (or `k`/`j`) move the highlight and `d` deletes the selected
+one (confirm-guarded). There is no key to *add* an attachment — that's
+CLI-only, via `farol attach` (see below).
+
 ### The CLI
 
 Every TUI operation is available via CLI commands (`farol --help` lists them all):
@@ -207,8 +213,10 @@ farol priority <task-id> high    # none | low | medium | high
 farol comment <task-id> "note"    # add a comment to a task; prints its id
 farol comment rm <comment-id>     # delete a comment
 
-# Attachments
-farol attach <task-id> <path>     # attach a file to a task
+# Attachments (CLI-only — adding a file has no TUI keybinding)
+farol attach <task-id> <path>     # attach a local file, stored by path (not copied)
+farol attach <task-id>            # attach from stdin, e.g. `cat file | farol attach <task-id>`
+farol attach <task-id> <url>      # attach an http(s) URL; it's downloaded and stored
 farol attachments <task-id>       # list a task's attachments
 farol detach <attachment-id>      # remove an attachment
 

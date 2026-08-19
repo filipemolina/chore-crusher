@@ -47,19 +47,34 @@ After a successful add, selection moves to the new task and the level resets to 
 
 ## The Details modal
 
-`enter` on a selected task opens the Details modal — a centered overlay sized to most of the screen. It holds five zones, cycled with `tab`/`shift+tab`:
+`enter` on a selected task opens the Details modal — a centered overlay sized to most of the screen. It holds six zones, cycled with `tab`/`shift+tab`:
 
 - **Title** — an editable single-line field, saved through the same rename path the CLI uses.
 - **Notes** — a textarea that grows with its content, capped so comment cards stay visible. It opens on its first line, cursor parked at the start.
 - **Progress** — the progress-mode selector (see below).
 - **Priority** — cycles `none` → `low` → `medium` → `high` with `←`/`→` (or `h`/`l`), wrapping.
 - **Comments** — the comment thread, rendered as selectable cards.
+- **Attachments** — the task's file attachments, one path per line.
 
 `ctrl+s` saves title, notes, progress, and priority changes, closes the modal, and returns focus to the tree. `esc` closes a clean modal immediately; on a dirty one it raises an inline `Discard changes? (y/n)` prompt — `y` discards, `n` keeps editing, and `enter` is deliberately unbound there so a stray keystroke can never throw away unsaved edits. `ctrl+y` copies the open task's id from any zone.
 
 ### Comments
 
 `c` opens an inline compose card at the foot of the thread; `enter` posts the comment, `esc` cancels. Comments are short status or handoff notes — one line is sufficient. `↑`/`↓` move the highlight, `y` copies the highlighted comment's id, and `d` deletes it through the same confirm modal every destructive action uses, quoting the comment's own text.
+
+### Attachments
+
+The Attachments zone lists the task's files, one path per line, highlighting the selected one. `↑`/`↓` (or `k`/`j`) move the highlight; `d` deletes the highlighted attachment through the same confirm modal every destructive action uses.
+
+The zone is view-and-delete only — there is no TUI action to add an attachment. Attaching a file happens on the CLI:
+
+```bash
+farol attach <task-id> <path>              # a local file, stored by path (not copied)
+cat notes.txt | farol attach <task-id>     # from stdin
+farol attach <task-id> https://example.com/spec.pdf  # downloaded and stored
+```
+
+farol never reads or copies a local file you attach — it stores the path as given, so opening it is on you. Stdin and URL sources are the exception: those are materialized under `$XDG_DATA_HOME/farol/attachments` so the content has somewhere to live. See [The CLI](/users/cli/#attachments) for the full command reference.
 
 ## Progress modes
 

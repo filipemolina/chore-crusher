@@ -445,7 +445,8 @@ Inside the Details modal: **`ctrl+s`** saves title, notes, progress and
 priority changes,
 closes the modal, returns focus to the task tree, and refreshes its rows;
 **`tab`**/**`shift+tab`** cycle between the title editor, the notes editor, the
-progress selector, the priority selector, and the comment thread (every zone is always in the cycle —
+progress selector, the priority selector, the comment thread, and the
+attachment list (every zone is always in the cycle —
 the comment thread is reachable even while empty, since `c` adds the first
 comment from there); **`←`/`→`** (or `h`/`l`) cycle through the three progress
 modes (`simple`/`subtasks`/`percentage`) while the progress selector is focused —
@@ -471,7 +472,12 @@ only the title must not write the priority at all;
 comment's id to the system clipboard, and **`d`** deletes it — routed through
 the same confirm modal every other destructive action uses (§9), with the
 dialog quoting the comment's own text so the highlight can never be
-mistaken — while the comment thread is focused; **`ctrl+y`** copies the open
+mistaken — while the comment thread is focused; the attachment list works the
+same way one field narrower: **`↑`/`↓`** (or `k`/`j`) move the highlight and
+**`d`** deletes the highlighted attachment through the same confirm modal,
+while the attachment list is focused — there is no key to *add* an
+attachment, since attaching (a local path, stdin, or a downloaded URL) is a
+CLI-only action (`farol attach`); **`ctrl+y`** copies the open
 task's id from any zone (a TUI has no reliable text
 selection under mouse reporting, so the id is shown below the title and a key is
 the real copy affordance); `esc` closes a clean modal immediately, and on a dirty
@@ -483,7 +489,7 @@ stray keystroke from gone. The help overlay lists the prompt's own `y`/`n` entry
 for that reason, rather than letting the Overlays scope's "enter confirm" — true
 of the modals that do have that selection — imply it works here too. No path
 silently discards edits. The label of the focused zone
-(Title/Notes/Progress/Comments) is bolded onto `TextPrimary`, the focused field
+(Title/Notes/Progress/Priority/Comments/Attachments) is bolded onto `TextPrimary`, the focused field
 itself lifts to `BackgroundElevated` (§12), and every footer hint bolds its key
 ahead of a muted description.
 
