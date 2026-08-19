@@ -42,6 +42,15 @@ Screenshot website/public/screenshot-help-day.png
 Escape
 Sleep 600ms
 
+# Close the lists panel before any task-level action. Opening it at the top
+# of the tape (for the main/help shots) moved focus onto Lists and it never
+# moved back - Space below landed on the Lists panel instead of Tasks
+# (toggled nothing) until this second L closes it and returns focus to
+# Tasks. Confirmed while regenerating for v0.4.0: this was silently broken
+# since the tape's creation.
+Type "L"
+Sleep 600ms
+
 # --- Complete section -------------------------------------------------------
 Space
 Sleep 1500ms
@@ -50,8 +59,6 @@ Space
 Sleep 1200ms
 
 # --- Theme picker -----------------------------------------------------------
-Type "L"
-Sleep 500ms
 Type "T"
 Sleep 1500ms
 Screenshot website/public/screenshot-theme-day.png
@@ -68,9 +75,13 @@ Escape
 Sleep 500ms
 
 # --- Details modal ----------------------------------------------------------
-Down
-Down
-Down
+# Navigate to "Cut the p95 on /search" (a root-level sibling of "Ship auth
+# v2", which has notes). Collapsing Ship auth v2 first makes the walk to its
+# sibling deterministic regardless of its subtree's visible size (see the
+# same fix in website-screenshots.tape for why a fixed Down-count is
+# fragile here).
+Left
+Sleep 500ms
 Down
 Sleep 400ms
 Enter

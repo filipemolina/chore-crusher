@@ -41,6 +41,17 @@ Screenshot website/public/screenshot-help-dark.png
 Escape
 Sleep 600ms
 
+# Close the lists panel before any task-level action. Opening it at the top
+# of the tape (for the main/help shots) moved focus onto Lists and it never
+# moved back — Space/n below landed on the Lists panel instead of Tasks
+# (toggled nothing, opened "New list") until this second L closes it and
+# returns focus to Tasks. Confirmed while regenerating for v0.4.0: this was
+# silently broken since the tape's creation (demo/screenshots.tape, the
+# README variant, already does this same second-L close before its own
+# Space step).
+Type "L"
+Sleep 600ms
+
 # --- Complete section: toggle a task to show the cascade --------------------
 Space
 Sleep 1500ms
@@ -61,10 +72,6 @@ Sleep 500ms
 Escape
 Sleep 500ms
 
-# Close the lists panel so the task tree fills the width for theme/search shots
-Type "L"
-Sleep 500ms
-
 # --- Theme picker: live preview --------------------------------------------
 Type "T"
 Sleep 1500ms
@@ -82,10 +89,14 @@ Escape
 Sleep 500ms
 
 # --- Details modal: open a task's details -----------------------------------
-# Navigate to "Cut the p95 on /search" which has notes
-Down
-Down
-Down
+# Navigate to "Cut the p95 on /search" (a root-level sibling of "Ship auth
+# v2", which has notes). A fixed Down-count from here is fragile - toggling
+# Ship auth v2 complete-then-pending above does not necessarily restore
+# every descendant's own status (reopen does not cascade), so its visible
+# subtree size can vary. Collapsing it first makes the walk to its sibling
+# deterministic regardless of that.
+Left
+Sleep 500ms
 Down
 Sleep 400ms
 Enter
