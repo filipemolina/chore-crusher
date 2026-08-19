@@ -57,9 +57,11 @@ type Model struct {
 	// filterInput is the name filter row at the top of the list column.
 	// filtering reports whether it currently owns the keyboard (typing); the
 	// query itself is always filterInput.Value(), live-applied whether or not
-	// the input has focus right now — committing (esc/enter) only stops
-	// typing, it does not clear the query (docs/DESIGN.md §5's esc-ladder
-	// idiom: type, commit, then a further esc clears).
+	// the input has focus right now. enter commits without clearing (blurs
+	// the input, leaves the filtered view active); esc clears the query in
+	// one step whether typing or already applied, mirroring the task tree's
+	// own /-filter exactly (docs/DESIGN.md §5) — see handleFilterKey and
+	// handleKey's Global.Back case.
 	filterInput textinput.Model
 	filtering   bool
 
@@ -251,10 +253,23 @@ type archiveActionErrMsg struct{ text string }
 // re-narrows the visible set live.
 func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "enter":
+	case "enter":
+		// Commits: blur the input, keep the query applied — the tree's own
+		// /-filter does the same (docs/DESIGN.md §5, "enter... blurs the
+		// input and leaves the filtered view active").
 		m.filtering = false
 		m.filterInput.Blur()
 		return m, nil
+	case "esc":
+		// Clears in one step, whether typing or (via handleKey's own esc
+		// case below) already applied — mirrors the tree's own /-filter
+		// exactly ("esc clears it", docs/DESIGN.md §5), not a "commit, then
+		// a second esc clears" ladder of its own.
+		m.filtering = false
+		m.filterInput.Blur()
+		m.filterInput.SetValue("")
+		m.clampSelection()
+		return m, m.loadPreviewIfSelectionChanged()
 	}
 
 	var cmd tea.Cmd

@@ -248,38 +248,51 @@ func TestFilterNarrowsVisibleEntries(t *testing.T) {
 	}
 }
 
-// TestEscClearsFilterBeforeClosingPage proves the esc-ladder precedence: a
-// first esc (after committing out of typing) clears a non-empty filter, and
-// only a second esc — with nothing left to clear — closes the page. This
-// mirrors the tree and Lists panel's own established esc-ladder idiom
-// (docs/DESIGN.md §5).
-func TestEscClearsFilterBeforeClosingPage(t *testing.T) {
+// TestEscWhileTypingClearsInOneStep proves esc pressed while the filter
+// input is focused clears the query and exits typing in a single press,
+// exactly mirroring the task tree's own /-filter ("esc clears it",
+// docs/DESIGN.md §5) rather than a separate "commit, then a further esc
+// clears" step of its own.
+func TestEscWhileTypingClearsInOneStep(t *testing.T) {
 	m, _ := readyModel(t)
 
 	m = step(t, m, tea.KeyPressMsg{Text: "/"})
 	m = step(t, m, tea.KeyPressMsg{Text: "z"}) // matches nothing
 	m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+
 	if m.filtering {
-		t.Fatal("esc should have stopped typing, not still be in filtering mode")
+		t.Error("esc should have stopped typing")
 	}
-	if m.filterInput.Value() != "z" {
-		t.Fatalf("first esc should only commit the query, not clear it; got %q", m.filterInput.Value())
+	if m.filterInput.Value() != "" {
+		t.Errorf("esc while typing should clear the query in one step, got %q", m.filterInput.Value())
+	}
+}
+
+// TestEscClearsAppliedFilterBeforeClosingPage proves the esc-ladder
+// precedence once a filter is applied (enter committed it, keyboard already
+// elsewhere): a first esc clears the applied filter, and only a second esc —
+// with nothing left to clear — closes the page.
+func TestEscClearsAppliedFilterBeforeClosingPage(t *testing.T) {
+	m, _ := readyModel(t)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "/"})
+	m = step(t, m, tea.KeyPressMsg{Text: "z"}) // matches nothing
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if m.filtering || m.filterInput.Value() != "z" {
+		t.Fatalf("precondition: enter should commit \"z\" without clearing it (filtering=%v, value=%q)", m.filtering, m.filterInput.Value())
 	}
 
-	// Second esc: nothing selected (the filter matched no one) but the query
-	// is still non-empty, so this esc must clear it, not close the page.
 	updated, cmd := m.Update(tea.KeyPressMsg{Text: "esc"})
 	m = updated.(Model)
 	if m.filterInput.Value() != "" {
-		t.Fatalf("second esc should clear the filter; value = %q", m.filterInput.Value())
+		t.Fatalf("first esc should clear the applied filter; value = %q", m.filterInput.Value())
 	}
 	if cmd != nil {
 		if _, ok := cmd().(cmds.CloseArchivePageMsg); ok {
-			t.Fatal("second esc closed the page instead of clearing the filter first")
+			t.Fatal("first esc closed the page instead of clearing the filter")
 		}
 	}
 
-	// Third esc, with an empty query and nothing left to clear, closes the page.
 	_, cmd = m.Update(tea.KeyPressMsg{Text: "esc"})
 	if cmd == nil {
 		t.Fatal("esc with no filter and no other claim should close the page")

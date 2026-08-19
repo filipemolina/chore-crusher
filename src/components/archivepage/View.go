@@ -261,7 +261,10 @@ func (m Model) renderHint(bg color.Color) string {
 	var hints []chrome.KeyHint
 	switch {
 	case m.filtering:
-		hints = []chrome.KeyHint{chrome.HintAs(keys.Overlay.Cancel, "done (enter also works)")}
+		hints = []chrome.KeyHint{
+			chrome.HintAs(keys.Overlay.Submit, "done"),
+			chrome.HintAs(keys.Overlay.Cancel, "clear"),
+		}
 	case m.filterInput.Value() != "":
 		hints = []chrome.KeyHint{
 			chrome.HintFor(keys.ArchivePage.Navigate),

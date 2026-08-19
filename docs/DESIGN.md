@@ -59,6 +59,10 @@ List
                 -- declared owner tag ("pi", "claude", …); empty = owned by
                 -- nobody. The CLI and TUI write '' and ignore it; the agent
                 -- front end reads it (§9) to decide list ownership.
+  archived_at   integer          -- unix seconds; null = active (the default
+                -- for every list). A nullable timestamp rather than a bool
+                -- so the archive page can sort by archive date for free.
+                -- Migration: 0009
 
 Task
   id             text primary key   -- ULID
@@ -328,6 +332,48 @@ opening a note starts at its beginning, and typing lands where the cursor is
 visible rather than off-screen at the end. The comment thread renders as selectable cards (the shared row-card
 chrome, §12); `↑`/`↓` move the highlight and `y` copies the highlighted
 comment's id to the system clipboard.
+
+**The Archive page (`A`) is a full-body takeover, not a modal.** Unlike
+Details it does not layer a centered box over the body: while
+`archivePageVisible` is true, `renderBody()` returns the Archive page's own
+`View` in place of the Tasks/Lists split entirely — the same "one surface
+replaces the whole row" shape Tasks-alone already has with Lists hidden, not
+a second thing composited on top of it. This is why neither of this
+section's opening claims changes: Archive is not a third tab-cycle target
+(it is entered and left by the explicit `A`/close transitions, exactly like
+Details, never by `tab`), and it is not a second side surface either (it
+*replaces* the row Tasks and Lists would otherwise occupy, rather than
+sharing it). It owns the keyboard the same way Details does — AppModel
+intercepts every keypress ahead of the normal dispatch and routes it to the
+page exclusively, right after the Details check and before the ordinary
+`esc`-handling `switch` — so no global key, task-tree binding, or Lists
+panel key acts while it is open; only its own bindings
+(`keys.ArchivePageKeys`: `↑`/`↓`/`g`/`G` navigate, `/` filters by name, `u`
+unarchives the selected list with no confirmation, `d` opens the same
+confirmmodal `Lists.Delete` uses to permanently delete one) plus `esc` are
+live, and the footer bar goes blank the same way it does for Details — the
+page renders its own hint line in the space that would otherwise sit empty.
+The list column and the read-only task preview beside it split the body row
+the way `../cais`'s `backuppage` does, though the outer page-switching
+mechanism deliberately does *not* copy `cais`'s `AppModel.pages` map: a
+single boolean flag mirroring `detailsPanelVisible`'s own shape is enough
+for one additional surface, and cais's registry solves a problem (four or
+more pages) this app does not have.
+
+Archive's `esc` is its own ladder before it ever reaches AppModel's, and it
+mirrors the tree's own `/`-filter exactly rather than inventing a new shape:
+`esc` clears the name filter in one step, whether it is still being typed or
+was already applied by an earlier `enter` (`enter` alone commits — blurs the
+input, leaves the filtered view active — the same split the tree's filter
+makes). Only a further `esc`, with nothing left to clear, emits
+`CloseArchivePageMsg` and returns focus to the task tree. Put together with
+the checks above it, the full precedence a keypress meets is: a modal (if one
+is open) first, then Details (if open) handles its own `esc` internally (the
+dirty-discard prompt, then a clean close), then the Archive page (if open)
+runs the clear-then-close ladder just described, and only once none of those
+three apply does AppModel's own `switch` on `Global.Back` run — a focused
+child's own `KeepsEsc` (the tree or Lists panel's filter) claims it before
+the Lists panel's own open/close fallback does.
 
 `tab`/`shift+tab` cycle **only through the targets currently visible** —
 the lists panel is skipped entirely from the cycle while hidden
@@ -952,9 +998,11 @@ prefix (see above) throughout.
 
 ```
 farol                                          launch the TUI
-farol lists                                    list all lists
+farol lists [--include-archived]               list all lists (archived ones excluded by default)
 farol lists add <name>                         create a list; prints its id
 farol lists rename <list-id> <name>            rename a list
+farol lists archive <list-id>                  archive a list (hides it from the sidebar and from next/work/inbox; reversible, no --force)
+farol lists unarchive <list-id>                restore an archived list to normal discovery
 farol lists rm <list-id> --force               delete a list and its tasks
 
 farol tasks <list-id> [--status pending|in_progress|complete|all] [--flat]
