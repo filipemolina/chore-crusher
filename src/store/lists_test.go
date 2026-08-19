@@ -675,3 +675,23 @@ func TestListArchivedLists(t *testing.T) {
 		t.Fatalf("ListArchivedLists(%q) = %+v, want only groceries", "groc", filtered)
 	}
 }
+
+// TestListAllListsIncludesArchived: unlike ListLists, ListAllLists returns
+// every list regardless of archived state, in the same position-based order.
+func TestListAllListsIncludesArchived(t *testing.T) {
+	s := newTestStore(t)
+	active := mustList(t, s, "active")
+	archived := mustList(t, s, "archived")
+
+	if err := s.ArchiveList(archived); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+
+	all, err := s.ListAllLists()
+	if err != nil {
+		t.Fatalf("ListAllLists: %v", err)
+	}
+	if len(all) != 2 || all[0].ID != active || all[1].ID != archived {
+		t.Fatalf("ListAllLists = %+v, want [active, archived] in creation order", all)
+	}
+}

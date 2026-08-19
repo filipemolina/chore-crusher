@@ -16,24 +16,26 @@ import (
 // list surface can tell at a glance which lists are its own (the CLI
 // equivalent of the MCP my_list tool's mine/foreign split).
 type listJSON struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Pending   int    `json:"pending"`
-	Complete  int    `json:"complete"`
-	CreatedBy string `json:"created_by"`
-	CreatedAt int64  `json:"created_at"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Pending    int    `json:"pending"`
+	Complete   int    `json:"complete"`
+	CreatedBy  string `json:"created_by"`
+	CreatedAt  int64  `json:"created_at"`
+	ArchivedAt *int64 `json:"archived_at"`
 }
 
 func listsJSON(ls []store.ListSummary) []listJSON {
 	out := make([]listJSON, 0, len(ls))
 	for _, l := range ls {
 		out = append(out, listJSON{
-			ID:        l.ID,
-			Name:      l.Name,
-			Pending:   l.PendingCount,
-			Complete:  l.CompleteCount,
-			CreatedBy: l.CreatedBy,
-			CreatedAt: l.CreatedAt,
+			ID:         l.ID,
+			Name:       l.Name,
+			Pending:    l.PendingCount,
+			Complete:   l.CompleteCount,
+			CreatedBy:  l.CreatedBy,
+			CreatedAt:  l.CreatedAt,
+			ArchivedAt: l.ArchivedAt,
 		})
 	}
 	return out
@@ -53,6 +55,20 @@ func newListsCmd() *cobra.Command {
 	cmd.Flags().Bool("mine", false, "show only lists owned by this agent (FAROL_AGENT)")
 	cmd.Flags().Bool("foreign", false, "show only lists owned by another agent")
 	cmd.MarkFlagsMutuallyExclusive("mine", "foreign")
+	// Archived lists are excluded by default (store.ListLists' own default,
+	// docs/DESIGN.md §2) — this is the opt-in for a script/agent that wants
+	// to see everything, mirroring --mine/--foreign rather than adding a
+	// separate subcommand for what is really just another view of the same
+	// listing.
+	cmd.Flags().Bool("include-archived", false, "also show archived lists")
+
+	rmCmd := &cobra.Command{
+		Use:   "rm <list-id>",
+		Short: "delete a list and its tasks",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runListsRm,
+	}
+	rmCmd.Flags().Bool("force", false, "delete without confirmation")
 
 	cmd.AddCommand(
 		func() *cobra.Command {
@@ -74,16 +90,20 @@ func newListsCmd() *cobra.Command {
 			Args:  cobra.ExactArgs(2),
 			RunE:  runListsRename,
 		},
+		rmCmd,
 		&cobra.Command{
-			Use:   "rm <list-id>",
-			Short: "delete a list and its tasks",
+			Use:   "archive <list-id>",
+			Short: "archive a list (hides it from the sidebar and from farol next/work/inbox)",
 			Args:  cobra.ExactArgs(1),
-			RunE:  runListsRm,
+			RunE:  runListsArchive,
+		},
+		&cobra.Command{
+			Use:   "unarchive <list-id>",
+			Short: "unarchive a list, restoring it to normal discovery",
+			Args:  cobra.ExactArgs(1),
+			RunE:  runListsUnarchive,
 		},
 	)
-
-	rmCmd := cmd.Commands()[len(cmd.Commands())-1]
-	rmCmd.Flags().Bool("force", false, "delete without confirmation")
 	return cmd
 }
 
@@ -92,8 +112,15 @@ func runLists(cmd *cobra.Command, args []string) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	mine, _ := cmd.Flags().GetBool("mine")
 	foreign, _ := cmd.Flags().GetBool("foreign")
+	includeArchived, _ := cmd.Flags().GetBool("include-archived")
 	return runStore(cmd, func(s *store.Store) error {
-		ls, err := s.ListLists()
+		var ls []store.ListSummary
+		var err error
+		if includeArchived {
+			ls, err = s.ListAllLists()
+		} else {
+			ls, err = s.ListLists()
+		}
 		if err != nil {
 			return err
 		}
@@ -151,6 +178,43 @@ func runListsRename(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if err := s.RenameList(id, args[1]); err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {}, okPayload{true})
+		return nil
+	})
+}
+
+// runListsArchive archives a list. Unlike rm it is not gated behind --force:
+// archiving is reversible (unarchive undoes it) and, like rename/rm, list-level
+// structural writes are not gated by the created_by ownership rule at the CLI
+// layer (only task-level writes are — see ownershipError).
+func runListsArchive(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("list", args[0])
+		if err != nil {
+			return err
+		}
+		if err := s.ArchiveList(id); err != nil {
+			return err
+		}
+		printResult(jsonMode, func() {}, okPayload{true})
+		return nil
+	})
+}
+
+// runListsUnarchive restores an archived list to normal discovery.
+func runListsUnarchive(cmd *cobra.Command, args []string) error {
+	errSilence(cmd)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	return runStore(cmd, func(s *store.Store) error {
+		id, err := s.ResolveID("list", args[0])
+		if err != nil {
+			return err
+		}
+		if err := s.UnarchiveList(id); err != nil {
 			return err
 		}
 		printResult(jsonMode, func() {}, okPayload{true})

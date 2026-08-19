@@ -187,6 +187,8 @@ farol lists                       # list all lists with counts
 farol lists add "Home"            # create a new list
 farol lists rename <id> "Garden"  # rename a list
 farol lists rm <id>               # delete a list and its tasks
+farol lists archive <id>          # archive a list (hides it from the sidebar and discovery)
+farol lists unarchive <id>        # restore an archived list
 
 # Tasks
 farol tasks <list-id>             # show tasks in a list (tree view)

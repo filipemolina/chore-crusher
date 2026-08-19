@@ -74,7 +74,7 @@ func (s *Store) Export(listID *string) (ExportDocument, error) {
 		// the explicit include-archived path, kept separate from ListLists'
 		// default exclusion so archiving a list never loses its data on
 		// export (docs/DESIGN.md §2).
-		all, err := listListsIncludingArchived(s.db)
+		all, err := s.ListAllLists()
 		if err != nil {
 			return doc, err
 		}

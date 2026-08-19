@@ -138,7 +138,7 @@ func TestExportIncludesArchivedLists(t *testing.T) {
 	}
 	// ImportList assigns a fresh id, so look the list up via the
 	// include-archived path since ListLists hides it by default.
-	imported, err := listListsIncludingArchived(s2.db)
+	imported, err := s2.ListAllLists()
 	if err != nil {
 		t.Fatal(err)
 	}

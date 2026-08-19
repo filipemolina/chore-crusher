@@ -64,11 +64,20 @@ func getList(q querier, id string) (List, error) {
 // its pending and complete task counts. One GROUP BY query — never an N+1
 // per list. This is the single shared query the TUI sidebar, inbox, and
 // export all call for default discovery (docs/DESIGN.md §2), so excluding
-// archived lists here is enough to hide them everywhere at once; Export's
-// whole-store dump uses listListsIncludingArchived instead so archiving
-// never loses data.
+// archived lists here is enough to hide them everywhere at once; ListAllLists
+// is the explicit include-archived path for callers (Export, `farol lists
+// --include-archived`) that must not silently inherit this exclusion.
 func (s *Store) ListLists() ([]ListSummary, error) {
 	return listLists(s.db, false)
+}
+
+// ListAllLists returns every list regardless of archived state, in the same
+// order as ListLists. It exists so a whole-store export, or an explicit
+// --include-archived request, never silently drops archived lists just
+// because it happens to call the same query ListLists uses for default
+// discovery.
+func (s *Store) ListAllLists() ([]ListSummary, error) {
+	return listLists(s.db, true)
 }
 
 // ListArchivedLists returns every archived list, most recently archived
@@ -109,14 +118,6 @@ func listLists(q querier, includeArchived bool) ([]ListSummary, error) {
 	}
 	defer rows.Close()
 	return scanListSummaries(rows)
-}
-
-// listListsIncludingArchived returns every list regardless of archived
-// state — the explicit include-archived path Export uses so a whole-store
-// export always captures archived lists, instead of silently inheriting
-// ListLists' default exclusion (docs/DESIGN.md §2).
-func listListsIncludingArchived(q querier) ([]ListSummary, error) {
-	return listLists(q, true)
 }
 
 // listSummaryColumns builds the SELECT list ListLists and ListArchivedLists

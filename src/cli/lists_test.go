@@ -144,6 +144,63 @@ func TestCLICanRenameForeignOwnedList(t *testing.T) {
 	}
 }
 
+// TestListsArchiveUnarchiveLifecycle pins the CLI's archive/unarchive round
+// trip: archiving hides a list from the default `farol lists` listing,
+// --include-archived brings it back, and unarchiving restores default
+// visibility. Also pins the --json archived_at contract: null while active,
+// a timestamp once archived.
+func TestListsArchiveUnarchiveLifecycle(t *testing.T) {
+	data := t.TempDir()
+	id := strings.TrimSpace(mustCLI(t, data, "lists", "add", "Groceries"))
+
+	var before []listJSON
+	mustJSONCLI(t, data, &before, "lists", "--json")
+	if len(before) != 1 || before[0].ArchivedAt != nil {
+		t.Fatalf("lists --json before archiving: %+v, want archived_at null", before)
+	}
+
+	mustCLI(t, data, "lists", "archive", id)
+
+	// Default listing hides it.
+	if out := mustCLI(t, data, "lists"); out != "" {
+		t.Errorf("lists after archive: %q, want empty (archived lists are hidden by default)", out)
+	}
+	var afterArchive []listJSON
+	mustJSONCLI(t, data, &afterArchive, "lists", "--json")
+	if len(afterArchive) != 0 {
+		t.Fatalf("lists --json after archive: %+v, want empty", afterArchive)
+	}
+
+	// --include-archived brings it back, with archived_at set.
+	var included []listJSON
+	mustJSONCLI(t, data, &included, "lists", "--include-archived", "--json")
+	if len(included) != 1 || included[0].ID != id || included[0].ArchivedAt == nil {
+		t.Fatalf("lists --include-archived --json: %+v, want the list with archived_at set", included)
+	}
+
+	mustCLI(t, data, "lists", "unarchive", id)
+
+	var afterUnarchive []listJSON
+	mustJSONCLI(t, data, &afterUnarchive, "lists", "--json")
+	if len(afterUnarchive) != 1 || afterUnarchive[0].ID != id || afterUnarchive[0].ArchivedAt != nil {
+		t.Fatalf("lists --json after unarchive: %+v, want the list visible with archived_at null", afterUnarchive)
+	}
+}
+
+// TestListsArchiveUnknownID: archive/unarchive of an id that does not exist
+// is a domain error, matching every other list mutator (rename, rm).
+func TestListsArchiveUnknownID(t *testing.T) {
+	data := t.TempDir()
+	code, _, errOut := runCLI(t, data, "lists", "archive", "no-such-id")
+	if code != 1 || !strings.Contains(errOut, "not found") {
+		t.Errorf("archive unknown id: exit %d stderr %q, want exit 1 naming not found", code, errOut)
+	}
+	code, _, errOut = runCLI(t, data, "lists", "unarchive", "no-such-id")
+	if code != 1 || !strings.Contains(errOut, "not found") {
+		t.Errorf("unarchive unknown id: exit %d stderr %q, want exit 1 naming not found", code, errOut)
+	}
+}
+
 // TestPrefixResolution: any <list-id>/<task-id> argument accepts an
 // unambiguous prefix (docs/DESIGN.md §9).
 func TestPrefixResolution(t *testing.T) {
