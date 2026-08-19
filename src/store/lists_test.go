@@ -558,3 +558,120 @@ func TestMoveListValidation(t *testing.T) {
 		t.Error("MoveList of a missing list did not error")
 	}
 }
+
+// TestArchiveListHidesFromListLists: an archived list disappears from
+// ListLists (the query the sidebar, inbox, and export's per-list path all
+// share), but GetList can still resolve it directly — archiving declutters
+// discovery, it is not an access-control boundary.
+func TestArchiveListHidesFromListLists(t *testing.T) {
+	s := newTestStore(t)
+	visible := mustList(t, s, "visible")
+	hidden := mustList(t, s, "hidden")
+
+	if err := s.ArchiveList(hidden); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+
+	lists, err := s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(lists) != 1 || lists[0].ID != visible {
+		t.Fatalf("ListLists = %+v, want only %q", lists, visible)
+	}
+
+	l, err := s.GetList(hidden)
+	if err != nil {
+		t.Fatalf("GetList of an archived list: %v", err)
+	}
+	if l.ArchivedAt == nil {
+		t.Error("GetList: ArchivedAt is nil for an archived list")
+	}
+}
+
+// TestUnarchiveListRestoresVisibility: unarchiving clears archived_at and
+// puts the list back in ListLists.
+func TestUnarchiveListRestoresVisibility(t *testing.T) {
+	s := newTestStore(t)
+	id := mustList(t, s, "list")
+
+	if err := s.ArchiveList(id); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+	if err := s.UnarchiveList(id); err != nil {
+		t.Fatalf("UnarchiveList: %v", err)
+	}
+
+	lists, err := s.ListLists()
+	if err != nil {
+		t.Fatalf("ListLists: %v", err)
+	}
+	if len(lists) != 1 || lists[0].ID != id {
+		t.Fatalf("ListLists = %+v, want only %q", lists, id)
+	}
+	if lists[0].ArchivedAt != nil {
+		t.Errorf("ArchivedAt = %v, want nil after unarchiving", lists[0].ArchivedAt)
+	}
+}
+
+// TestArchiveListMissing: archiving or unarchiving a list that does not
+// exist errors, mirroring every other List mutator's not-found behavior.
+func TestArchiveListMissing(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.ArchiveList("no-such-id"); err == nil {
+		t.Error("ArchiveList of a missing list did not error")
+	}
+	if err := s.UnarchiveList("no-such-id"); err == nil {
+		t.Error("UnarchiveList of a missing list did not error")
+	}
+}
+
+// TestListArchivedLists: returns only archived lists, filterable by name,
+// most recently archived first.
+func TestListArchivedLists(t *testing.T) {
+	s := newTestStore(t)
+	active := mustList(t, s, "active")
+	groceries := mustList(t, s, "Groceries")
+	work := mustList(t, s, "Work trip")
+
+	if err := s.ArchiveList(groceries); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+	if err := s.ArchiveList(work); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+	// ArchiveList uses second-resolution timestamps, which two calls in the
+	// same test can tie on; set them explicitly so the order assertion below
+	// is not flaky.
+	if _, err := s.db.Exec(`UPDATE List SET archived_at = 100 WHERE id = ?`, groceries); err != nil {
+		t.Fatalf("set groceries archived_at: %v", err)
+	}
+	if _, err := s.db.Exec(`UPDATE List SET archived_at = 200 WHERE id = ?`, work); err != nil {
+		t.Fatalf("set work archived_at: %v", err)
+	}
+
+	archived, err := s.ListArchivedLists("")
+	if err != nil {
+		t.Fatalf("ListArchivedLists: %v", err)
+	}
+	if len(archived) != 2 {
+		t.Fatalf("ListArchivedLists returned %d lists, want 2", len(archived))
+	}
+	// Most recently archived first: work was archived after groceries.
+	if archived[0].ID != work || archived[1].ID != groceries {
+		t.Fatalf("ListArchivedLists order = [%s, %s], want [work, groceries]", archived[0].ID, archived[1].ID)
+	}
+	for _, a := range archived {
+		if a.ID == active {
+			t.Error("ListArchivedLists included a non-archived list")
+		}
+	}
+
+	filtered, err := s.ListArchivedLists("groc")
+	if err != nil {
+		t.Fatalf("ListArchivedLists with filter: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != groceries {
+		t.Fatalf("ListArchivedLists(%q) = %+v, want only groceries", "groc", filtered)
+	}
+}

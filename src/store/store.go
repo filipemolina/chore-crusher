@@ -88,6 +88,10 @@ type List struct {
 	// false; an untagged list stays foreign to every agent until a human
 	// sets this.
 	Collaborative bool
+	// ArchivedAt is nil for an active list. A non-nil value is the unix
+	// timestamp the list was archived at — a timestamp rather than a bool so
+	// the archive page can sort by archive date for free (docs/DESIGN.md §2).
+	ArchivedAt *int64
 }
 
 // ListSummary is a List plus its task counts, as returned by ListLists.

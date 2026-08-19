@@ -204,6 +204,41 @@ func TestInboxHumanRenders(t *testing.T) {
 	}
 }
 
+// TestInboxExcludesArchivedLists pins the visibility rule for archiving
+// (docs/DESIGN.md §2): an archived list must not surface in the inbox, mine
+// or foreign, even though it is still resolvable directly. The inbox is
+// built on store.ListLists, the same shared query the sidebar and export
+// use, so this is really a regression guard on that one query staying wired
+// up everywhere.
+func TestInboxExcludesArchivedLists(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("FAROL_AGENT", "pi")
+
+	mineID := strings.TrimSpace(mustCLI(t, data, "lists", "add", "pi: Board", "--owner", "pi"))
+	foreignID := strings.TrimSpace(mustCLI(t, data, "lists", "add", "claude: Board", "--owner", "claude"))
+
+	s, err := openTestStore(t, data)
+	if err != nil {
+		t.Fatalf("openTestStore: %v", err)
+	}
+	if err := s.ArchiveList(mineID); err != nil {
+		t.Fatalf("ArchiveList mine: %v", err)
+	}
+	if err := s.ArchiveList(foreignID); err != nil {
+		t.Fatalf("ArchiveList foreign: %v", err)
+	}
+
+	var inbox inboxJSON
+	mustJSONCLI(t, data, &inbox, "inbox", "--json")
+
+	if inbox.Mine.ID != "" {
+		t.Errorf("mine = %+v, want empty — the only list this agent owns is archived", inbox.Mine)
+	}
+	if len(inbox.ForeignLists) != 0 {
+		t.Errorf("foreign_lists = %+v, want none — the only foreign list is archived", inbox.ForeignLists)
+	}
+}
+
 // openTestStore opens the store at dataDir for tests that need raw store
 // writes the CLI does not expose (assignment + presence). It mirrors the
 // open used by the rest of the suite's setup helpers.

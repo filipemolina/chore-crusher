@@ -25,6 +25,7 @@ type ExportList struct {
 	Collaborative bool         `json:"collaborative"`
 	CreatedAt     int64        `json:"created_at"`
 	Position      int          `json:"position"`
+	ArchivedAt    *int64       `json:"archived_at,omitempty"`
 	Tasks         []ExportTask `json:"tasks"`
 }
 
@@ -69,7 +70,11 @@ func (s *Store) Export(listID *string) (ExportDocument, error) {
 	doc := ExportDocument{Version: ExportVersion}
 	var lists []ListSummary
 	if listID == nil {
-		all, err := s.ListLists()
+		// A whole-store export must capture archived lists too — this is
+		// the explicit include-archived path, kept separate from ListLists'
+		// default exclusion so archiving a list never loses its data on
+		// export (docs/DESIGN.md §2).
+		all, err := listListsIncludingArchived(s.db)
 		if err != nil {
 			return doc, err
 		}
@@ -107,6 +112,7 @@ func (s *Store) exportList(id string) (ExportList, error) {
 		Collaborative: l.Collaborative,
 		CreatedAt:     l.CreatedAt,
 		Position:      l.Position,
+		ArchivedAt:    l.ArchivedAt,
 	}
 	for _, t := range tasks {
 		et := ExportTask{
@@ -164,9 +170,9 @@ func (s *Store) ImportList(el ExportList) error {
 	newListID := NewID()
 	now := time.Now().Unix()
 	if _, err := tx.Exec(
-		`INSERT INTO List (id, name, created_at, position, created_by, comments_disabled, collaborative)
-		 VALUES (?, ?, ?, ?, ?, 0, ?)`,
-		newListID, el.Name, now, el.Position, el.CreatedBy, boolToInt(el.Collaborative),
+		`INSERT INTO List (id, name, created_at, position, created_by, comments_disabled, collaborative, archived_at)
+		 VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+		newListID, el.Name, now, el.Position, el.CreatedBy, boolToInt(el.Collaborative), el.ArchivedAt,
 	); err != nil {
 		return err
 	}

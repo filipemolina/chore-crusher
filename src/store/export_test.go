@@ -86,3 +86,63 @@ func TestExportImportRoundTrip(t *testing.T) {
 		t.Fatalf("imported comments = %+v", comments)
 	}
 }
+
+// TestExportIncludesArchivedLists: a whole-store export must not silently
+// drop archived lists, even though ListLists (the query most callers use)
+// excludes them by default.
+func TestExportIncludesArchivedLists(t *testing.T) {
+	s := newTestStore(t)
+	active, err := s.CreateList("Active", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived, err := s.CreateList("Archived", "pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveList(archived); err != nil {
+		t.Fatalf("ArchiveList: %v", err)
+	}
+
+	doc, err := s.Export(nil)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if len(doc.Lists) != 2 {
+		t.Fatalf("export lists = %d, want 2 (active + archived)", len(doc.Lists))
+	}
+	var gotActive, gotArchived *ExportList
+	for i := range doc.Lists {
+		switch doc.Lists[i].ID {
+		case active:
+			gotActive = &doc.Lists[i]
+		case archived:
+			gotArchived = &doc.Lists[i]
+		}
+	}
+	if gotActive == nil || gotArchived == nil {
+		t.Fatalf("export missing a list: %+v", doc.Lists)
+	}
+	if gotActive.ArchivedAt != nil {
+		t.Errorf("active list ArchivedAt = %v, want nil", gotActive.ArchivedAt)
+	}
+	if gotArchived.ArchivedAt == nil {
+		t.Error("archived list ArchivedAt = nil, want a timestamp")
+	}
+
+	// Round-trip: importing must restore the archived state, not just the
+	// list's other fields.
+	s2 := newTestStore(t)
+	if err := s2.ImportList(*gotArchived); err != nil {
+		t.Fatalf("ImportList: %v", err)
+	}
+	// ImportList assigns a fresh id, so look the list up via the
+	// include-archived path since ListLists hides it by default.
+	imported, err := listListsIncludingArchived(s2.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(imported) != 1 || imported[0].ArchivedAt == nil {
+		t.Fatalf("imported list = %+v, want one archived list", imported)
+	}
+}
