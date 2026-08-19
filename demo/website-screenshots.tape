@@ -5,6 +5,16 @@
 #   vhs demo/website-screenshots.tape
 #
 # Every screenshot lands in website/public/.
+#
+# screenshot-split.png, screenshot-tree.png, screenshot-hero.png, and
+# screenshot-agent.png are NOT recorded here even though they're the same
+# farol-dark theme - see demo/website-screenshots-live.tape. They were split
+# into their own short tape because appending their scenes to this one made
+# this tape long enough to trigger a VHS quirk where one of the EARLIEST
+# Screenshot commands gets silently dropped (no error, the file just isn't
+# written) - confirmed repeatedly while regenerating for v0.4.0, and it went
+# away once this tape went back to its original, shorter length. Keeping
+# tapes short seems to be the reliable fix, not any particular ordering.
 
 Set Shell "bash"
 Set FontSize 15
