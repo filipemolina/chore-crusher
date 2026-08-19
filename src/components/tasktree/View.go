@@ -229,6 +229,14 @@ func fillToHeight(block string, height, width int, bg color.Color) string {
 // splitSections splits displayed rows into Pending and Complete based on root
 // task status. displayedRows is used (not visibleRows) so the sections match
 // the on-screen order the cursor actually navigates (phase B step 3).
+//
+// This is also the single choke point for the Pending/Complete/All view-mode
+// filter (docs/DESIGN.md §6): in ViewPending or ViewComplete, the hidden
+// section comes back nil, the same way an empty Complete section is already
+// omitted today (see planSections' len(complete) > 0 guards). Both readers —
+// selectionOrder's cursor walk and linePlan's render — call this one
+// function, so the filter cannot drift between what the cursor can reach and
+// what the screen shows.
 func (m *Model) splitSections() (pending, complete []apptypes.Row) {
 	for _, row := range m.displayedRows() {
 		if row.Depth == 0 {
@@ -250,6 +258,12 @@ func (m *Model) splitSections() (pending, complete []apptypes.Row) {
 				pending = append(pending, row)
 			}
 		}
+	}
+	switch m.view {
+	case ViewPending:
+		complete = nil
+	case ViewComplete:
+		pending = nil
 	}
 	return
 }

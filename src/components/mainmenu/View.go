@@ -34,12 +34,25 @@ func (m Model) View() tea.View {
 	wordmark := wordmarkStyle.Render(constants.WORDMARK)
 	version := versionStyle.Render(constants.Version())
 
+	// The view-mode indicator (low-emphasis, like pulso's "all . pulso-dusk .
+	// v0.3.0") sits left of the version, separated the same way. It sheds
+	// before the version does: the mode is the tree's own transient state,
+	// the version is the app's identity, and a narrow terminal gives up the
+	// less load-bearing one first.
+	mode := ""
+	if m.treeView != "" {
+		mode = versionStyle.Render(m.treeView + " . ")
+	}
+
 	// Drop the version when it would crowd the wordmark.
+	if lipgloss.Width(wordmark)+lipgloss.Width(mode)+lipgloss.Width(version)+versionGutter > m.terminalWidth {
+		mode = ""
+	}
 	if lipgloss.Width(wordmark)+lipgloss.Width(version)+versionGutter > m.terminalWidth {
 		version = ""
 	}
 
-	gapWidth := m.terminalWidth - lipgloss.Width(wordmark) - lipgloss.Width(version)
+	gapWidth := m.terminalWidth - lipgloss.Width(wordmark) - lipgloss.Width(mode) - lipgloss.Width(version)
 	if gapWidth < 0 {
 		gapWidth = 0
 	}
@@ -49,6 +62,6 @@ func (m Model) View() tea.View {
 		Width(gapWidth).
 		Render("")
 
-	row := lipgloss.JoinHorizontal(lipgloss.Left, gap, version, wordmark)
+	row := lipgloss.JoinHorizontal(lipgloss.Left, gap, mode, version, wordmark)
 	return tea.NewView(barStyle.Render(row))
 }

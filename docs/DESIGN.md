@@ -696,6 +696,17 @@ while its parent is still pending** — that would separate a task from the
 tree it belongs to for a reader trying to see the shape of remaining work,
 which defeats the reason the tree exists at all.
 
+**`1`/`2`/`3` filter which of the two sections are shown** — Pending only,
+Complete only, or both (`3`, the default: today's behavior, unchanged for
+anyone who never presses the other two). This is a visibility filter over
+the same section model above, not a second navigation mode: the cursor still
+walks the flat `pending + complete` concatenation, just over whichever of the
+two the mode leaves non-empty. Hiding a section drops its header the same
+way an empty `Complete` section's header is already omitted below — filtering
+and natural emptiness are the same rendering case with two different causes.
+The active mode is shown in the header (mainmenu), low-emphasis, next to the
+version.
+
 A list with no tasks yet auto-shows the inline "new task" input as its only
 row, under the `Pending` header — the input creates a pending task, so it
 belongs to the section the task will land in — with one line of `TextDim`
@@ -749,7 +760,8 @@ line tagged with its task id or blank for chrome) that the renderer and the
 scroll math share, so header/blank/rule counts are never duplicated in the
 scroll logic. The scroll offset lives in the tree model and is advanced by a
 Bubble Tea update — never by rendering — after navigation, refresh, filter
-change, collapse/expand, create start/cancel/confirm, and a layout resize; a
+change, view-mode change, collapse/expand, create start/cancel/confirm, and
+a layout resize; a
 resize that shrinks the panel clamps a now-too-large offset, and an empty or
 no-selection state resets it to the top. The window always paints its full
 height: any short remainder is filled with the panel-tier background so a

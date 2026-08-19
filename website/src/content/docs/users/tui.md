@@ -27,6 +27,8 @@ The tree is split into two sections, headed `Pending` and `Complete`. One cursor
 
 Crossing the section boundary wraps — `↓` from the last pending row lands on the first complete row, and `↑` from the first complete row returns to the last pending one.
 
+`1`/`2`/`3` narrow the view to Pending only, Complete only, or both (`3`, the default — nothing changes until you press one of the other two). A hidden section's header disappears too, the same as an empty one does. The current mode shows in the header bar at the top of the screen, next to the version.
+
 ## Adding tasks
 
 `n` opens the inline create row — a card spliced into the tree itself, not a pinned footer. Type a title and press `enter` to submit, `esc` to cancel.

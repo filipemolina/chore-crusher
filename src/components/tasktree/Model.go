@@ -14,6 +14,44 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
+// ViewMode is which sections the tree shows: both (the default), Pending
+// only, or Complete only. It mirrors ../pulso's resultslist.ViewMode — a
+// visibility filter the component owns and applies over its own row split,
+// not a store-level concept (docs/DESIGN.md §6).
+type ViewMode int
+
+const (
+	ViewAll      ViewMode = iota // both sections - today's default behavior
+	ViewPending                  // Pending section only
+	ViewComplete                 // Complete section only
+)
+
+// String names the mode for the header indicator.
+func (v ViewMode) String() string {
+	switch v {
+	case ViewPending:
+		return "pending"
+	case ViewComplete:
+		return "complete"
+	default:
+		return "all"
+	}
+}
+
+// viewModeFromDigit maps the 1-3 keys to their view modes: 1 is Pending, 2
+// is Complete, 3 is All.
+func viewModeFromDigit(text string) (ViewMode, bool) {
+	switch text {
+	case "1":
+		return ViewPending, true
+	case "2":
+		return ViewComplete, true
+	case "3":
+		return ViewAll, true
+	}
+	return ViewAll, false
+}
+
 // Model is the task-tree zone with hierarchical rendering, navigation,
 // and collapse state. Selection is preserved across refreshes by id
 // (docs/DESIGN.md §7). Collapsed state is persisted per list and restored
@@ -27,6 +65,12 @@ type Model struct {
 	selectedID string
 	activeList bool
 	collapsed  map[string]bool // view-only collapse state, taskID -> is collapsed
+	// view is the Pending/Complete/All visibility filter (digits 1-3),
+	// default ViewAll so nothing changes for existing users until they press
+	// 1 or 2. splitSections is the single choke point that applies it, so
+	// both the cursor walk (selectionOrder) and the render (linePlan) stay
+	// in lockstep (docs/DESIGN.md §6).
+	view ViewMode
 
 	// Local /-filter state. filterTyping is true while the filter input is
 	// open and receiving characters; filterApplied is true once enter has
@@ -154,6 +198,10 @@ func (m Model) FilterValue() string { return m.filterInput.Value() }
 // SelectedID returns the currently selected task id, for tests and the
 // cross-list picker's jump verification.
 func (m Model) SelectedID() string { return m.selectedID }
+
+// CurrentView returns the active Pending/Complete/All view mode, for tests
+// and the header indicator's initial state.
+func (m Model) CurrentView() ViewMode { return m.view }
 
 // IsEmpty reports whether the tree has no rows right now. AppModel reads
 // this for the keybinding bar, so the footer only advertises keys that make
@@ -450,6 +498,11 @@ func (m Model) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Tree.ReleaseList):
 			if m.activeListID != "" {
 				return m, cmds.ReleaseList(m.activeListID)
+			}
+		case key.Matches(msg, keys.Tree.View):
+			if v, ok := viewModeFromDigit(msg.Text); ok {
+				m.view = v
+				return m, cmds.SetTaskTreeView(v.String())
 			}
 		}
 

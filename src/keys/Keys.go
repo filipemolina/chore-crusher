@@ -92,6 +92,11 @@ type TaskTreeKeys struct {
 	GoToEnd   key.Binding
 	PageUp    key.Binding
 	PageDown  key.Binding
+	// View is one binding for all three Pending/Complete/All view modes: 1
+	// is Pending, 2 is Complete, 3 is All (default). Scoped to the tree's
+	// own key handling, like Toggle and Delete, not Global — it only applies
+	// while the tree is focused.
+	View key.Binding
 }
 
 // CreateKeys act inside the inline create row: editing the draft, changing
@@ -218,6 +223,7 @@ var Tree = TaskTreeKeys{
 	GoToEnd:   key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "last")),
 	PageUp:    key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
 	PageDown:  key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "page down")),
+	View:      key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1-3", "view")),
 }
 
 var Create = CreateKeys{
@@ -429,6 +435,7 @@ func Active(ctx Context) []key.Binding {
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
 				Tree.Unassign, Tree.ReleaseList,
 				Tree.GoToStart, Tree.GoToEnd, Tree.PageUp, Tree.PageDown,
+				Tree.View,
 			}
 			// tab is advertised only while a side panel is open: with the
 			// lists panel hidden the focus cycle is a single zone, so the
@@ -565,9 +572,9 @@ func Catalog(ctx Context) []Scope {
 				Tree.PageUp, Tree.PageDown, Tree.Expand, Tree.Collapse,
 				Tree.Toggle, Tree.OpenDetails, Tree.New, Tree.Delete,
 				Tree.Outdent, Tree.Indent, Tree.MoveUp, Tree.MoveDown,
-				Tree.Unassign, Tree.ReleaseList,
+				Tree.Unassign, Tree.ReleaseList, Tree.View,
 			),
-			Note: "u releases the selected task's assignment and U releases every assignment in the list — an assignment has no expiry, so this is the only thing that frees a task whose agent went away.",
+			Note: "u releases the selected task's assignment and U releases every assignment in the list — an assignment has no expiry, so this is the only thing that frees a task whose agent went away. 1 shows Pending only, 2 shows Complete only, 3 (the default) shows both.",
 		},
 		{
 			Title:   "Creating a task",
