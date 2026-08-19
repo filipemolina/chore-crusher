@@ -48,12 +48,13 @@ Migrations are numbered `.sql` files embedded via `embed.FS` (`src/store/migrati
 | `0006_assignment_and_priority.sql` | Durable `assignee`/`assigned_at` and `priority` |
 | `0007_settings.sql` | The `Setting` key/value table for app state (e.g. `last_list_id`) |
 | `0008_task_attachments.sql` | File-path attachments on tasks |
+| `0009_list_archived.sql` | The nullable `archived_at` timestamp on lists |
 
 ## The data model
 
 Two entities, `List` and `Task`. A `Task` belongs to exactly one `List` and has at most one parent `Task`; nesting depth is not capped in the schema.
 
-**`List`** — `id` (ULID, primary key), `name`, `created_at` (unix seconds), `position` (manual ordering among lists), `created_by` (declared owner tag; empty = owned by nobody).
+**`List`** — `id` (ULID, primary key), `name`, `created_at` (unix seconds), `position` (manual ordering among lists), `created_by` (declared owner tag; empty = owned by nobody), `archived_at` (unix seconds; null = active — the default. A timestamp rather than a bool so the archive page can sort by archive date for free).
 
 **`Task`** — `id` (ULID), `list_id` (references `List(id)`, on delete cascade), `parent_id` (references `Task(id)`; null = root-level task), `title`, `notes`, `status` (`pending` | `in_progress` | `complete`), `progress_kind` (`none` | `simple` | `subtasks` | `percentage`), `progress_pct` (0–100, set only when `progress_kind='percentage'`), `position` (manual ordering among siblings), `created_at`, `updated_at`, `completed_at` (null unless `status='complete'`), `assignee` (agent tag; `''` = no assignment, no TTL), `assigned_at` (null unless `assignee != ''`), `priority` (`none` | `low` | `medium` | `high`).
 

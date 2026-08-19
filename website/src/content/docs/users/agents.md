@@ -70,6 +70,8 @@ One call returns the agent's own list plus every other list in the store, each w
 
 `farol inbox --include notes` widens the top-pending rows to carry their notes bodies too, for when the agent needs to reason about the *content* of what's ahead, not just the titles.
 
+Archived lists (`farol lists archive`) are invisible here, and to `farol next`/`farol work`, by default — an agent working the inbox never has to skip past finished work someone archived instead of deleting. `farol lists --include-archived` is the explicit opt-in to see them; resolving an archived list's id directly (`farol show`, `farol tasks <list-id>`) still works, since archiving declutters discovery, it does not gate access.
+
 ### `farol next` — the work queue
 
 `farol next <list-id>` picks the highest-priority eligible task (priority: `high` > `medium` > `low` > `none`; then tree order), assigns it to the calling agent atomically, and prints it as JSON. Eligible means: pending, not already assigned to someone else, and no ancestor or descendant assigned to someone else (see [Subtree reservation](#subtree-reservation) below).

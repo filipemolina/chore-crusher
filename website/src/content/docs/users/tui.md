@@ -7,7 +7,7 @@ sidebar:
 
 This page is the reference for the person at the keyboard. If you are setting up an agent to drive farol from a shell, see [Working with coding agents](/users/agents/); if you want the shape of every command, see [The CLI](/users/cli/).
 
-The TUI is two body surfaces — **Lists** on the left, **Tasks** on the right — plus a **Details modal** that layers over both, and a footer bar that advertises the keys live right now. `tab`/`shift+tab` cycle focus between the surfaces that are actually visible; `↑`/`↓` (or `k`/`j`) move the cursor.
+The TUI is two body surfaces — **Lists** on the left, **Tasks** on the right — plus a **Details modal** that layers over both, an **Archived Lists page** (`A`) that replaces both while it's open, and a footer bar that advertises the keys live right now. `tab`/`shift+tab` cycle focus between the surfaces that are actually visible; `↑`/`↓` (or `k`/`j`) move the cursor.
 
 ## The task tree
 
@@ -108,6 +108,18 @@ The two derived-vs-declared kinds behave differently on purpose:
 ![The Lists panel open beside the task tree](/screenshot-split.png)
 
 Inside the panel: `n` creates a list (named in a modal), `R` renames the highlighted list (with a `space` toggle to mark it collaborative — any agent may restructure it), `d` deletes it (confirm-guarded), and `alt+↑`/`alt+↓` reorder it. `/` filters the panel's lists the same way `/` filters the tree.
+
+## Archived lists
+
+`A` opens the Archived Lists page — a dedicated screen that replaces Tasks and Lists entirely while it's open (not a modal layered over them, and not reachable with `tab`). It lists every archived list, most recently archived first, alongside a read-only preview of the selected list's tasks.
+
+- `↑`/`↓` (or `k`/`j`) move the selection; `g`/`G` jump to the first/last list.
+- `/` filters the list by name, live, the same way `/` filters the Lists panel.
+- `u` restores the selected list to normal discovery, immediately — no confirmation, since unlike deleting it's reversible.
+- `d` permanently deletes the selected list and every one of its tasks, through the same confirm modal every destructive action in the TUI uses.
+- `esc` clears an active filter first; press it again, with nothing left to clear, to leave the page and return to the task tree.
+
+There is no key to *archive* a list from the TUI yet — do that from the CLI (`farol lists archive <list-id>`, see [The CLI](/users/cli/#lists)) and it shows up here. Archiving hides a list from the normal sidebar and from agent discovery (`farol next`, `farol work`, `farol inbox`) without deleting anything; it's the reversible way to get a finished list out of the way.
 
 ## Filtering and search
 

@@ -36,9 +36,9 @@ The top-level Bubble Tea model: `Init`, `Update`, `View`. It owns the store hand
 
 ### `src/components` — one package per leaf model
 
-Each leaf model is its own package, named `…modal` or `…panel` or `…tree`:
+Each leaf model is its own package, named `…modal`, `…panel`, `…tree`, or `…page` (a full-body takeover like Archive, distinct from a panel that shares the row with another one):
 
-`tasktree`, `taskspanel`, `listspanel`, `detailspanel`, `themepickermodal`, `searchpicker`, `listnamemodal`, `confirmmodal`, `helpoverlay`, `keybindingbar`, `mainmenu`, `aboutmodal`, `importexportmodal`.
+`tasktree`, `taskspanel`, `listspanel`, `detailspanel`, `archivepage`, `themepickermodal`, `searchpicker`, `listnamemodal`, `confirmmodal`, `helpoverlay`, `keybindingbar`, `mainmenu`, `aboutmodal`, `importexportmodal`.
 
 The convention (`CONTRIBUTING.md`): **constructors are always `New`; the exported type is always `Model`**, so callers read as `listnamemodal.New(...)` and assert on `listnamemodal.Model`.
 

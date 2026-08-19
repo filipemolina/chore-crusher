@@ -87,6 +87,7 @@ There has to be a better way to do this (I'm absolutely certain there is). Well,
 | **Notes, comments, attachments** | Long-form notes per task, threaded comments, and file attachments (path, stdin, or URL) added via `farol attach`; view and delete them in the details modal |
 | **Change feed** | `farol diff <list-id> --since <unix-seconds>` returns tasks added or changed since a timestamp — cheap to poll |
 | **Export / Import** | `farol export` / `farol import` (or `e` / `i` in the Lists panel) move lists and tasks between stores as versioned JSON |
+| **Archiving** | `farol lists archive`/`unarchive` hides a finished list from the sidebar and agent discovery without deleting it; browse, unarchive, or permanently delete archived lists from the TUI's Archived Lists page (`A`) |
 | **Themes** | 14 themes: four of the app's own (`farol-*`) plus ten imported community palettes (see `docs/DESIGN.md` §11) |
 
 ---
@@ -167,6 +168,7 @@ The default list `Inbox` is created automatically; the app opens on the
 | `i` | Import lists from a JSON file |
 | `T` | Toggle theme picker |
 | `L` | Toggle lists panel visibility |
+| `A` | Open the Archived Lists page (`u` unarchives, `d` permanently deletes, `esc` to leave) |
 | `a` | Open the About modal |
 | `?` | Show help overlay |
 | `q` / `Ctrl+C` | Quit |
@@ -183,7 +185,7 @@ Every TUI operation is available via CLI commands (`farol --help` lists them all
 
 ```bash
 # Lists
-farol lists                       # list all lists with counts
+farol lists                       # list all lists with counts (add --include-archived to also show archived ones)
 farol lists add "Home"            # create a new list
 farol lists rename <id> "Garden"  # rename a list
 farol lists rm <id>               # delete a list and its tasks

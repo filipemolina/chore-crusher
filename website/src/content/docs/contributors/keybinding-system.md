@@ -15,11 +15,12 @@ The keybinding system is built around one rule, stated in `docs/DESIGN.md` §5 a
 
 | Struct | Scope |
 | --- | --- |
-| `keys.Global` | Keys that work anywhere no overlay owns the keyboard: `tab`/`shift+tab`, `L`, `q`, `ctrl+c`, `esc`, `?`, `T`, `/`, `F`, `ctrl+y`, `s`, `a` |
+| `keys.Global` | Keys that work anywhere no overlay owns the keyboard: `tab`/`shift+tab`, `L`, `A`, `q`, `ctrl+c`, `esc`, `?`, `T`, `/`, `F`, `ctrl+y`, `s`, `a` |
 | `keys.Tree` | The task tree: navigation, expand/collapse, `space` toggle, `enter` details, `n` new, `d` delete, `[`/`]` outdent/indent, `alt+↑/↓` move, `u`/`U` release assignment, `g`/`G`/`pgup`/`pgdown` |
 | `keys.Create` | The inline create row: `enter` submit, `esc` cancel |
 | `keys.Lists` | The lists panel: navigate, `enter` select, `n` new list, `R` rename, `d` delete, `alt+↑/↓` move, `e` export, `i` import |
 | `keys.Details` | The Details modal: `ctrl+s` save, `tab` next field, `←`/`→` cycle mode/priority, `↑`/`↓` percent nudge, `c`/`enter`/`y`/`d` comment actions, `ctrl+y` copy task id |
+| `keys.ArchivePage` | The Archived Lists page: navigate, `g`/`G`, `/` filter, `u` unarchive, `d` permanently delete |
 | `keys.Overlay` | Every modal: `enter` confirm, `esc` cancel, `y`/`n` yes/no, `↑`/`↓` navigate |
 | `keys.ExportModal`, `keys.ListNameModal` | Modal-specific extras (`tab` next field, `space` toggle collaborative) |
 
@@ -44,6 +45,7 @@ The component never hardcodes a keystroke. The binding is the single declaration
 
 - A modal or overlay owns the keyboard exclusively while open → `Active` returns nothing.
 - Details open → only its own bindings plus `esc` are live.
+- Archive page open → only its own bindings plus `esc` are live (the same shape as Details, `ctx.ArchivePageVisible`).
 - Inline create input active → only create keys plus `[`/`]` are live.
 - `/` filter being typed or applied → only `enter`/`esc` are live.
 - Otherwise, the focused zone's bindings, plus `tab` only while a side panel is open (with the lists panel hidden the focus cycle is a single zone, so the hint would be dead).
@@ -52,7 +54,7 @@ The component never hardcodes a keystroke. The binding is the single declaration
 
 ## The help overlay
 
-`?` opens the help overlay, and it lists **every key in the app on every screen** — not the keys live on the screen it was opened from. `keys.Catalog(ctx)` builds it from the same binding structs the handlers match against, grouped into scopes (`Global`, `Task Tree`, `Creating a task`, `Filtering`, `Lists`, `Renaming a list`, `Details`, `Overlays`).
+`?` opens the help overlay, and it lists **every key in the app on every screen** — not the keys live on the screen it was opened from. `keys.Catalog(ctx)` builds it from the same binding structs the handlers match against, grouped into scopes (`Global`, `Task Tree`, `Creating a task`, `Filtering`, `Lists`, `Renaming a list`, `Details`, `Archived Lists`, `Overlays`).
 
 Two design decisions make it a reference rather than a corner description:
 

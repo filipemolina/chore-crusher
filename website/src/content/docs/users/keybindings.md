@@ -17,9 +17,10 @@ Work anywhere that no overlay owns the keyboard.
 | --- | --- |
 | `tab` / `shift+tab` | Cycle focus between the visible surfaces (Lists ↔ Tasks). Dropped from the footer while the inline create input is live — focus is locked to the input then. |
 | `L` | Toggle the Lists panel; opening it also moves focus into it. |
+| `A` | Open the Archived Lists page — a full-screen surface that replaces Tasks and Lists, not a modal. |
 | `q` | Quit — yields to anything typing a `q` (a modal, the inline create row, a filter). |
 | `ctrl+c` | Force quit — yields to nothing, so it quits from a modal or a text input alike. |
-| `esc` | Back — a ladder of claims: closes a modal, clears a filter being typed, clears an applied filter, closes the Lists panel. |
+| `esc` | Back — a ladder of claims: closes a modal, closes the Details modal, clears/closes the Archive page's own filter-then-page ladder, clears a filter being typed, clears an applied filter, closes the Lists panel. |
 | `?` | Help overlay. |
 | `T` | Theme picker (live preview; `Enter` applies and persists). |
 | `/` | Local fuzzy filter — the task tree when the tree is focused, the Lists panel when the panel is. |
@@ -137,6 +138,22 @@ Attaching a file has no TUI key — it is CLI-only (`farol attach <task-id> <pat
 
 The `Discard changes?` prompt answers to `y` and `n` only — it has no visible default for `enter` to act on.
 
+## Archived Lists
+
+Act inside the Archived Lists page, which owns the keyboard while open — it is a full-screen surface, not a modal, so no global key, task-tree binding, or Lists panel key acts while it is up.
+
+| Key | Action |
+| --- | --- |
+| `↑` `↓` `k` `j` | Move the selection. |
+| `g` `home` | Jump to the first archived list. |
+| `G` `end` | Jump to the last archived list. |
+| `/` | Filter the list by name (live). |
+| `u` | Unarchive the selected list — no confirmation, it's reversible. |
+| `d` | Permanently delete the selected list and its tasks (confirm-guarded). |
+| `esc` | Clear the filter first; with nothing left to clear, leave the page. |
+
+`A` opens the page from anywhere. There is no key to *archive* a list — that's CLI-only (`farol lists archive <list-id>`); the page is for browsing, restoring, and permanently deleting what's already archived.
+
 ## Overlays
 
 The keys every modal answers to.
@@ -152,5 +169,5 @@ The keys every modal answers to.
 ## Design notes
 
 - **`q` yields, `ctrl+c` does not.** `q` is a printable character, so it is handled after everything that could be typing one — a modal or the Details modal swallows it, the inline create row and a `/` filter take it as a literal `q`, and it quits only from the task tree or the lists panel with none of those active. `ctrl+c` is the escape hatch that yields to nothing.
-- **`esc` is the most overloaded key in the app** — six jobs, resolved through a strict ladder of claims: a modal closes itself first, then the Details modal, then a focused panel's own claim (clearing a filter, cancelling a create), then closing the Lists panel.
+- **`esc` is the most overloaded key in the app**, resolved through a strict ladder of claims: a modal closes itself first, then the Details modal, then the Archive page (its own clear-filter-then-leave-the-page ladder), then a focused panel's own claim (clearing a filter, cancelling a create), then closing the Lists panel.
 - **The footer sheds, never wraps.** On a narrow terminal the keybinding bar drops whole hints in a declared priority order rather than wrapping to a second line — and `?` lists every key, so a shed hint is hidden, not lost.

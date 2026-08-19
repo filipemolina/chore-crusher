@@ -42,19 +42,22 @@ There are exactly **two keyboard focus targets** (`docs/DESIGN.md` §5):
 
 **Details is a modal, not a body surface.** Opening Details (`enter` on a selected task) layers a centered modal over the body — sized to about 90% of each axis — and takes focus. It is never in the `tab` cycle; it is entered and left by explicit open/close transitions.
 
+**The Archive page (`A`) is a full-body takeover, not a modal — a third thing, distinct from both of the above.** Unlike Details it does not layer a box over the body: while it is open, `renderBody()` returns the Archive page's own `View` in place of the Tasks/Lists split entirely, the same "one surface replaces the whole row" shape Tasks-alone already has with Lists hidden. That is why it does not make focus "three targets" or the body "two side surfaces": it is never in the `tab` cycle (entered/left by explicit `A`/close transitions, exactly like Details), and it does not share the row with Tasks the way Lists does — it replaces the row outright. It owns the keyboard the same way Details does — AppModel intercepts every keypress ahead of the normal dispatch, right after the Details check — so only its own bindings (`keys.ArchivePage`) plus `esc` are live while it is open, and the footer goes blank the same way it does for Details, with the page rendering its own hint line instead.
+
 ## The esc ladder
 
-`esc` is the most overloaded key in the app — six jobs, resolved through a strict "ladder of claims" (`docs/DESIGN.md` §5). Each surface that might own esc is checked in a fixed order, and the first one that claims it gets it. **The order is the contract**; checking it out of sequence silently breaks whichever claim got skipped:
+`esc` is the most overloaded key in the app, resolved through a strict "ladder of claims" (`docs/DESIGN.md` §5). Each surface that might own esc is checked in a fixed order, and the first one that claims it gets it. **The order is the contract**; checking it out of sequence silently breaks whichever claim got skipped:
 
 1. **A modal** (theme picker, confirm, list-name) closes itself first — modals intercept every keypress at the top of `Update`.
 2. **The Details modal**, while visible, owns every keypress ahead of AppModel's normal `Back` case: closing a clean modal, or raising the inline "Discard changes? (y/n)" prompt on a dirty one.
-3. **The focused panel's own `KeepsEsc` claim**: the task tree while typing or applying a `/` filter, or while inline-creating a task; the lists panel while its own filter is open or applied — clearing the filter, not closing the panel.
-4. **Closing the Lists panel**, when it is focused and visible and did not already claim esc at step 3 — the panel is a transient picker, and esc is its cancel. This must stay below step 3, or a filtered lists panel would close instead of clearing its query.
-5. Otherwise, a **no-op**.
+3. **The Archive page**, while visible, runs its own two-outcome ladder ahead of AppModel's `Back` case too: `esc` clears its name filter in one step (mirroring the task tree's own `/`-filter exactly, whether the filter is still being typed or was already applied by an earlier `enter`); only a further `esc`, with nothing left to clear, closes the page.
+4. **The focused panel's own `KeepsEsc` claim**: the task tree while typing or applying a `/` filter, or while inline-creating a task; the lists panel while its own filter is open or applied — clearing the filter, not closing the panel.
+5. **Closing the Lists panel**, when it is focused and visible and did not already claim esc at step 4 — the panel is a transient picker, and esc is its cancel. This must stay below step 4, or a filtered lists panel would close instead of clearing its query.
+6. Otherwise, a **no-op**.
 
 ## Keyboard ownership
 
-While a modal, the Details modal, a filter input, or the inline create input is open, **it owns the keyboard** (`docs/DESIGN.md` §5). The consequences:
+While a modal, the Details modal, the Archive page, a filter input, or the inline create input is open, **it owns the keyboard** (`docs/DESIGN.md` §5). The consequences:
 
 - `q` is a printable character, so it is handled *after* everything that could be typing one: a modal swallows it, the inline create row and a `/` filter take it as a literal `q`, and it quits only from the task tree or the lists panel with none of those active. `ctrl+c` always quits — the escape hatch that yields to nothing.
 - While the inline create input is live, `tab`/`shift+tab` do **not** cycle focus to another panel and `?` types a literal instead of opening help — a half-typed title can never be stranded on another panel mid-entry.
@@ -65,7 +68,7 @@ While a modal, the Details modal, a filter input, or the inline create input is 
 The screen is three stacked regions (`src/model/View.go`):
 
 - **Header** — one row: the main menu bar with the wordmark.
-- **Body** — the Tasks surface, plus at most one side surface (Lists), separated by a tier-2 gutter. Tasks alone, or Tasks + Lists; never three panels.
+- **Body** — the Tasks surface, plus at most one side surface (Lists), separated by a tier-2 gutter. Tasks alone, or Tasks + Lists; never three panels. While the Archive page is open, it replaces this whole region outright (`renderBody()` branches on `archivePageVisible` before anything else) rather than composing alongside it.
 - **Footer** — one row: the keybinding bar, rendered from `keys.Active`/`GlobalsFor` for the current context.
 
 Below the minimum supported size (40 columns × 10 rows) the app stops attempting the layout and renders a single centred `Terminal too small` line. The decision lives in exactly one predicate (`AppModel.terminalTooSmall`).

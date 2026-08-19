@@ -101,9 +101,11 @@ Every id in that transcript is an 8-character prefix. Everything after the prefi
 
 | Command | What it does |
 | --- | --- |
-| `farol lists` | List all lists (`ID NAME PENDING COMPLETE`). `--mine` / `--foreign` filter by the current agent's ownership. |
+| `farol lists` | List all lists (`ID NAME PENDING COMPLETE`). `--mine` / `--foreign` filter by the current agent's ownership; archived lists are excluded unless `--include-archived` is given. |
 | `farol lists add <name>` | Create a list; prints its id. `--owner <tag>` provisions it for an agent up front. |
 | `farol lists rename <list-id> <name>` | Rename a list. |
+| `farol lists archive <list-id>` | Archive a list: hides it from the sidebar and from `next`/`work`/`inbox`, without deleting anything. No `--force` — it's reversible. |
+| `farol lists unarchive <list-id>` | Restore an archived list to normal discovery. |
 | `farol lists rm <list-id> --force` | Delete a list and its tasks. |
 
 ### Tasks
