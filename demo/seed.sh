@@ -101,6 +101,15 @@ add "$INFRA" "Pin the runner image"
 # ranking rule at the same time.
 run notes --force "$p95" "The N+1 on tags is most of it. Client timeout is 2s and p95 is 2.4s."
 
+# A third list, archived immediately after seeding, so the Archive page (new
+# this version) has a real list + task preview to show instead of an empty
+# state. Kept separate from "api"/"infra" so archiving it cannot affect the
+# cross-list search demo above.
+ARCHIVE=$(run lists add "Q2 roadmap")
+add "$ARCHIVE" "Sunset the old billing API"
+add "$ARCHIVE" "Migrate remaining customers off it"
+run lists archive "$ARCHIVE"
+
 # Every write above auto-claimed presence under the default "agent" identity
 # (autoClaimTask), and claims stay live for store.WorkTTL = 120s. Seeding
 # therefore leaves ~12 spinners lit on a store that is supposed to be at rest,

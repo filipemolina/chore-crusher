@@ -79,5 +79,12 @@ Screenshot website/public/screenshot-details-day.png
 Escape
 Sleep 500ms
 
+# --- Archive page: the seeded archived list + its task preview -------------
+Type "A"
+Sleep 1200ms
+Screenshot website/public/screenshot-archive-day.png
+Escape
+Sleep 500ms
+
 Ctrl+C
 Sleep 600ms

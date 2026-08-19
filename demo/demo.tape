@@ -13,8 +13,10 @@
 #
 # The recording starts the instant the TUI window appears — all shell setup
 # (build, seed, env vars) happens with Show suppressed, so the GIF is 100%
-# TUI. The demo opens the lists panel, creates a list, adds a root task and a
-# nested subtask (one level deep via ]), then previews the theme picker.
+# TUI. The demo walks the 1/2/3 view-mode filter on the seeded list, opens
+# the lists panel, creates a list, adds a root task and a nested subtask (one
+# level deep via ]), previews the theme picker, then opens the Archived
+# Lists page (A) to show the seeded archived list and its task preview.
 
 Output demo/demo.gif
 
@@ -47,6 +49,17 @@ Type "/tmp/farol-demo/farol"
 Enter
 Sleep 3s
 Show
+
+# --- View-mode filter: 1 = Pending only, 2 = Complete only, 3 = All --------
+# The seeded "api" list already has both pending and complete tasks (Drop
+# the legacy /v1 routes cascaded to Complete in seed.sh), so filtering here
+# is visibly meaningful before the walkthrough moves on to lists/creation.
+Type@1ms "1"
+Sleep 1200ms
+Type@1ms "2"
+Sleep 1200ms
+Type@1ms "3"
+Sleep 1200ms
 
 # --- Open the lists side panel ----------------------------------------------
 # L (shift+l) toggles the lists panel. Opening it moves focus onto it, so the
@@ -110,3 +123,12 @@ Type@1ms "T"
 Sleep 1500ms
 Escape
 Sleep 2000ms
+
+# --- Archive page: browse the archived list + its task preview, then back --
+# A (capital) opens the Archived Lists page (src/keys/Keys.go). seed.sh
+# archives "Q2 roadmap" ahead of time, so this shows a real list + preview,
+# not an empty state. Esc returns to Home.
+Type@1ms "A"
+Sleep 1500ms
+Escape
+Sleep 1200ms
