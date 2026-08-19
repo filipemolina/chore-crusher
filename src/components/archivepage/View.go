@@ -10,6 +10,7 @@ import (
 	"github.com/filipemolina/farol/src/appstyles"
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/components/chrome"
+	"github.com/filipemolina/farol/src/keys"
 )
 
 // View renders the page filling the whole body — the terminal width, not
@@ -29,9 +30,14 @@ func (m Model) View() tea.View {
 	// error, empty, and the normal split alike — since it stands in for the
 	// footer bar, which goes blank entirely while the page owns the keyboard
 	// (mirroring Details). Without it here too, the loading/empty states
-	// would give no clue how to leave the page.
+	// would give no clue how to leave the page. A failed unarchive's message
+	// (actionErr) sits just above it, its own row so it never crowds the
+	// hint out — the same "status strip above the footer" shape AppModel's
+	// own lastError uses.
 	hint := m.renderHint(bg)
-	contentH := max(0, bodyH-lipgloss.Height(hint)-1) // -1 for the blank spacer above it
+	errRow := m.renderActionErr(bodyW, bg)
+	reserved := lipgloss.Height(hint) + lipgloss.Height(errRow) + 1 // +1 for the blank spacer above the hint
+	contentH := max(0, bodyH-reserved)
 
 	var content string
 	switch {
@@ -48,7 +54,12 @@ func (m Model) View() tea.View {
 	}
 
 	blank := lipgloss.NewStyle().Background(bg).Width(bodyW).Render("")
-	body := lipgloss.JoinVertical(lipgloss.Left, content, blank, hint)
+	parts := []string{content, blank}
+	if errRow != "" {
+		parts = append(parts, errRow)
+	}
+	parts = append(parts, hint)
+	body := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	title := "Archived Lists"
 	return tea.NewView(chrome.PanelFrameWithRightTitle(title, m.countLabel(), m.focused, width, height, body))
@@ -250,22 +261,42 @@ func (m Model) renderHint(bg color.Color) string {
 	var hints []chrome.KeyHint
 	switch {
 	case m.filtering:
-		hints = []chrome.KeyHint{{Key: "esc/enter", Desc: "done"}}
+		hints = []chrome.KeyHint{chrome.HintAs(keys.Overlay.Cancel, "done (enter also works)")}
 	case m.filterInput.Value() != "":
 		hints = []chrome.KeyHint{
-			{Key: "↑/↓", Desc: "navigate"},
-			{Key: "/", Desc: "edit filter"},
-			{Key: "esc", Desc: "clear filter"},
+			chrome.HintFor(keys.ArchivePage.Navigate),
+			chrome.HintAs(keys.ArchivePage.Filter, "edit filter"),
+			chrome.HintAs(keys.Global.Back, "clear filter"),
 		}
 	default:
 		hints = []chrome.KeyHint{
-			{Key: "↑/↓", Desc: "navigate"},
-			{Key: "/", Desc: "filter"},
-			{Key: "esc", Desc: "back"},
+			chrome.HintFor(keys.ArchivePage.Navigate),
+			chrome.HintFor(keys.ArchivePage.Filter),
+			chrome.HintFor(keys.Global.Back),
+		}
+	}
+	if !m.filtering {
+		if _, ok := m.selectedEntry(); ok {
+			hints = append(hints, chrome.HintFor(keys.ArchivePage.Unarchive))
 		}
 	}
 	line := chrome.RenderKeyHints(hints, appstyles.Active.TextDim)
 	return lipgloss.NewStyle().Background(bg).Render(line)
+}
+
+// renderActionErr renders a failed unarchive's message as a single danger-
+// colored row, mirroring AppModel's own lastError strip. Returns "" (a
+// zero-height row) when there is nothing to show, so the layout above it
+// does not reserve dead space.
+func (m Model) renderActionErr(width int, bg color.Color) string {
+	if m.actionErr == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Foreground(appstyles.Active.Danger).
+		Background(bg).
+		Width(width).
+		Render(chrome.Truncate(m.actionErr, width))
 }
 
 func plural(n int) string {

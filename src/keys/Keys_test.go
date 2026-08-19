@@ -178,10 +178,11 @@ func TestActiveReturnsDetailsBindingsWhenDetailsVisible(t *testing.T) {
 	}
 }
 
-// TestActiveReturnsBackOnlyWhenArchivePageVisible proves the Archive page
-// owns the keyboard exactly like Details does (docs/DESIGN.md §5): only Esc
-// is live, and no task-tree, Lists, or normal global key acts.
-func TestActiveReturnsBackOnlyWhenArchivePageVisible(t *testing.T) {
+// TestActiveReturnsArchivePageBindingsWhenVisible proves the Archive page
+// owns the keyboard exactly like Details does (docs/DESIGN.md §5): only its
+// own bindings plus Esc are live, and no task-tree, Lists, or normal global
+// key acts.
+func TestActiveReturnsArchivePageBindingsWhenVisible(t *testing.T) {
 	ctx := Context{
 		Focused:            constants.COMPONENT_ARCHIVE_PAGE,
 		ArchivePageVisible: true,
@@ -190,12 +191,26 @@ func TestActiveReturnsBackOnlyWhenArchivePageVisible(t *testing.T) {
 	}
 	bindings := Active(ctx)
 
-	if len(bindings) != 1 || !containsBinding(bindings, Global.Back) {
-		t.Fatalf("Active for the Archive page = %v, want just Global.Back", bindings)
+	want := []key.Binding{
+		ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd,
+		ArchivePage.Filter, ArchivePage.Unarchive, Global.Back,
+	}
+	if len(bindings) != len(want) {
+		t.Fatalf("expected %d Archive page bindings, got %d: %v", len(want), len(bindings), bindings)
+	}
+	for _, b := range bindings {
+		if !containsBinding(want, b) {
+			t.Errorf("unexpected binding in Archive page context: %s", b.Help().Key)
+		}
 	}
 
+	// Tree.Navigate and Lists.Navigate are deliberately not in this list:
+	// their keystrokes and help text are identical to ArchivePage.Navigate's
+	// (all three are "↑/↓ navigate"), and sameBinding compares by content,
+	// not identity — they are legitimately indistinguishable that way, so it
+	// would be a false positive here, not a real leak.
 	for _, banned := range []key.Binding{
-		Tree.Navigate, Tree.OpenDetails, Lists.Navigate,
+		Tree.OpenDetails, Tree.Delete, Lists.New, Lists.Delete,
 		Global.NextPanel, Global.Picker, Global.Theme, Global.ToggleListsPanel,
 		Global.ArchivePage,
 	} {

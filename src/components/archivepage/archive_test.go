@@ -289,6 +289,93 @@ func TestEscClearsFilterBeforeClosingPage(t *testing.T) {
 	}
 }
 
+// TestUnarchiveRemovesSelectedEntryAndSelectsNext proves u restores the
+// selected list to normal discovery (it must show up again in
+// store.ListLists) and that the page's own list narrows to reflect it,
+// landing selection on whatever now occupies the vacated slot — the same
+// "select what's now there" outcome clampSelection already gives for free
+// after any set-shrinking refresh.
+func TestUnarchiveRemovesSelectedEntryAndSelectsNext(t *testing.T) {
+	m, s := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+	unarchivedID := sel.List.ID
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("u produced no command")
+	}
+	msg, ok := cmd().(cmds.RefreshArchivedListsMsg)
+	if !ok {
+		t.Fatalf("u command produced %T, want cmds.RefreshArchivedListsMsg", cmd())
+	}
+	m = step(t, m, msg)
+
+	for _, e := range m.entries {
+		if e.List.ID == unarchivedID {
+			t.Fatalf("unarchived list %q is still in the Archive page's entries", e.List.Name)
+		}
+	}
+	lists, err := s.ListLists()
+	if err != nil {
+		t.Fatalf("list lists: %v", err)
+	}
+	found := false
+	for _, l := range lists {
+		if l.List.ID == unarchivedID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("unarchived list did not reappear in normal list discovery (store.ListLists)")
+	}
+	if len(m.entries) > 0 {
+		if _, ok := m.selectedEntry(); !ok {
+			t.Error("selection is out of bounds after the set shrank")
+		}
+	}
+}
+
+// TestUnarchiveFailureSurfacesActionErrWithoutLosingTheList proves a failed
+// write (here: the list vanished from under the page, simulating a race with
+// another agent) shows an inline message rather than blowing away the
+// already-loaded list with the full-page error state.
+func TestUnarchiveFailureSurfacesActionErrWithoutLosingTheList(t *testing.T) {
+	m, s := readyModel(t)
+	sel, ok := m.selectedEntry()
+	if !ok {
+		t.Fatal("nothing selected after refresh")
+	}
+	if err := s.DeleteList(sel.List.ID); err != nil {
+		t.Fatalf("delete list out from under the page: %v", err)
+	}
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("u produced no command")
+	}
+	msg, ok := cmd().(archiveActionErrMsg)
+	if !ok {
+		t.Fatalf("u command produced %T, want archiveActionErrMsg", cmd())
+	}
+	m = step(t, m, msg)
+
+	if m.actionErr == "" {
+		t.Error("failed unarchive did not set actionErr")
+	}
+	if len(m.entries) == 0 {
+		t.Error("a failed unarchive should not clear the already-loaded entries")
+	}
+	out := ansi.Strip(m.View().Content)
+	if !strings.Contains(out, sel.List.Name) {
+		t.Errorf("failed unarchive's view lost the list it was acting on:\n%s", out)
+	}
+}
+
 // TestOpenArchivePageMsgResetsStaleState proves reopening the page after it
 // was left mid-filter starts clean rather than resuming a stale query and
 // selection.

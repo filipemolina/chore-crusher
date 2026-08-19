@@ -178,6 +178,22 @@ type DetailsKeys struct {
 	CommentDelete key.Binding
 }
 
+// ArchivePageKeys act inside the Archive page: navigating and filtering the
+// archived-list column, and acting on the selected entry. Esc is not here —
+// its ladder (commit a filter, then clear it, then leave the page) is
+// Global.Back, matched the same way every other esc claim in the app is.
+type ArchivePageKeys struct {
+	Navigate  key.Binding
+	GoToStart key.Binding
+	GoToEnd   key.Binding
+	Filter    key.Binding
+	// Unarchive restores the selected list to normal discovery
+	// (store.UnarchiveList). No confirmation — like archiving itself (the
+	// CLI's `farol lists archive` is not gated behind --force), this is the
+	// reversible direction.
+	Unarchive key.Binding
+}
+
 // OverlayKeys are the keys every modal answers to. Cancel is one binding for
 // every overlay in the app, so "esc backs out" needs no exceptions.
 type OverlayKeys struct {
@@ -350,6 +366,19 @@ var Details = DetailsKeys{
 	CommentDelete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete comment")),
 }
 
+var ArchivePage = ArchivePageKeys{
+	Navigate:  key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "navigate")),
+	GoToStart: key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "first")),
+	GoToEnd:   key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "last")),
+	Filter:    key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	// u is Tree.Unassign elsewhere in the app; that is a different component
+	// and context (releasing a task's assignment vs. restoring an archived
+	// list), and this codebase scopes keys per-component rather than
+	// requiring global uniqueness (e.g. Tree.Delete and Lists.Delete both
+	// bind d).
+	Unarchive: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unarchive")),
+}
+
 var Overlay = OverlayKeys{
 	Submit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 	Cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
@@ -417,11 +446,15 @@ func Active(ctx Context) []key.Binding {
 	}
 
 	// The Archive page owns the keyboard while open, the same way Details
-	// does just above: only Esc is live — no task-tree, Lists, tab, search,
-	// theme, or panel-toggle key acts (docs/DESIGN.md §5). The page's own
-	// content keys (unarchive, delete) land here in a follow-up task.
+	// does just above: only its own bindings plus Esc are live — no
+	// task-tree, Lists, tab, search, theme, or panel-toggle key acts
+	// (docs/DESIGN.md §5). Permanent-delete's key lands here in a follow-up
+	// task.
 	if ctx.ArchivePageVisible {
-		return []key.Binding{Global.Back}
+		return []key.Binding{
+			ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd,
+			ArchivePage.Filter, ArchivePage.Unarchive, Global.Back,
+		}
 	}
 
 	// While the inline create input is active, only create keys are live.
@@ -618,6 +651,11 @@ func Catalog(ctx Context) []Scope {
 		{
 			Title:   "Details",
 			Entries: entries(Details.Save, Details.NextField, Details.CycleMode, Details.CycleModeBack, Details.PercentNudge, Details.PercentType, Details.CyclePriority, Details.DiscardPrompt, Details.CopyTaskID, Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID, Details.CommentDelete),
+		},
+		{
+			Title:   "Archived Lists",
+			Entries: entries(Global.ArchivePage, ArchivePage.Navigate, ArchivePage.GoToStart, ArchivePage.GoToEnd, ArchivePage.Filter, ArchivePage.Unarchive),
+			Note:    "A opens the page from anywhere. Esc commits an open filter first, clears an applied one on the next press, and only then leaves the page.",
 		},
 		{
 			Title:   "Overlays",

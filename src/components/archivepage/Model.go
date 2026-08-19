@@ -13,14 +13,17 @@
 package archivepage
 
 import (
+	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/cmds"
 	"github.com/filipemolina/farol/src/components/chrome"
 	"github.com/filipemolina/farol/src/constants"
+	"github.com/filipemolina/farol/src/keys"
 	"github.com/filipemolina/farol/src/store"
 )
 
@@ -68,6 +71,14 @@ type Model struct {
 	previewRows    []apptypes.Row
 	previewLoading bool
 	previewErr     error
+
+	// actionErr is a failed unarchive's message, shown inline near the hint
+	// line without disturbing the loaded list — distinct from loadErr, which
+	// replaces the whole page (there is nothing wrong with the page itself,
+	// only with one write against it). Cleared on the next keypress or
+	// successful refresh, the same "any key clears the flash" idiom
+	// detailspanel's own errMsg/flash fields use.
+	actionErr string
 }
 
 // New builds the Archive page.
@@ -126,6 +137,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case archiveActionErrMsg:
+		m.actionErr = msg.text
+		return m, nil
+
 	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil
@@ -151,14 +166,19 @@ func (m Model) handleRefreshArchivedLists(msg cmds.RefreshArchivedListsMsg) (tea
 }
 
 // handleKey mirrors detailspanel's compose-vs-modal split: while the filter
-// input owns the keyboard it gets first refusal, then esc, then navigation.
+// input owns the keyboard it gets first refusal, then esc, then navigation
+// and actions — matched against the bindings keys.ArchivePage declares
+// (docs/DESIGN.md §5's rule that a key is declared in keys.go exactly once
+// and components match against it, not against ad hoc strings).
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.actionErr = ""
+
 	if m.filtering {
 		return m.handleFilterKey(msg)
 	}
 
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, keys.Global.Back):
 		// The esc-ladder idiom the tree and Lists panel already establish
 		// (docs/DESIGN.md §5): a non-empty applied filter is cleared first;
 		// only a second esc, with nothing left to clear, leaves the page.
@@ -169,22 +189,53 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmds.CloseArchivePage(nil)
 
-	case "/":
+	case key.Matches(msg, keys.ArchivePage.Filter):
 		m.filtering = true
 		m.filterInput.Focus()
 		return m, textinput.Blink
 
-	case "up", "k":
-		return m.moveSelection(-1)
-	case "down", "j":
-		return m.moveSelection(1)
-	case "home", "g":
+	case key.Matches(msg, keys.ArchivePage.GoToStart):
 		return m.setSelection(0)
-	case "end", "G":
+	case key.Matches(msg, keys.ArchivePage.GoToEnd):
 		return m.setSelection(len(m.visibleEntries()) - 1)
+	case key.Matches(msg, keys.ArchivePage.Navigate):
+		switch msg.String() {
+		case "up", "k":
+			return m.moveSelection(-1)
+		case "down", "j":
+			return m.moveSelection(1)
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.ArchivePage.Unarchive):
+		return m, m.unarchiveSelectedCmd()
 	}
 	return m, nil
 }
+
+// unarchiveSelectedCmd restores the selected list to normal discovery
+// (store.UnarchiveList) and reloads the archived set — no confirmation, the
+// reversible direction (see keys.ArchivePageKeys.Unarchive). A write failure
+// surfaces as actionErr rather than replacing the loaded list with a
+// full-page error.
+func (m Model) unarchiveSelectedCmd() tea.Cmd {
+	sel, ok := m.selectedEntry()
+	if !ok {
+		return nil
+	}
+	s := m.store
+	id, name := sel.List.ID, sel.List.Name
+	return func() tea.Msg {
+		if err := s.UnarchiveList(id); err != nil {
+			return archiveActionErrMsg{fmt.Sprintf("failed to unarchive %q: %v", name, err)}
+		}
+		return cmds.RefreshArchivedLists(s)()
+	}
+}
+
+// archiveActionErrMsg carries a failed write's message into actionErr,
+// without going through the full-page loadErr path (see its doc comment).
+type archiveActionErrMsg struct{ text string }
 
 // handleFilterKey drives the inline filter input. esc and enter both commit
 // (stop typing, keep the query); every other key edits the query and
