@@ -503,12 +503,17 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 	cardWidth := max(0, width-len(cardIndent))
 
 	// Text-presentation checkbox glyphs (no emoji presentation, single cell):
-	// ◻ pending and in progress, ◼ complete. In progress shares the pending
-	// square — the IN PROGRESS label and bar colour set it apart.
+	// ◻ pending, ◼ in progress and complete — in progress reuses the complete
+	// glyph, tinted StatusInProgress instead of StatusComplete, since a novel
+	// glyph reliably renders wrong on real terminal fonts (docs/DESIGN.md §12).
 	checkbox := "◻"
 	checkboxFg := appstyles.Active.TextMuted
 	textFg := appstyles.Active.TextPrimary
-	if row.Task.Status == apptypes.StatusComplete {
+	switch row.Task.Status {
+	case apptypes.StatusInProgress:
+		checkbox = "◼"
+		checkboxFg = appstyles.Active.StatusInProgress
+	case apptypes.StatusComplete:
 		checkbox = "◼"
 		checkboxFg = appstyles.Active.StatusComplete
 		textFg = appstyles.Active.TextMuted
@@ -592,9 +597,9 @@ func (m *Model) renderRow(row apptypes.Row, width int, bg color.Color, matchedIn
 	assigneeLive := row.Task.Assignee != "" && m.liveAgents[row.Task.Assignee]
 
 	content := buildRowContent(checkboxColored, title, trailing,
-		statusLabel(row.Task.Status), progressLabel(row, m.rows), detailsGlyph,
+		progressLabel(row, m.rows), detailsGlyph,
 		agentPresence, assigneeBadge(row.Task.Assignee, presenceAgent), priorityLabel(row.Task.Priority), 1,
-		cardWidth-cardInset, statusFg(row.Task.Status), agentPresenceFg(isSelected),
+		cardWidth-cardInset, agentPresenceFg(isSelected),
 		assigneeFg(assigneeLive), priorityFg(row.Task.Priority))
 
 	return cardIndent + renderTaskCard(cardWidth, rowBg, barFgFor(row.Task.Status, isSelected), content)
@@ -670,20 +675,12 @@ type taskRowCols struct {
 	checkbox      int
 	title         int
 	gutter        int
-	status        int
 	progress      int
 	agentPresence int
 	assignee      int
 	priority      int
 	details       int
 }
-
-// statusColWidth is the fixed width of the status column: the longest status
-// label, "IN PROGRESS" (11 runes). Every status label is right-aligned inside
-// this width so PENDING / IN PROGRESS / COMPLETE all end at the same column and
-// the trailing icon column begins at the same offset on every row (decision 2;
-// docs/DESIGN.md §12).
-const statusColWidth = 11
 
 // detailsColWidth is the fixed width of the trailing icon column — two display
 // cells: the document glyph (notes) on the left and the comments glyph on the
@@ -712,33 +709,27 @@ const titleGutter = 1
 //
 // checkbox and title are never dropped. When the remainder would leave the
 // title under titleFloor, the passengers shed whole, in this order: the
-// status+icon block and the priority badge together first, then the assignee
-// badge, then the agent-spinner unit. Priority sheds with the status because
-// the two render adjacent and read as one state group; agent presence
-// outlives both because at narrow widths "who is actively working" outlives
-// "what should I pick up next". The percentage sheds only to stop the row
-// overflowing, because it is the one thing on the row that appears nowhere
-// else — the status label, by contrast, is still carried by the ◻/◼ glyph,
-// the row's foreground colour, and the Pending/Complete section the row sits
-// in, so dropping it costs the user nothing.
+// trailing icon column and the priority badge together first, then the
+// assignee badge, then the agent-spinner unit. Details and priority shed
+// together because both are recoverable elsewhere — the notes/comments
+// glyphs are one Enter away in the Details modal, and priority reads from
+// any sort by priority — so losing them first costs the user the least;
+// agent presence outlives both because at narrow widths "who is actively
+// working" outlives "what should I pick up next". The percentage sheds only
+// to stop the row overflowing, because it is the one thing on the row that
+// appears nowhere else.
 //
-// This reverses an older order (progress first, status last) that budgeted
-// for overflow alone, with no notion of a title floor: at narrow widths it
-// spent eleven columns on a label the row already showed three other ways
+// This reverses an older order (progress first, everything else last) that
+// budgeted for overflow alone, with no notion of a title floor: at narrow
+// widths it spent columns on passengers the row could recover elsewhere
 // while the title shrank to a stub. docs/DESIGN.md §12 records the current
-// rule. The status column is a fixed statusColWidth allocation and the
-// trailing icon column a fixed detailsColWidth allocation — reserved and shed
-// together regardless of whether the row has notes — so the label and the
-// glyph (or its blank cell) align across rows.
-func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentPresence, assignee, priority string) taskRowCols {
+// rule. The trailing icon column is a fixed detailsColWidth allocation,
+// reserved regardless of whether the row has notes, so the glyph (or its
+// blank cell) aligns across rows.
+func computeTaskRowCols(tableWidth, checkboxWidth int, progress, agentPresence, assignee, priority string) taskRowCols {
 	cols := taskRowCols{checkbox: checkboxWidth}
 
-	statusW := 0
-	detailsW := 0
-	if status != "" {
-		statusW = statusColWidth + 1   // +1 leading gap before the status column
-		detailsW = detailsColWidth + 1 // +1 gap between the status and icon columns
-	}
+	detailsW := detailsColWidth + 1 // +1 leading gap before the icon column
 	progressW := 0
 	if progress != "" {
 		progressW = len(progress) + 1 // +1 for trailing gap
@@ -759,7 +750,7 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentPr
 	// gutterNow is reserved only while something actually follows the title;
 	// a row with no passengers at all gives the title every column.
 	gutterNow := func() int {
-		if statusW+detailsW+progressW+agentW+assigneeW+priorityW > 0 {
+		if detailsW+progressW+agentW+assigneeW+priorityW > 0 {
 			return titleGutter
 		}
 		return 0
@@ -767,11 +758,11 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentPr
 	// titleTextNow is the title's usable text width under the current
 	// reserves — the cell minus the gutter, which is what the floor is about.
 	titleTextNow := func() int {
-		return tableWidth - statusW - detailsW - progressW - agentW - assigneeW - priorityW - gutterNow()
+		return tableWidth - detailsW - progressW - agentW - assigneeW - priorityW - gutterNow()
 	}
 
-	if statusW > 0 && titleTextNow() < titleFloor {
-		statusW, detailsW = 0, 0
+	if titleTextNow() < titleFloor {
+		detailsW = 0
 		priorityW = 0
 	}
 	if assigneeW > 0 && titleTextNow() < titleFloor {
@@ -784,20 +775,19 @@ func computeTaskRowCols(tableWidth, checkboxWidth int, status, progress, agentPr
 		progressW = 0
 	}
 
-	cols.status = statusW
 	cols.details = detailsW
 	cols.progress = progressW
 	cols.agentPresence = agentW
 	cols.assignee = assigneeW
 	cols.priority = priorityW
 	cols.gutter = gutterNow()
-	cols.title = max(1, tableWidth-statusW-detailsW-progressW-agentW-assigneeW-priorityW)
+	cols.title = max(1, tableWidth-detailsW-progressW-agentW-assigneeW-priorityW)
 
 	return cols
 }
 
-// priorityLabel is the row's priority badge text, all caps like the status
-// label. PriorityNone renders NOTHING rather than a badge reading "NONE":
+// priorityLabel is the row's priority badge text, all caps like a status
+// value. PriorityNone renders NOTHING rather than a badge reading "NONE":
 // most tasks are none, and a badge on every row is noise, not information
 // (docs/DESIGN.md §12).
 func priorityLabel(p apptypes.Priority) string {
@@ -864,23 +854,10 @@ func assigneeFg(live bool) color.Color {
 	return appstyles.Active.StatusOverdue
 }
 
-// statusLabel returns the display label for a task status, all caps.
-func statusLabel(status apptypes.Status) string {
-	switch status {
-	case apptypes.StatusPending:
-		return "PENDING"
-	case apptypes.StatusInProgress:
-		return "IN PROGRESS"
-	case apptypes.StatusComplete:
-		return "COMPLETE"
-	}
-	return ""
-}
-
-// statusFg returns the color the status label (and, unselected, the row's
-// bar column) draws with for a task's status: muted grey for pending, the
-// theme's warning amber for in progress, and its success green for complete.
-// All three are active-theme tokens — no hardcoded colors.
+// statusFg returns the color the row's bar column draws with (unselected) for
+// a task's status: muted grey for pending, the theme's warning amber for in
+// progress, and its success green for complete. All three are active-theme
+// tokens — no hardcoded colors.
 func statusFg(status apptypes.Status) color.Color {
 	switch status {
 	case apptypes.StatusInProgress:
@@ -970,29 +947,29 @@ func padRightGlyph(glyph string) string {
 
 // buildRowContent renders a task row's columns — checkbox, title (plus the
 // optional trailing expand/collapse marker), and the right-aligned
-// progress+agent-spinner+assignee+priority+status block — to fit a card's
+// progress+agent-spinner+assignee+priority+icon block — to fit a card's
 // inner content width. cols.title absorbs the remaining budget after those
-// columns, so the status cell ends flush at the card's right padding: that is
-// the right-alignment ("status at the end of the line").
+// columns, so the icon cell ends flush at the card's right padding: that is
+// the right-alignment.
 //
 // The assignee badge sits immediately right of the presence spinner on
 // purpose: the two cells together are what makes "assigned, but nobody is
 // here" legible as a gap rather than as two unrelated facts. The spinner
 // says an agent is at the keyboard, the badge says who owns the work, and
-// priority+status group as the state the row is in (docs/DESIGN.md §12).
+// priority names the state the row is in (docs/DESIGN.md §12).
 //
-// Drop order under narrowness: the status+icon block first, then the
-// assignee badge, then the priority badge, then the agent-spinner unit,
+// Drop order under narrowness: the icon column and the priority badge
+// together first, then the assignee badge, then the agent-spinner unit,
 // then progress, all whole (docs/DESIGN.md §12).
-func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, agentPresence, assignee, priority string,
-	checkboxWidth, contentWidth int, statusColor, agentPresenceColor, assigneeColor, priorityColor color.Color) string {
+func buildRowContent(checkbox, title, trailing, progress, detailsGlyph, agentPresence, assignee, priority string,
+	checkboxWidth, contentWidth int, agentPresenceColor, assigneeColor, priorityColor color.Color) string {
 	prefixWidth := checkboxWidth + 1
 	tableWidth := contentWidth - prefixWidth
 	if tableWidth < 1 {
 		tableWidth = 1
 	}
 
-	cols := computeTaskRowCols(tableWidth, checkboxWidth, status, progress, agentPresence, assignee, priority)
+	cols := computeTaskRowCols(tableWidth, checkboxWidth, progress, agentPresence, assignee, priority)
 
 	checkboxCell := lipgloss.NewStyle().Width(cols.checkbox).Render(checkbox)
 
@@ -1018,7 +995,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 	}
 	titleCell := lipgloss.NewStyle().Width(cols.title).Render(titleText)
 
-	var progressCell, agentPresenceCell, statusCell, detailsCell string
+	var progressCell, agentPresenceCell, detailsCell string
 	var assigneeCell, priorityCell string
 	if cols.progress > 0 && progress != "" {
 		progressCell = lipgloss.NewStyle().
@@ -1044,15 +1021,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 			Width(cols.agentPresence).
 			Render(chrome.Truncate(agentPresence, max(1, cols.agentPresence-1)))
 	}
-	if cols.status > 0 && status != "" {
-		// Fixed-width status column: the label is right-aligned so PENDING /
-		// IN PROGRESS / COMPLETE all end at the same column, and the trailing
-		// icon column begins at the same offset on every row.
-		statusCell = lipgloss.NewStyle().
-			Foreground(statusColor).
-			Width(cols.status).
-			Align(lipgloss.Right).
-			Render(chrome.Truncate(status, statusColWidth))
+	if cols.details > 0 {
 		// Fixed trailing icon column: the document glyph (or, for a row with no
 		// notes, a blank cell of the same width) right-aligned as the row's last
 		// cell — so noted and un-noted rows keep the same right edge.
@@ -1063,7 +1032,7 @@ func buildRowContent(checkbox, title, trailing, status, progress, detailsGlyph, 
 			Render(detailsGlyph)
 	}
 
-	parts := []string{checkboxCell, " ", titleCell, progressCell, agentPresenceCell, assigneeCell, priorityCell, statusCell, detailsCell}
+	parts := []string{checkboxCell, " ", titleCell, progressCell, agentPresenceCell, assigneeCell, priorityCell, detailsCell}
 	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 }
 

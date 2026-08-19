@@ -7,7 +7,7 @@ sidebar:
 
 ## "Terminal too small"
 
-Below **40 columns by 10 rows** farol stops attempting the layout and renders a single centred `Terminal too small` line — nothing else, not even an open modal. Grow the terminal back over the threshold and the real layout returns on the next resize. 40 columns is where a task row still seats a checkbox, a title at its minimum width, and a status label.
+Below **40 columns by 10 rows** farol stops attempting the layout and renders a single centred `Terminal too small` line — nothing else, not even an open modal. Grow the terminal back over the threshold and the real layout returns on the next resize. 40 columns is where a task row still seats a checkbox and a title at its minimum width.
 
 ## The theme I set is not applied
 

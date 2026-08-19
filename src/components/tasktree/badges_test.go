@@ -177,18 +177,16 @@ func sgrPrefix(fg color.Color) string {
 
 // TestBadgeDropOrder pins the width budget with both new cells present:
 // every unit is atomic (full width or zero, never a fragment) and they shed in
-// the order docs/DESIGN.md §12 records — status+icon block, agent spinner,
-// assignee, priority, progress. Priority outliving the assignee is the point:
-// at 40 columns "what should I pick up next" outlives "who has it".
+// the order docs/DESIGN.md §12 records — icon+priority block, agent spinner,
+// assignee, progress. Priority outliving the assignee is the point: at 40
+// columns "what should I pick up next" outlives "who has it".
 func TestBadgeDropOrder(t *testing.T) {
 	const checkbox = 1
-	status := "IN PROGRESS"
 	progress := "42%"
 	agent := "claude"
 	assignee := assigneeBadge("claude", "")
 	priority := priorityLabel(apptypes.PriorityHigh)
 
-	statusFull := statusColWidth + 1
 	detailsFull := detailsColWidth + 1
 	progressFull := len(progress) + 1
 	agentFull := lipgloss.Width(agent) + 1
@@ -196,16 +194,13 @@ func TestBadgeDropOrder(t *testing.T) {
 	priorityFull := lipgloss.Width(priority) + 1
 
 	for width := 1; width <= 140; width++ {
-		cols := computeTaskRowCols(width, checkbox, status, progress, agent, assignee, priority)
+		cols := computeTaskRowCols(width, checkbox, progress, agent, assignee, priority)
 
 		if cols.assignee != 0 && cols.assignee != assigneeFull {
 			t.Fatalf("width %d: assignee = %d, want 0 or %d", width, cols.assignee, assigneeFull)
 		}
 		if cols.priority != 0 && cols.priority != priorityFull {
 			t.Fatalf("width %d: priority = %d, want 0 or %d", width, cols.priority, priorityFull)
-		}
-		if cols.status != 0 && cols.status != statusFull {
-			t.Fatalf("width %d: status = %d, want 0 or %d", width, cols.status, statusFull)
 		}
 		if cols.details != 0 && cols.details != detailsFull {
 			t.Fatalf("width %d: details = %d, want 0 or %d", width, cols.details, detailsFull)
@@ -218,14 +213,14 @@ func TestBadgeDropOrder(t *testing.T) {
 		}
 
 		// Drop order, each link of the chain.
-		// New order: status+priority shed together -> assignee -> agentPresence
-		// -> progress. Priority is the status label's adjacent state group, so
-		// it sheds with the status, not after the assignee.
-		if (cols.status == 0) != (cols.priority == 0) {
-			t.Fatalf("width %d: status=%d and priority=%d must shed together", width, cols.status, cols.priority)
+		// Order: details+priority shed together -> assignee -> agentPresence
+		// -> progress. Priority is the icon column's adjacent state group, so
+		// it sheds with the icon column, not after the assignee.
+		if (cols.details == 0) != (cols.priority == 0) {
+			t.Fatalf("width %d: details=%d and priority=%d must shed together", width, cols.details, cols.priority)
 		}
-		if cols.status != 0 && cols.assignee == 0 {
-			t.Fatalf("width %d: status kept but assignee shed", width)
+		if cols.details != 0 && cols.assignee == 0 {
+			t.Fatalf("width %d: icon+priority kept but assignee shed", width)
 		}
 		if cols.assignee != 0 && cols.agentPresence == 0 {
 			t.Fatalf("width %d: assignee kept but agent-spinner shed", width)
@@ -234,7 +229,7 @@ func TestBadgeDropOrder(t *testing.T) {
 			t.Fatalf("width %d: agent-spinner kept but progress shed", width)
 		}
 
-		sum := cols.title + cols.status + cols.details + cols.progress +
+		sum := cols.title + cols.details + cols.progress +
 			cols.agentPresence + cols.assignee + cols.priority
 		if sum > width {
 			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width, sum, width)
@@ -269,7 +264,7 @@ func TestRowWithBothBadgesNeverOverflows(t *testing.T) {
 		}
 		if width >= 140 {
 			stripped := ansi.Strip(rendered)
-			for _, want := range []string{"HIGH", "@pi", "claude", "IN PROGRESS", "63%"} {
+			for _, want := range []string{"HIGH", "@pi", "claude", "63%"} {
 				if !strings.Contains(stripped, want) {
 					t.Fatalf("width %d: expected %q in row: %q", width, want, stripped)
 				}
@@ -278,16 +273,18 @@ func TestRowWithBothBadgesNeverOverflows(t *testing.T) {
 	}
 }
 
-// TestPrioritySitsNextToStatus pins the render order of the right-aligned
+// TestPrioritySitsNextToIconColumn pins the render order of the right-aligned
 // block on a row that carries every badge: progress, agent spinner, assignee,
-// priority, status. Priority sits immediately left of the status label (the
-// ask "put task priority closer to the task status"), so the row reads as
-// "how much work, who is working, who owns it, what state" rather than
+// priority, then the trailing icon column. Priority sits immediately left of
+// the icon column (the ask "put task priority closer to the task status"
+// that motivated the position originally still holds now that the icon
+// column, not a status label, is what follows it), so the row reads as "how
+// much work, who is working, who owns it, what priority" rather than
 // scattering the priority badge in the middle (docs/DESIGN.md §12).
-func TestPrioritySitsNextToStatus(t *testing.T) {
+func TestPrioritySitsNextToIconColumn(t *testing.T) {
 	m := &Model{}
 	row := apptypes.Row{Task: apptypes.Task{
-		ID: "1", Title: "Paint the fence",
+		ID: "1", Title: "Paint the fence", Notes: "n",
 		Status: apptypes.StatusInProgress, ProgressKind: apptypes.ProgressPercentage,
 		ProgressPct: intPtr(63), Assignee: "pi", Priority: apptypes.PriorityHigh,
 	}}
@@ -305,7 +302,7 @@ func TestPrioritySitsNextToStatus(t *testing.T) {
 		"agentPresence": idx("hermes"),
 		"assignee":      idx("@pi"),
 		"priority":      idx("● HIGH"),
-		"status":        idx("IN PROGRESS"),
+		"icon":          idx(detailsIcon),
 	}
 	for name, i := range pos {
 		if i < 0 {
@@ -313,14 +310,14 @@ func TestPrioritySitsNextToStatus(t *testing.T) {
 		}
 	}
 	if !(pos["progress"] < pos["agentPresence"] && pos["agentPresence"] < pos["assignee"] &&
-		pos["assignee"] < pos["priority"] && pos["priority"] < pos["status"]) {
-		t.Fatalf("right block out of order (want progress < agentPresence < assignee < priority < status): %q", stripped)
+		pos["assignee"] < pos["priority"] && pos["priority"] < pos["icon"]) {
+		t.Fatalf("right block out of order (want progress < agentPresence < assignee < priority < icon): %q", stripped)
 	}
 	// Adjacency: nothing but cell padding between the priority badge and the
-	// status label; priority is the cell immediately left of status.
-	between := stripped[pos["priority"]+len("● HIGH") : pos["status"]]
+	// icon column; priority is the cell immediately left of it.
+	between := stripped[pos["priority"]+len("● HIGH") : pos["icon"]]
 	if strings.Trim(between, " ") != "" {
-		t.Fatalf("priority badge not immediately left of the status label, %q sits between them in: %q", between, stripped)
+		t.Fatalf("priority badge not immediately left of the icon column, %q sits between them in: %q", between, stripped)
 	}
 }
 

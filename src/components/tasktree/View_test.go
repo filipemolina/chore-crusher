@@ -33,30 +33,30 @@ func fgSeq(c color.Color) string {
 }
 
 // TestComputeTaskRowColsDropOrder pins the column budget's drop order. The
-// progress column and the status+icon right block are each atomic (full width
-// or zero, never a fragment), and the right block sheds *before* progress as
-// the table narrows: the title floor is what the shedding protects, and a row
-// still shows its status through the ◻/◼ glyph, its colour, and its section,
-// while the percentage appears nowhere else.
+// progress column and the icon+priority right block are each atomic (full
+// width or zero, never a fragment), and the right block sheds *before*
+// progress as the table narrows: the title floor is what the shedding
+// protects, and both the icon column and priority are recoverable elsewhere
+// (the Details modal, any priority-ordered view) while the percentage
+// appears nowhere else.
 //
 // That is the reverse of the order this test pinned when it was written,
 // against a budget that considered overflow alone; docs/DESIGN.md §12 now
 // records the floor-driven rule. The title and checkbox are never dropped:
 // the title is always at least one
-// column, and the checkbox keeps its fixed width. The status column is a fixed
-// statusColWidth and the icon column a fixed detailsColWidth, reserved
-// together regardless of notes.
+// column, and the checkbox keeps its fixed width. The icon column is a fixed
+// detailsColWidth, reserved regardless of notes.
 func TestComputeTaskRowColsDropOrder(t *testing.T) {
 	const checkbox = 1
-	status := "in progress" // any label -> fixed status column, statusColWidth+1
-	progress := "42%"       // 3 runes -> progress column = 4 (label + gap)
+	priority := "● HIGH" // any label -> reserved together with the icon column
+	progress := "42%"    // 3 runes -> progress column = 4 (label + gap)
 
-	statusFull := statusColWidth + 1
 	detailsFull := detailsColWidth + 1
+	priorityFull := lipgloss.Width(priority) + 1
 	progressFull := len(progress) + 1
 
 	for width := 1; width <= 120; width++ {
-		cols := computeTaskRowCols(width, checkbox, status, progress, "", "", "")
+		cols := computeTaskRowCols(width, checkbox, progress, "", "", priority)
 
 		// checkbox is fixed identity, never shed
 		if cols.checkbox != checkbox {
@@ -67,40 +67,37 @@ func TestComputeTaskRowColsDropOrder(t *testing.T) {
 			t.Fatalf("width %d: title = %d, want >= 1", width, cols.title)
 		}
 		// atomic columns: a non-zero column has its full width, never a fragment
-		if cols.status != 0 && cols.status != statusFull {
-			t.Fatalf("width %d: status = %d, want 0 or %d", width, cols.status, statusFull)
-		}
-		// the icon column is reserved whenever the status is, at its fixed width,
-		// with or without notes — that is what keeps rows aligned
 		if cols.details != 0 && cols.details != detailsFull {
 			t.Fatalf("width %d: details = %d, want 0 or %d", width, cols.details, detailsFull)
 		}
-		// the status and icon columns are one right block: they are present or
+		if cols.priority != 0 && cols.priority != priorityFull {
+			t.Fatalf("width %d: priority = %d, want 0 or %d", width, cols.priority, priorityFull)
+		}
+		// the icon column and priority are one right block: they are present or
 		// absent together, never one without the other
-		if (cols.status == 0) != (cols.details == 0) {
-			t.Fatalf("width %d: status=%d and details=%d must shed together", width, cols.status, cols.details)
+		if (cols.details == 0) != (cols.priority == 0) {
+			t.Fatalf("width %d: details=%d and priority=%d must shed together", width, cols.details, cols.priority)
 		}
 		if cols.progress != 0 && cols.progress != progressFull {
 			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
 		}
-		// drop order: the right block before progress -> a kept status implies a
-		// kept progress, and the percentage outlives the label
-		if cols.status != 0 && cols.progress == 0 {
+		// drop order: the right block before progress -> a kept icon column
+		// implies a kept progress, and the percentage outlives the rest
+		if cols.details != 0 && cols.progress == 0 {
 			t.Fatalf("width %d: right block kept but progress shed (wrong drop order)", width)
 		}
-		// no overflow: title+status+details+progress fit the table budget (checkbox
-		// lives in the prefix, not the table budget)
-		if cols.title+cols.status+cols.details+cols.progress > width {
+		// no overflow: title+details+priority+progress fit the table budget
+		// (checkbox lives in the prefix, not the table budget)
+		if cols.title+cols.details+cols.priority+cols.progress > width {
 			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
-				cols.title+cols.status+cols.details+cols.progress, width)
+				cols.title+cols.details+cols.priority+cols.progress, width)
 		}
 	}
 }
 
 // TestRenderTaskRowNeverOverflows sweeps a full card across panel widths and
-// asserts the card never exceeds the panel, spans it exactly, keeps the bar
-// column and checkbox identity, and — when there is room — ends with the
-// right-aligned status label. This is the mechanical backstop for
+// asserts the card never exceeds the panel, spans it exactly, and keeps the
+// bar column and checkbox identity. This is the mechanical backstop for
 // docs/DESIGN.md §12's width sweep, extended for the card chrome.
 func TestRenderTaskRowNeverOverflows(t *testing.T) {
 	m := &Model{}
@@ -136,30 +133,17 @@ func TestRenderTaskRowNeverOverflows(t *testing.T) {
 		if !strings.HasPrefix(stripped, "▌") {
 			t.Fatalf("width %d: bar column missing from card: %q", width, stripped)
 		}
-		// The sweep row is in progress: its checkbox is the pending square —
-		// only complete rows use the filled square.
-		if !strings.Contains(stripped, "◻") {
+		// The sweep row is in progress: its checkbox is the same filled square
+		// complete uses, tinted StatusInProgress rather than StatusComplete.
+		if !strings.Contains(stripped, "◼") {
 			t.Fatalf("width %d: checkbox lost from row: %q", width, stripped)
 		}
-		if strings.Contains(stripped, "◼") || strings.Contains(stripped, "✔") {
-			t.Fatalf("width %d: in-progress row must not use a complete glyph: %q", width, stripped)
+		if !strings.Contains(rendered, fgSeq(appstyles.Active.StatusInProgress)) {
+			t.Fatalf("width %d: in-progress checkbox must draw in StatusInProgress: %q", width, stripped)
 		}
 		// At a generous width the whole title survives unmodified.
 		if width >= 120 && !strings.Contains(stripped, title) {
 			t.Fatalf("width %d: expected full title %q in row: %q", width, title, stripped)
-		}
-		// When there is room for the right block, the status is the last
-		// thing on the content line (right-aligned; the card's right-padding
-		// space is trimmed here). The card is a single line now that the
-		// vertical padding is gone.
-		//
-		// The threshold is 50 rather than 40 because this sweep row is
-		// claimed: its agent-presence unit is part of the budget this overflow
-		// sweep must exercise, and 50 leaves comfortable room for the title
-		// floor while the label is right-aligned (§12). An unclaimed row still
-		// keeps its label at 40.
-		if width >= 50 && !strings.HasSuffix(strings.TrimRight(stripped, " "), "IN PROGRESS") {
-			t.Fatalf("width %d: expected right-aligned IN PROGRESS suffix in: %q", width, stripped)
 		}
 		// A claimed row shows the full agent-presence unit un-clipped when there
 		// is room — never a fragment.
@@ -215,44 +199,46 @@ func TestSubtaskCardIsIndented(t *testing.T) {
 // fixed two-cell trailing icon column (decision 2; docs/DESIGN.md §12): the
 // column holds the notes glyph on the left and the comments glyph on the
 // right, each one cell, an absent glyph rendered as a single space. A
-// noted-only task ends in "PENDING 🗎 " (notes glyph, then a
-// blank for the absent comments glyph); a commented-only task ends in
-// "PENDING  🗨" (a blank for absent notes, then the comments glyph); a task
-// with both ends in "PENDING 🗎🗨"; and a clean task ends in "PENDING" with
-// two reserved blank cells after it. The glyph is the row's last visible cell.
+// noted-only row's icon column reads "🗎 " (notes glyph, then a blank for the
+// absent comments glyph); a commented-only row reads " 🗨" (a blank for
+// absent notes, then the comments glyph); a row with both reads "🗎🗨"
+// adjacent with nothing between them; a clean row shows neither glyph. The
+// column is the row's last cell regardless of title length — the title cell
+// pads out to its own reserved width first, so wantSubstring checks the icon
+// column's own glyph adjacency, not the title's.
 func TestDetailsIconInTrailingColumn(t *testing.T) {
 	testCases := []struct {
 		label         string
 		row           apptypes.Row
-		wantSuffix    string // right-trimmed last visible cell — the comments glyph or the status
-		wantSubstring string // a fixed slice to assert the two-glyph column renders in order
+		wantSuffix    string // right-trimmed last visible cell — the comments glyph or the title
+		wantSubstring string // confirms glyph adjacency/ordering within the icon column
 		notWant       string // a glyph that must NOT appear given this row's flags
 	}{
 		{
 			label:         "notes only",
 			row:           apptypes.Row{Task: apptypes.Task{ID: "1", Title: "has notes", Notes: "lots", Status: apptypes.StatusPending}},
-			wantSubstring: "PENDING 🗎 ", // notes glyph, then blank for absent comments
-			wantSuffix:    detailsIcon,  // notes glyph is the last non-blank cell
+			wantSubstring: detailsIcon + " ", // notes glyph, then blank for absent comments
+			wantSuffix:    detailsIcon,       // notes glyph is the last non-blank cell
 			notWant:       commentsIcon,
 		},
 		{
 			label:         "comments only",
 			row:           apptypes.Row{Task: apptypes.Task{ID: "2", Title: "has comments", Status: apptypes.StatusPending}, HasComments: true},
-			wantSubstring: "PENDING  " + commentsIcon, // blank for absent notes, then comments glyph
+			wantSubstring: " " + commentsIcon, // blank for absent notes, then comments glyph
 			wantSuffix:    commentsIcon,
 			notWant:       detailsIcon,
 		},
 		{
 			label:         "notes and comments",
 			row:           apptypes.Row{Task: apptypes.Task{ID: "3", Title: "both", Notes: "n", Status: apptypes.StatusPending}, HasComments: true},
-			wantSubstring: "PENDING 🗎" + commentsIcon,
+			wantSubstring: detailsIcon + commentsIcon, // the two glyphs adjacent, nothing between them
 			wantSuffix:    commentsIcon,
 		},
 		{
 			label:         "neither",
 			row:           apptypes.Row{Task: apptypes.Task{ID: "4", Title: "plain", Status: apptypes.StatusPending}},
-			wantSubstring: "PENDING   ", // two reserved blank cells
-			wantSuffix:    "PENDING",
+			wantSubstring: "plain",
+			wantSuffix:    "plain",
 			notWant:       detailsIcon, // neither glyph may appear
 		},
 	}
@@ -275,15 +261,15 @@ func TestDetailsIconInTrailingColumn(t *testing.T) {
 	}
 }
 
-// TestStatusColumnIsFixedWidth pins the fixed status column: rows of varying
-// status label length all place the trailing icon column at the same display
-// column — so the status label and the two-cell notes+comments glyph column
-// line up across rows regardless of the label's length (decision 2;
+// TestIconColumnIsFixedWidth pins the fixed trailing icon column: rows with
+// different titles and statuses all place it at the same display column,
+// since the reservation is a fixed width taken off the budget before the
+// title, not something the title's own length affects (decision 2;
 // docs/DESIGN.md §12). Every row here carries notes, so the notes glyph is
 // always present at a fixed column; commented rows must additionally place
 // the comments glyph immediately after it, so
 // the two share the fixed 2-cell trailing column.
-func TestStatusColumnIsFixedWidth(t *testing.T) {
+func TestIconColumnIsFixedWidth(t *testing.T) {
 	const width = 60
 	m := &Model{}
 	rows := []apptypes.Row{
@@ -295,7 +281,7 @@ func TestStatusColumnIsFixedWidth(t *testing.T) {
 	m.rows = rows
 
 	// The notes glyph (present on every row) must land at the same display
-	// column regardless of the status label's length — that is the fixed
+	// column regardless of the row's title or status — that is the fixed
 	// trailing column invariant from ui-improvements Commit 4.
 	notesCol := -1
 	for _, r := range rows {
@@ -332,24 +318,7 @@ func TestStatusColumnIsFixedWidth(t *testing.T) {
 	}
 }
 
-// TestStatusLabelCaps pins the all-caps status labels.
-func TestStatusLabelCaps(t *testing.T) {
-	cases := []struct {
-		status apptypes.Status
-		want   string
-	}{
-		{apptypes.StatusPending, "PENDING"},
-		{apptypes.StatusInProgress, "IN PROGRESS"},
-		{apptypes.StatusComplete, "COMPLETE"},
-	}
-	for _, c := range cases {
-		if got := statusLabel(c.status); got != c.want {
-			t.Errorf("statusLabel(%v) = %q, want %q", c.status, got, c.want)
-		}
-	}
-}
-
-// TestStatusFgComesFromTheme pins the status-label colors to the active
+// TestStatusFgComesFromTheme pins the bar-column status colors to the active
 // theme's tokens — never a literal hex.
 func TestStatusFgComesFromTheme(t *testing.T) {
 	if got := statusFg(apptypes.StatusPending); got != appstyles.Active.TextMuted {
@@ -388,8 +357,8 @@ func TestAgentPresenceFgRule(t *testing.T) {
 }
 
 // TestRenderRowShowsPresenceWhenClaimed pins the agent-presence render: a row
-// whose task is in m.work shows the agent name after the status label, and an
-// unclaimed row renders no agent-presence.
+// whose task is in m.work shows the agent name, and an unclaimed row renders
+// no agent-presence.
 func TestRenderRowShowsPresenceWhenClaimed(t *testing.T) {
 	m := &Model{
 		rows: []apptypes.Row{{Task: apptypes.Task{ID: "1", Title: "claimed", Status: apptypes.StatusPending}}},
@@ -403,9 +372,6 @@ func TestRenderRowShowsPresenceWhenClaimed(t *testing.T) {
 	if !strings.Contains(claimed, "claude") {
 		t.Errorf("claimed row must render the agent name, got: %q", claimed)
 	}
-	if !strings.Contains(claimed, "PENDING") {
-		t.Errorf("claimed row must keep its status label, got: %q", claimed)
-	}
 
 	m.work = map[string]apptypes.AgentActivity{}
 	free := ansi.Strip(m.renderRow(m.rows[0], 80, testBg, nil))
@@ -414,30 +380,31 @@ func TestRenderRowShowsPresenceWhenClaimed(t *testing.T) {
 	}
 }
 
-// TestAgentPresenceUnitShedsAfterStatus pins the drop order with a claimed row:
-// each unit is atomic (full width or zero, never a fragment), the status+icon
-// block sheds first, then the agent-presence unit, and the percentage last.
+// TestAgentPresenceUnitShedsAfterIconColumn pins the drop order with a claimed
+// row: each unit is atomic (full width or zero, never a fragment), the
+// icon+priority block sheds first, then the agent-presence unit, and the
+// percentage last.
 //
 // An earlier design ordered these the other way round (progress, then
-// agent-presence, then status), when the only constraint was overflow. The
-// title floor reverses it: the label is the cheapest thing to lose and the
-// percentage the dearest. The agent-presence unit's position relative to
-// status and progress is unchanged — it is still the middle one — so that
-// design's actual point, that the agent-presence unit is atomic and never
-// clipped, still holds here.
-func TestAgentPresenceUnitShedsAfterStatus(t *testing.T) {
+// agent-presence, then the status label), when the only constraint was
+// overflow. The title floor reverses it: the icon column and priority are the
+// cheapest things to lose and the percentage the dearest. The agent-presence
+// unit's position relative to the right block and progress is unchanged — it
+// is still the middle one — so that design's actual point, that the
+// agent-presence unit is atomic and never clipped, still holds here.
+func TestAgentPresenceUnitShedsAfterIconColumn(t *testing.T) {
 	const checkbox = 1
-	status := "IN PROGRESS" // any label -> fixed status column, statusColWidth+1
-	progress := "42%"       // 3 runes -> progress column = 4 (label + gap)
+	priority := "● HIGH" // any label -> reserved together with the icon column
+	progress := "42%"    // 3 runes -> progress column = 4 (label + gap)
 	agent := "claude"
 
-	statusFull := statusColWidth + 1
 	detailsFull := detailsColWidth + 1
+	priorityFull := lipgloss.Width(priority) + 1
 	progressFull := len(progress) + 1
 	agentFull := lipgloss.Width(agent) + 1
 
 	for width := 1; width <= 120; width++ {
-		cols := computeTaskRowCols(width, checkbox, status, progress, agent, "", "")
+		cols := computeTaskRowCols(width, checkbox, progress, agent, "", priority)
 
 		if cols.progress != 0 && cols.progress != progressFull {
 			t.Fatalf("width %d: progress = %d, want 0 or %d", width, cols.progress, progressFull)
@@ -445,25 +412,25 @@ func TestAgentPresenceUnitShedsAfterStatus(t *testing.T) {
 		if cols.agentPresence != 0 && cols.agentPresence != agentFull {
 			t.Fatalf("width %d: agent-spinner = %d, want 0 or %d", width, cols.agentPresence, agentFull)
 		}
-		if cols.status != 0 && cols.status != statusFull {
-			t.Fatalf("width %d: status = %d, want 0 or %d", width, cols.status, statusFull)
-		}
 		if cols.details != 0 && cols.details != detailsFull {
 			t.Fatalf("width %d: details = %d, want 0 or %d", width, cols.details, detailsFull)
 		}
-		// Drop order: the status+icon block first, then agent-spinner, then
+		if cols.priority != 0 && cols.priority != priorityFull {
+			t.Fatalf("width %d: priority = %d, want 0 or %d", width, cols.priority, priorityFull)
+		}
+		// Drop order: the icon+priority block first, then agent-spinner, then
 		// progress. A unit kept while an earlier one is shed is the wrong order —
-		// status must not outlive the agent-spinner, nor the agent-spinner the
-		// percentage.
-		if cols.status != 0 && cols.agentPresence == 0 {
-			t.Fatalf("width %d: status kept but agent-spinner shed (wrong drop order)", width)
+		// the right block must not outlive the agent-spinner, nor the
+		// agent-spinner the percentage.
+		if cols.details != 0 && cols.agentPresence == 0 {
+			t.Fatalf("width %d: right block kept but agent-spinner shed (wrong drop order)", width)
 		}
 		if cols.agentPresence != 0 && cols.progress == 0 {
 			t.Fatalf("width %d: agent-spinner kept but progress shed (wrong drop order)", width)
 		}
-		if cols.title+cols.progress+cols.agentPresence+cols.status+cols.details > width {
+		if cols.title+cols.progress+cols.agentPresence+cols.details+cols.priority > width {
 			t.Fatalf("width %d: cols sum %d > table width %d (overflow)", width,
-				cols.title+cols.progress+cols.agentPresence+cols.status+cols.details, width)
+				cols.title+cols.progress+cols.agentPresence+cols.details+cols.priority, width)
 		}
 	}
 }

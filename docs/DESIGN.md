@@ -1820,46 +1820,45 @@ Two rules follow from that ordering:
 - **A gutter of one column** (`titleGutter`) is reserved at the end of the
   title cell, so an ellipsised title can never touch the cell after it. It is
   reserved *inside* the title cell rather than added as a column of its own,
-  which is what keeps the status and icon columns at the fixed offsets every
-  row aligns on. The status label is right-aligned in its fixed column, so
-  labels of different lengths start at different columns and **end** at the
-  same one; the icon column after it is what makes every row's right edge
-  identical.
+  which is what keeps the passengers and the icon column at the fixed offsets
+  every row aligns on. The icon column is the row's last cell, right-aligned
+  within its own fixed width, so every row's right edge lands in the same
+  place whether or not the row carries a glyph.
 - **A title floor of 12 columns** (`titleFloor`). When the reserved cells
   would squeeze the title below it, the passengers shed whole — never as
-  fragments — in this order: the **status+icon block and the priority badge
-  together first**, then the **assignee badge**, then the agent-spinner
-  unit, and the **percentage last**, which sheds only to stop
-  the row overflowing. Priority sheds with the status, not after the
-  assignee: since the priority badge renders immediately left of the status
-  label they read as one state group, and a narrow row keeping the badge
-  while dropping the label would read as a floating `● HIGH` with no state
-  next to it. At 40 columns the question "who is actively working" and "who
-  owns it" still outlive "what should I pick up next", and the assignee is
-  still readable in the Details modal and over every CLI read (§9).
-  That order is deliberate and is the reverse of what the
-  row layout originally specified: the first version budgeted for overflow
-  alone, with no notion of a floor, so a narrow
-  row spent eleven columns on `IN PROGRESS` while the title shrank to a stub.
-  Dropping the label costs the user nothing — the row still carries its status
-  in the `◻`/`◼` glyph, in its foreground colour, and in the Pending/Complete
-  section it sits in — whereas the percentage appears nowhere else on the row.
+  fragments — in this order: the **trailing icon column and the priority
+  badge together first**, then the **assignee badge**, then the
+  agent-spinner unit, and the **percentage last**, which sheds only to stop
+  the row overflowing. The icon column and priority shed first because both
+  are recoverable elsewhere — the notes/comments glyphs are one `enter` away
+  in the Details modal, and priority reads from any priority-ordered view —
+  so losing them first costs the user the least. At 40 columns the question
+  "who is actively working" and "who owns it" still outlive "what should I
+  pick up next", and the assignee is still readable in the Details modal and
+  over every CLI read (§9). That order is deliberate and is the reverse of
+  what the row layout originally specified: the first version budgeted for
+  overflow alone, with no notion of a floor, so a narrow row spent columns on
+  passengers the row could recover elsewhere while the title shrank to a
+  stub. An earlier version of this row also carried a status label in the
+  shedding order; the label was removed from the row entirely rather than
+  merely shed, because it duplicated information the row already carries in
+  the `◻`/`◼` checkbox glyph, its colour, and the Pending/Complete section
+  the row sits in (see the glyph vocabulary below).
   Those two plan files are superseded on this point; this section is the rule.
 
 The indent, collapse marker and checkbox are the row's identity and are never
 shed, and the title is never dropped below one column. `tasktree`'s width-sweep
 tests assert, across a sweep of panel widths, that a row never overflows, that
 every unit is shed whole or not at all, that an ellipsised title always has a
-blank cell after it, and that every row ends its status label at the same
+blank cell after it, and that every row ends its icon column at the same
 column.
 
 ### Below the minimum size: one line, not a broken layout
 
 The smallest terminal the app supports is **40 columns by 10 rows**
 (`constants.MIN_TERMINAL_WIDTH` / `MIN_TERMINAL_HEIGHT`). 40 columns is where a
-task row still seats a checkbox, a title at its `titleFloor`, and a status
-label; 10 rows is a header, a footer, a section header, and enough body left to
-be worth drawing.
+task row still seats a checkbox and a title at its `titleFloor`; 10 rows is a
+header, a footer, a section header, and enough body left to be worth drawing.
 
 Below **either** dimension the app stops attempting the layout and renders a
 single line — **`Terminal too small`** — centred on both axes on the frame's
@@ -1880,19 +1879,19 @@ one is needed, it's added here first.
 | Meaning | Glyph | Notes |
 | --- | --- | --- |
 | Task: pending | `◻` | Text-presentation square — the checkbox character Claude Code's todo lists use (`figures.squareSmall`, verified from its source, 2026-08-03). Single display cell, unlike the emoji ⬜ (2 cells). |
-| Task: in progress | `◻` | The same text-presentation square as pending — no dedicated glyph; the `IN PROGRESS` label and bar colour set the row apart. Used for all three progress kinds (§3) alike — the trailing percentage (below), not the checkbox, is what distinguishes them. |
-| Task: farol | `◼` | Filled square (`figures.squareSmallFilled`), tinted `StatusComplete`; title renders in `TextMuted`, not `TextPrimary`, once farol — see Typography below. |
+| Task: in progress | `◼` | The same filled square (`figures.squareSmallFilled`) complete uses, tinted `StatusInProgress` (amber) instead of `StatusComplete`; title stays `TextPrimary`, unlike complete's `TextMuted` — see Typography below. Reuses the complete glyph rather than a dedicated one: four candidate glyphs (half-filled square both orientations, half circle, hourglass) were tested live in the real app against real terminal fonts and every one rendered wrong — narrow vertical bars, checkmark/flag-looking icons, a bold X reading as "error". Rare Unicode Geometric Shapes codepoints get far less font-hinting attention than the common hollow/filled square pair, so reusing the already-proven-correct filled square sidesteps the problem entirely (2026-08-19). Used for all three progress kinds (§3) alike — the trailing percentage (below), not the checkbox, is what distinguishes them. |
+| Task: complete | `◼` | Filled square (`figures.squareSmallFilled`), tinted `StatusComplete`; title renders in `TextMuted`, not `TextPrimary`, once complete — see Typography below. |
 | Node has children, expanded | `▾` | One column wide, appended to the *end* of the title (see Row layout below). |
 | Node has children, collapsed | `▸` | Same column, same position — the marker never occupies a leading column, so a parent's title starts at its own depth. |
 | Node is a leaf | *(no glyph)* | Nothing appended; the title simply has no trailing marker. |
-| Task has detail text | `🗎` | U+1F5CE DOCUMENT, left half of the fixed two-cell trailing icon column, immediately right of the status column, in `TextMuted`; the column is reserved on every row and the notes cell is rendered blank when `Notes` is empty, so noted and un-noted rows keep the same right edge. The column is two cells because it pairs with the comments glyph (below). Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
+| Task has detail text | `🗎` | U+1F5CE DOCUMENT, left half of the fixed two-cell trailing icon column, immediately right of the priority badge, in `TextMuted`; the column is reserved on every row and the notes cell is rendered blank when `Notes` is empty, so noted and un-noted rows keep the same right edge. The column is two cells because it pairs with the comments glyph (below). Measures one cell in go-runewidth, but it is an emoji codepoint: emoji-capable terminal fonts may render it two cells or tofu — accepted tradeoff, the `✎`/`ⓘ` alternatives were rejected in favour of the literal "document" reading (2026-08-03). |
 | Task has comments | `🗨` | U+1F5E8 LEFT SPEECH BUBBLE, right half of the fixed two-cell trailing icon column, in `TextMuted`; the cell is blank when the task has no comments. `💬` (U+1F4AC) was the natural choice but measures two cells in go-runewidth (v0.0.23), which would have widened the column past its partner glyph — `🗨` is the one-cell form (2026-08-06). Absent a comment the cell is blank. `HasComments` is set per-row by `RefreshTasks` from `store.TaskIDsWithComments`. |
 | Row card: active bar | `▌` | Left edge marker on lists and task rows. Accent when the row is selected (or the inline input is active), otherwise the row's own status color — see Row layout below. |
 | Add-input level: sibling (default) | `-` | §4. |
 | Add-input level: child | `+` | §4. |
 | Add-input level: parent-of-selection | `^` | §4. |
 | Trailing derived/percentage progress | ` (NN%)` | In `TextDim`, rendered at the start of the row's right-aligned block, immediately left of the agent spinner; omitted entirely when `DerivedProgress` reports `displayAsSimple` (§3), never rendered as `(0%)` in that case. |
-| Task priority | ` ● HIGH` / ` ● MED` / ` ● LOW` | All caps, like the status label, with a coloured rank dot, in a content-width cell in the right-aligned block immediately left of the status label. **`none` renders nothing at all**, since most tasks are `none` and a badge on every row is noise rather than information, so the cell is not reserved and rows do not align on it, unlike the fixed status column. The badge is drawn in the theme's status tokens rather than its text tiers: `high` on `StatusOverdue` (red), `medium` on `StatusInProgress` (amber), `low` on `StatusPending` (grey). The colour ladder is the signal; the all-caps label keeps the status label's register so the badge reads as a sibling of the status it sits next to. `tasktree.priorityLabel`/`priorityFg`. |
+| Task priority | ` ● HIGH` / ` ● MED` / ` ● LOW` | All caps, with a coloured rank dot, in a content-width cell in the right-aligned block immediately left of the trailing icon column. **`none` renders nothing at all**, since most tasks are `none` and a badge on every row is noise rather than information, so the cell is not reserved and rows do not align on it, unlike the fixed icon column. The badge is drawn in the theme's status tokens rather than its text tiers: `high` on `StatusOverdue` (red), `medium` on `StatusInProgress` (amber), `low` on `StatusPending` (grey). The colour ladder is the signal; the all-caps label reads as a sibling of the row's other state indicators. `tasktree.priorityLabel`/`priorityFg`. |
 | Task assignee | ` @tag` | The durable holder of a task (§3), in the right-aligned block immediately right of the agent spinner; the two are adjacent on purpose, because "assigned, but nobody is here" is only legible as a gap between them. The tag is clipped through `chrome.Truncate` to seven cells so one long agent identity cannot push the right block across the row, and an unassigned task renders nothing. `tasktree.assigneeBadge`. |
 | Task assignee: stale | ` @tag` in `StatusOverdue` | The **stale-assignment tier**: `assignee != ""` **and** no live presence claim by that agent (§3). Assignment has no TTL and no background sweeper, and a session releases its own work as it exits, so this badge marks the one case left: a session killed before it could clean up. It is the only thing on screen that distinguishes abandoned work from work merely owned, and the human's `u`/`U` release keys (§5) are the only thing that clears it. Rare by design, not routine. `StatusOverdue` is reused rather than a new token added — it is the same "a human needs to look at this" tier the Details modal and the search picker already draw their error lines in. The live-agent set is read **once per refresh** from the activity set the poll already carries, never per row. `tasktree.assigneeFg`. |
 | Agent is working | `⠋⠙⠹⠸⠼⠴⠦⠧` | 1-cell braille spinner, animated via `AnimTickMsg`; draws `Accent` when the row is focused/selected, `TextDim` otherwise. Rendered in the right-aligned block immediately left of the assignee badge when the row's entity is claimed. The `Spinner(frame int)` function lives in `src/components/chrome/Spinner.go`; no component invents its own glyph. |
@@ -1900,27 +1899,29 @@ one is needed, it's added here first.
 
 **Task rows are full-width cards**:
 a `▌` bar column, then `{2 spaces × depth}{checkbox}{space}{title}` on the
-left and the right-aligned `{progress}{agent spinner}{assignee}{priority}{status}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
+left and the right-aligned `{progress}{agent spinner}{assignee}{priority}` block, then the fixed two-cell trailing icon column (`{🗎}{🗨}`, each cell blank when its indicator is absent) at
 the line's end — the bar and checkbox sit flush, and every level of depth
 indents the *whole card* by two columns, so a subtask's bar steps right and no
 continuous vertical bar line forms. A parent's title carries the
 expand/collapse marker (`▾`/`▸`, one column, no space) at its end — before
 the right block when the title is long enough to reach it, dropped
 entirely when the title is shed for narrowness — and the whole right block
-sheds as a unit before the title does. The status label sits in a
-**fixed-width column** (the longest label, `IN PROGRESS`, 11 columns) with the
-label right-aligned inside it, so `PENDING` / `IN PROGRESS` / `COMPLETE` all
-end at the same column across rows; the document glyph (or, with no notes, its
-reserved blank cell) is the row's last cell, right of that column. The card spans
+sheds as a unit before the title does. The trailing icon column is a
+**fixed-width column** reserved on every row regardless of whether the row has
+notes or comments, right-aligned as the row's last cell, so every row's right
+edge lands at the same column. The card spans
 the panel body width with `Padding(0, 1, 0, 0)` — no vertical padding,
 content-height, so a one-line title makes a one-line card — and the
 selected row's `ModalBg` covers the full card, not just the text run.
-Status labels are all caps — `PENDING` in `TextMuted`, `IN PROGRESS` in
-`StatusInProgress`, `COMPLETE` in `StatusComplete` — and the bar is accent
+The checkbox itself carries the row's status: hollow `◻` in `TextMuted` for
+pending, filled `◼` in `StatusInProgress` for in progress (title stays
+`TextPrimary`), filled `◼` in `StatusComplete` for complete (title mutes to
+`TextMuted`) — and the bar is accent
 when the row is selected, the row's own status color otherwise. Under
-narrowness the status sheds before the progress, both whole; the title and
-checkbox are never shed. Depth-0 pending example (parent row):
-`▌◻ Buy paint for the fence ▾             PENDING`.
+narrowness the icon column and priority shed together first, then the
+assignee badge, then the agent-spinner unit, then progress, all whole; the
+title and checkbox are never shed. Depth-0 pending example (parent row):
+`▌◻ Buy paint for the fence ▾`.
 
 Section headers (`Pending`, `Complete` — §6) render as `{bold TextPrimary}
 {section name} {dim count in parens}`, e.g. **Pending** `(3)` — the same
@@ -1993,12 +1994,12 @@ of text uses is a rule, not a per-component judgment call:
 - **`TextDim`** — inert or placeholder text: an empty-state's message, a
   disabled key hint, the add-input's placeholder text before anything is
   typed, the trailing progress percentage in a task row.
-- **Status labels** — the one place a status token, not a text tier, styles
-  text: `PENDING` renders in `TextMuted`, `IN PROGRESS` in
-  `StatusInProgress`, `COMPLETE` in `StatusComplete` (the same tokens the
-  checkbox already draws). The three text tiers carry no semantic
-  success/warning color, which is why the theme holds these tokens
-  separately.
+- **The checkbox glyph** — the one place a status token, not a text tier,
+  styles a glyph: in progress renders `StatusInProgress`, complete renders
+  `StatusComplete` (the same tokens the row's bar column already draws when
+  unselected); pending uses `TextMuted`, an ordinary text tier. The three
+  text tiers carry no semantic success/warning color, which is why the theme
+  holds the status tokens separately.
 
 Do not introduce a fourth informal tier (a hand-picked opacity, a literal
 gray hex) for "something in between" — if the three don't cover a case,

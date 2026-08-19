@@ -13,7 +13,7 @@ The TUI is two body surfaces — **Lists** on the left, **Tasks** on the right �
 
 The Tasks panel is a tree, not a flat list. Tasks nest to any depth, and the tree renders them indented, with an expand/collapse marker on any node that has children.
 
-![The task tree: nested tasks with expand/collapse markers and status labels](/screenshot-tree.png)
+![The task tree: nested tasks with expand/collapse markers](/screenshot-tree.png)
 
 - `↑`/`↓` (or `k`/`j`) move the cursor across every *visible* row — a collapsed node's children are not visible rows and are skipped.
 - `→`/`l` expands the selected node if it has children and is collapsed, else moves to its first child.
