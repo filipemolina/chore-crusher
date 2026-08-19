@@ -1,7 +1,8 @@
 # VHS tape for the theme picker live preview demo.
 # Records: open theme picker (T) → navigate themes with ↑/↓ showing live preview
 # → select a theme (enter) → modal closes.
-# Shows 4 themes including farol-day (light) and farol-dark (dark).
+# Shows the three brand themes: farol-dark (default), farol-day (light), and
+# farol-dusk (second dark variant).
 #
 # Uses a dedicated temp dir /tmp/farol-demo-themes so it never collides with
 # other concurrent recordings.
@@ -53,23 +54,15 @@ Sleep 1500ms
 # Start on farol-dark (default). Hold to show it.
 Sleep 1000ms
 
-# Down to farol-ember (dark)
-Down
-Sleep 1200ms
-
-# Down to farol-slate (dark)
-Down
-Sleep 1200ms
-
 # Down to farol-day (light) — the light theme
+Down
+Sleep 1200ms
+
+# Down to farol-dusk (second dark variant)
 Down
 Sleep 1500ms
 
-# Up back to farol-slate
-Up
-Sleep 1000ms
-
-# Up to farol-ember
+# Up back to farol-day
 Up
 Sleep 1000ms
 

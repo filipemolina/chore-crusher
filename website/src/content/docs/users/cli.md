@@ -110,13 +110,13 @@ Every id in that transcript is an 8-character prefix. Everything after the prefi
 
 | Command | What it does |
 | --- | --- |
-| `farol tasks <list-id>` | List a list's tasks as a tree, with `Pending (N)` / `Complete (N)` sections. `--status pending\|in_progress\|complete\|all` filters by root status; `--flat` prints `id<TAB>status<TAB>title` per line. |
-| `farol add <list-id> <title>` | Add a task; prints its id. `--parent <task-id>` makes it a subtask, `--notes <text>` sets notes, `--force` allows adding to a list owned by another agent or by nobody. |
-| `farol show <task-id> [<task-id> …]` | Show one or more tasks (up to 50): title, notes, status, progress, children, comments, attachments. |
+| `farol tasks <list-id>` | List a list's tasks as a tree, with `Pending (N)` / `Complete (N)` sections. `--status pending\|in_progress\|complete\|all` filters by root status; `--flat` prints `id<TAB>status<TAB>title` per line; `--since <unix-seconds>` returns only tasks whose activity changed strictly after that time (widens the default status filter to `all`); `--include notes,comments` inlines those fields on each row, capped by a byte budget with over-budget rows named in `elided`. |
+| `farol add <list-id> <title> [<title> …]` | Add one or more tasks, all sharing the same `--parent` and `--notes`. One title prints `{"id": "…"}`; more than one prints `{"ids": [ … ]}` in input order. `--parent <task-id>` makes them subtasks, `--notes <text>` sets notes on every task in the batch, `--force` allows adding to a list owned by another agent or by nobody. A failure partway through a batch leaves the earlier tasks already created. |
+| `farol show <task-id> [<task-id> …]` | Show one or more tasks (up to 50): title, notes, status, progress, children, comments, attachments. A single bad id is a hard failure (exit `1`); with two or more ids, a bad one returns a per-row `{id, error}` and the rest still succeed. |
 | `farol rename <task-id> <title>` | Rename a task. |
 | `farol notes <task-id> <text>` | Replace a task's notes (whole text, not append). |
-| `farol complete <task-id> [<task-id> …]` | Mark one or more tasks complete (cascades to descendants). `farol <task-id>` is the single-task shorthand. |
-| `farol reopen <task-id> [<task-id> …]` | Mark one or more tasks pending (does not cascade). |
+| `farol complete <task-id> [<task-id> …]` | Mark one or more tasks complete (cascades to descendants). `farol <task-id>` is the single-task shorthand. One id keeps the plain `{"ok": true}` shape; two or more (up to 50) print a per-id `{id, ok}` or `{id, error}` array so one bad id doesn't sink the batch. |
+| `farol reopen <task-id> [<task-id> …]` | Mark one or more tasks pending (does not cascade). Same batch shape as `complete`. |
 | `farol toggle <task-id>` | Complete ↔ reopen, whichever applies. |
 | `farol comment <task-id> <note>` | Add a comment; prints its id. |
 | `farol comment rm <comment-id> --force` | Delete a comment. |
@@ -147,7 +147,7 @@ Assignment reserves the subtree: it is refused when any ancestor or descendant i
 | Command | What it does |
 | --- | --- |
 | `farol mv <task-id> [--parent <task-id>]` | Re-parent a task. An empty `--parent` — the flag's default, so omitting it entirely — moves the task to the list root. A cross-list parent is rejected, as is a move that would create a cycle or put a non-complete task under a complete parent. |
-| `farol rm <task-id> --force` | Delete a task and its descendants. |
+| `farol rm <task-id> [<task-id> …] --force` | Delete one or more tasks (up to 50) and their descendants. One id keeps the plain `{"ok": true}` shape; two or more print a per-id `{id, ok}` or `{id, error}` array. |
 
 ### Attachments
 
@@ -158,6 +158,17 @@ Assignment reserves the subtree: it is refused when any ancestor or descendant i
 | `farol detach <attachment-id>` | Remove an attachment. |
 
 The store only ever holds a path reference, never file content — `farol show <task-id>` lists a task's attachments alongside its other fields, but opening or moving the underlying file is left to you.
+
+### Mentions
+
+A title, notes body, or comment can reference another task by writing `@<task-id>` — but **the id must be the full 26-character ULID, not a prefix**, the one place in the CLI where the id-prefix rule (rule 4, above) does not apply. `farol add <list-id> "fixes @01ARZ3NDEKTSV4RRFFQ69G5FAV"` validates the reference at write time; a mention pointing at an id that doesn't resolve to an existing task is a domain error, the same as any other bad-reference write.
+
+A stored mention renders differently depending on where you read it from:
+
+- **Human mode** (`tasks`, `show`, `diff`) substitutes the mentioned task's title inline: `@Ship auth v2`. A mention whose target has since been deleted renders `[deleted task]`.
+- **`--json` mode** leaves the raw `@<ULID>` text untouched in `title`/`notes`/a comment's `note`, and carries the resolved detail alongside it as parallel metadata: `title_mentions` and `notes_mentions` on a task, `mentions` on each comment. Each entry is `{"id", "title", "start", "end", "deleted"}` — `start`/`end` are byte offsets into the source text, `title` is `null` and `deleted` is `true` for a mention whose target no longer exists.
+
+The TUI mirrors the same validation on write, but only the Details modal's Notes zone renders a mention as a resolved, accent-highlighted title when the zone isn't focused — switching into Notes to edit shows the raw `@<ULID>` text, and the Title field and comment cards always show raw text. See [The TUI](/users/tui/#the-details-modal).
 
 ### Search
 
@@ -178,11 +189,25 @@ The store only ever holds a path reference, never file content — `farol show <
 | --- | --- |
 | `farol inbox [--include notes]` | Start-of-session context: your list plus every foreign list, each with its top 20 pending tasks. Read-only and non-interactive — claims no presence. |
 | `farol work` | Live presence claims: who is working on which task or list right now. Read-only. |
+| `farol work clean [--agent <tag>] [--older-than <duration>]` | Delete stale presence claims — rows past the 120s TTL, the on-demand version of the opportunistic prune every claim/release already does. `--agent` alone clears that agent's claims regardless of age; add `--older-than` to narrow both together. Neither flag: sweep everything past the TTL. |
 | `farol claim <task-id\|list-id> [--kind working\|inspecting]` | Claim presence on an entity (lights the TUI spinner). A claim held by another agent is a domain error — never silently stolen. |
 | `farol release <task-id\|list-id> [--all]` | Release presence on an entity, or `--all` to clear every claim this agent holds. A no-op when the agent does not hold the claim. |
 | `farol next <list-id>` | Grab and show the top eligible task — highest priority, then tree order — assigning it to the current agent atomically. An empty board is a normal state, not an error. |
-| `farol diff <list-id> [--since <unix-seconds>]` | Return tasks added or changed since a timestamp. Cheap to loop on for a polling agent. |
+| `farol diff <list-id> [<timestamp>] [--since <unix-seconds>]` | Return tasks added or changed since a timestamp (unix seconds), given positionally or with `--since` — the positional form wins when both are given. Cheap to loop on for a polling agent. |
+| `farol watch <task-id\|list-id> [--since <unix-seconds>] [--interval <duration>]` | Long-poll the store and print one line per change until Ctrl+C — the real-time counterpart to `diff`. A list target reports every task created, updated, or deleted in it, plus renames, owner changes, and the collaborative/comments-disabled toggles; a task target reports only that task's own changes (including new comments) and its deletion. `--json` emits one JSON value **per line**, a deliberate exception to the one-value-per-invocation rule, since a watch is a stream, not a single payload. `--since` replays every change after that timestamp on the first poll, then continues live; `--interval` overrides the 1s poll cadence. |
+| `farol status` | Store health snapshot: list/task counts, the pending/in_progress/complete breakdown, the store file's size, the highest applied migration, and the resolved config path. The first thing to run when a store looks wrong. |
 | `farol skill` | Print the agent command reference (markdown) — the identity contract, the write surface, and the `--json` contract. Pipe into your agent's context. |
+| `farol agent` / `farol agent help` | Print the agent interaction protocol (markdown) — the minimal working loop (`FAROL_AGENT`, `next`, `progress`, `complete`, `unassign`, `work`) that `farol skill`'s full reference is built around. Useful when you want the working subset rather than every command. |
+
+### Config
+
+| Command | What it does |
+| --- | --- |
+| `farol config get <key>` | Print one config value's effective setting (`theme` or `poll_interval_ms`) — the stored value, or the compiled default when the file leaves it unset. |
+| `farol config set <key> <value>` | Set one config value and save the file; echoes `{"ok": true, "key": "…", "value": …}`. Setting one key never drops the other. |
+| `farol config list` | Print every effective config value as a table (or a JSON array of `{key, value}`). |
+
+`farol config` edits `~/.config/farol/config.yaml` directly — the same file the TUI's theme picker writes to — so a script can change the default theme or poll interval without hand-editing YAML. See [Configuration](/users/configuration/).
 
 Presence is orthogonal to assignment: a claim lights the TUI spinner but does not move a task to `in_progress` and is not ownership. Who *owns* a task is the row's `assignee` field, a separate axis.
 
@@ -194,6 +219,7 @@ The shapes below are part of the contract:
 - **`lists`**: `[{"id", "name", "pending", "complete", "created_at"}]`.
 - **`tasks`**: a flat preorder array — `[{"id", "parent_id", "title", "status", "progress", "depth", "assignee", "priority"}]` — in both `--flat` and tree modes. `parent_id` + `depth` let a caller reassemble the tree.
 - **`show`**: the task's fields, its `progress`, and `children` as the same row array `tasks` emits, depth relative to the shown task.
+- **Mentions**: a task carries `title_mentions` and `notes_mentions`, each `[{"id", "title", "start", "end", "deleted"}]`; a comment carries `mentions` in the same shape. The source text (`title`/`notes`/`note`) is left with the raw `@<ULID>` — resolution is a parallel field, never a text rewrite, in `--json` mode.
 - **`assign` / `unassign` / `priority`**: each echoes the field it wrote — `{"ok": true, "assignee": "pi"}`, `{"ok": true, "assignee": ""}`, `{"ok": true, "released": <n>}`, `{"ok": true, "priority": "high"}` — so a caller never needs a follow-up `show`.
 - **`progress`**: `{"kind", "percent", "display_as_simple"}` — `percent` is `null` whenever the kind has nothing to display.
 - **`search`**: `[{"id", "list_id", "list_name", "title", "status", "progress", "assignee", "priority"}]`.

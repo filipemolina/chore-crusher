@@ -114,10 +114,10 @@ func writeConfig(t *testing.T, cfgHome, body string) string {
 func TestConfigGetHuman(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	writeConfig(t, cfgHome, "theme: farol-ember\n")
+	writeConfig(t, cfgHome, "theme: farol-dusk\n")
 
-	if out := mustConfigCLI(t, "config", "get", "theme"); out != "farol-ember\n" {
-		t.Errorf("config get theme = %q, want %q", out, "farol-ember\n")
+	if out := mustConfigCLI(t, "config", "get", "theme"); out != "farol-dusk\n" {
+		t.Errorf("config get theme = %q, want %q", out, "farol-dusk\n")
 	}
 	if out := mustConfigCLI(t, "config", "get", "poll_interval_ms"); out != "1000\n" {
 		t.Errorf("config get poll_interval_ms = %q, want %q (default)", out, "1000\n")
@@ -125,15 +125,15 @@ func TestConfigGetHuman(t *testing.T) {
 }
 
 // TestConfigGetEffectiveDefaults pins the §8 fallback: with no config file
-// at all, get reports the compiled defaults (theme = farol-dark,
+// at all, get reports the compiled defaults (theme = farol-dusk,
 // poll_interval_ms = 1000) rather than empty or an error — a missing file is
 // a normal first-run state.
 func TestConfigGetEffectiveDefaults(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 
-	if out := mustConfigCLI(t, "config", "get", "theme"); out != "farol-dark\n" {
-		t.Errorf("get theme (no file) = %q, want %q", out, "farol-dark\n")
+	if out := mustConfigCLI(t, "config", "get", "theme"); out != "farol-dusk\n" {
+		t.Errorf("get theme (no file) = %q, want %q", out, "farol-dusk\n")
 	}
 
 	var theme struct {
@@ -141,8 +141,8 @@ func TestConfigGetEffectiveDefaults(t *testing.T) {
 		Value string `json:"value"`
 	}
 	mustConfigJSONCLI(t, &theme, "config", "get", "theme", "--json")
-	if theme.Key != "theme" || theme.Value != "farol-dark" {
-		t.Errorf("get theme --json = %+v, want {key:theme value:farol-dark}", theme)
+	if theme.Key != "theme" || theme.Value != "farol-dusk" {
+		t.Errorf("get theme --json = %+v, want {key:theme value:farol-dusk}", theme)
 	}
 
 	// poll_interval_ms is a number in the file, so it is a number here too —
@@ -180,11 +180,11 @@ func TestConfigSetRoundTrip(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 
-	if out := mustConfigCLI(t, "config", "set", "theme", "farol-ember"); out != "" {
+	if out := mustConfigCLI(t, "config", "set", "theme", "farol-dusk"); out != "" {
 		t.Errorf("set theme printed %q, want nothing in human mode", out)
 	}
-	if out := mustConfigCLI(t, "config", "get", "theme"); out != "farol-ember\n" {
-		t.Errorf("get theme after set = %q, want %q", out, "farol-ember\n")
+	if out := mustConfigCLI(t, "config", "get", "theme"); out != "farol-dusk\n" {
+		t.Errorf("get theme after set = %q, want %q", out, "farol-dusk\n")
 	}
 
 	if out := mustConfigCLI(t, "config", "set", "poll_interval_ms", "500"); out != "" {
@@ -201,7 +201,7 @@ func TestConfigSetRoundTrip(t *testing.T) {
 func TestConfigSetPreservesOtherField(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	writeConfig(t, cfgHome, "theme: farol-slate\n")
+	writeConfig(t, cfgHome, "theme: farol-dusk\n")
 
 	mustConfigCLI(t, "config", "set", "poll_interval_ms", "250")
 
@@ -210,7 +210,7 @@ func TestConfigSetPreservesOtherField(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	s := string(data)
-	if !strings.Contains(s, "farol-slate") {
+	if !strings.Contains(s, "farol-dusk") {
 		t.Errorf("saved config %q dropped the theme on a poll_interval_ms set", s)
 	}
 	if !strings.Contains(s, "250") {
@@ -240,11 +240,11 @@ func TestConfigSetJSONShape(t *testing.T) {
 	}
 
 	// The value is a number in JSON, not a quoted string.
-	code, out, errOut := runConfigCLI(t, "config", "set", "theme", "farol-ember", "--json")
+	code, out, errOut := runConfigCLI(t, "config", "set", "theme", "farol-dusk", "--json")
 	if code != 0 {
 		t.Fatalf("set theme --json: exit %d, stderr %q", code, errOut)
 	}
-	if want := `{"ok":true,"key":"theme","value":"farol-ember"}`; strings.TrimSpace(out) != want {
+	if want := `{"ok":true,"key":"theme","value":"farol-dusk"}`; strings.TrimSpace(out) != want {
 		t.Errorf("set theme --json = %s, want %s", strings.TrimSpace(out), want)
 	}
 }
@@ -255,7 +255,7 @@ func TestConfigSetJSONShape(t *testing.T) {
 func TestConfigListJSON(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	writeConfig(t, cfgHome, "theme: farol-ember\npoll_interval_ms: 250\n")
+	writeConfig(t, cfgHome, "theme: farol-dusk\npoll_interval_ms: 250\n")
 
 	var entries []struct {
 		Key   string `json:"key"`
@@ -265,8 +265,8 @@ func TestConfigListJSON(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("config list --json = %+v, want 2 entries", entries)
 	}
-	if entries[0].Key != "theme" || entries[0].Value != "farol-ember" {
-		t.Errorf("entry 0 = %+v, want theme/farol-ember", entries[0])
+	if entries[0].Key != "theme" || entries[0].Value != "farol-dusk" {
+		t.Errorf("entry 0 = %+v, want theme/farol-dusk", entries[0])
 	}
 	// JSON numbers unmarshal into any as float64.
 	if entries[1].Key != "poll_interval_ms" || entries[1].Value != float64(250) {
@@ -280,13 +280,13 @@ func TestConfigListJSON(t *testing.T) {
 func TestConfigListJSONExactShape(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	writeConfig(t, cfgHome, "theme: farol-ember\npoll_interval_ms: 250\n")
+	writeConfig(t, cfgHome, "theme: farol-dusk\npoll_interval_ms: 250\n")
 
 	code, out, errOut := runConfigCLI(t, "config", "list", "--json")
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, errOut)
 	}
-	want := `[{"key":"theme","value":"farol-ember"},{"key":"poll_interval_ms","value":250}]`
+	want := `[{"key":"theme","value":"farol-dusk"},{"key":"poll_interval_ms","value":250}]`
 	if strings.TrimSpace(out) != want {
 		t.Errorf("config list --json = %s, want %s", strings.TrimSpace(out), want)
 	}
@@ -297,14 +297,14 @@ func TestConfigListJSONExactShape(t *testing.T) {
 func TestConfigListHuman(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	writeConfig(t, cfgHome, "theme: farol-ember\npoll_interval_ms: 250\n")
+	writeConfig(t, cfgHome, "theme: farol-dusk\npoll_interval_ms: 250\n")
 
 	out := mustConfigCLI(t, "config", "list")
 	if !strings.Contains(out, "KEY") || !strings.Contains(out, "VALUE") {
 		t.Errorf("config list header = %q, want KEY VALUE", out)
 	}
-	if !strings.Contains(out, "theme") || !strings.Contains(out, "farol-ember") {
-		t.Errorf("config list = %q, want a theme/farol-ember row", out)
+	if !strings.Contains(out, "theme") || !strings.Contains(out, "farol-dusk") {
+		t.Errorf("config list = %q, want a theme/farol-dusk row", out)
 	}
 	if !strings.Contains(out, "poll_interval_ms") || !strings.Contains(out, "250") {
 		t.Errorf("config list = %q, want a poll_interval_ms/250 row", out)

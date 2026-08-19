@@ -81,8 +81,8 @@ func TestMigrateLegacyDirsMovesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cfg), "theme: farol-ember") {
-		t.Errorf("config.yaml = %q, want theme rewritten to farol-ember", cfg)
+	if !strings.Contains(string(cfg), "theme: farol-dusk") {
+		t.Errorf("config.yaml = %q, want theme rewritten to farol-dusk", cfg)
 	}
 	if strings.Contains(string(cfg), "crush-") {
 		t.Errorf("config.yaml = %q, still contains a pre-rename theme name", cfg)
@@ -166,7 +166,7 @@ func TestMigrateLegacyDirsThemeAlreadyFarol(t *testing.T) {
 	legCfg, _ := legacyFixture(t, cfgRoot, dataRoot)
 	// Overwrite the fixture's crush-ember config with one that already
 	// names the farol theme.
-	already := []byte("theme: farol-slate\npoll_interval_ms: 2000\n")
+	already := []byte("theme: farol-dusk\npoll_interval_ms: 2000\n")
 	if err := os.WriteFile(filepath.Join(legCfg, "config.yaml"), already, 0o644); err != nil {
 		t.Fatal(err)
 	}

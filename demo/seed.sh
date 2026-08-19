@@ -31,9 +31,10 @@ mkdir -p "$(dirname "$BIN")"
 go build -ldflags "$LDFLAGS" -o "$BIN" .
 
 # Pin the theme so frames don't depend on whatever the recorder's own config
-# holds. The demo records in farol-dark (the fresh-install default and the
-# brand navy/amber palette); the pin keeps committed media reproducible if
-# the default changes again.
+# holds. The demo records in farol-dark (the brand navy/amber palette;
+# farol-dusk is DefaultTheme as of 2026-08-18, but this pin is deliberately
+# independent of that so committed "dark theme" media stays reproducible
+# whichever theme is the fresh-install default).
 rm -rf "$DATA" "$CONFIG"
 mkdir -p "$DATA" "$CONFIG/farol"
 printf 'theme: farol-dark\n' > "$CONFIG/farol/config.yaml"

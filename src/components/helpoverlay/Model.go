@@ -1,13 +1,16 @@
 package helpoverlay
 
 import (
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/filipemolina/farol/src/keys"
 )
 
-// helpOverlayMaxWidth caps the content column so hint runs wrap in a few
-// places on wide terminals rather than stretching into one unreadable line.
+// helpOverlayMaxWidth caps the content column so a long description wraps to
+// a couple of lines on wide terminals rather than stretching into one
+// unreadable line. Each entry is already one key/description row, so this
+// only wraps within a single row, never across rows.
 const helpOverlayMaxWidth = 64
 
 // Model is the ? overlay: every key in the app, grouped by scope and
@@ -16,10 +19,12 @@ const helpOverlayMaxWidth = 64
 //
 // The catalog lists the whole app rather than the current screen, which is
 // more than one terminal's worth of lines, so the scope content is windowed
-// and scrolls with ↑/↓ (keys.Overlay.Navigation). Without that the tail of
-// the catalog — Details and Overlays — would simply be unreachable on an
-// 80x24 terminal, which is the same "bound but undiscoverable" failure the
-// completeness rule exists to prevent.
+// and scrolls with ↑/↓ (keys.Overlay.Navigation), and narrowable with a
+// `/`-fuzzy filter (keys.Global.Filter) over each entry's key and
+// description — the same affordance the task tree's own filter uses.
+// Without windowing the tail of the catalog — Details and Overlays — would
+// simply be unreachable on an 80x24 terminal, which is the same "bound but
+// undiscoverable" failure the completeness rule exists to prevent.
 type Model struct {
 	catalog    []keys.Scope
 	termWidth  int
@@ -29,6 +34,18 @@ type Model struct {
 	// is per line rather than per scope: a scope taller than the window is
 	// still readable.
 	offset int
+
+	// filterInput is the `/`-filter's text box. filterTyping is true while it
+	// owns the keyboard (every keystroke but enter/esc lands in it);
+	// filterApplied is true once enter locks the query in and the input
+	// blurs, matching keys.Overlay.Navigation back to scrolling. filterQuery
+	// mirrors filterInput's value live, so the catalog narrows as the user
+	// types rather than waiting for enter (the same live-preview behaviour
+	// as the task tree's own filter).
+	filterInput   textinput.Model
+	filterTyping  bool
+	filterApplied bool
+	filterQuery   string
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -36,10 +53,16 @@ func (m Model) Init() tea.Cmd { return nil }
 // New builds the help overlay for the screen described by ctx (which keys
 // are pressable) and the terminal size for wrapping and windowing.
 func New(ctx keys.Context, termWidth, termHeight int) tea.Model {
+	fi := textinput.New()
+	// The bubbles default prompt is a hardcoded ANSI-white "> ", which would
+	// render between the bar's "/" and the query — see the task tree's own
+	// filter input for the same fix.
+	fi.Prompt = ""
 	return Model{
-		catalog:    keys.Catalog(ctx),
-		termWidth:  termWidth,
-		termHeight: termHeight,
+		catalog:     keys.Catalog(ctx),
+		termWidth:   termWidth,
+		termHeight:  termHeight,
+		filterInput: fi,
 	}
 }
 

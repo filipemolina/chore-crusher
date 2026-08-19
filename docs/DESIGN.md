@@ -608,6 +608,14 @@ so help taught a reader how to create a *list* and not how to create a *task*.
 and fails if any binding is missing from the rendered overlay; that guard, not
 review discipline, is what keeps this true.
 
+Each scope renders one key/description **per line**, not packed side-by-side
+and wrapped — a scope with several keys used to read as a run-on paragraph
+once it wrapped past one line. The catalog is also narrowable with the same
+`/`-fuzzy filter the task tree uses (`keys.Global.Filter`), matching each
+entry's key and description text; a scope with no matching entry disappears
+entirely rather than leaving an empty heading, so filtering never breaks the
+section separation described above.
+
 Where a key does something its help text cannot carry, the scope gets a
 one-line **`Note`** (`keys.Scope.Note`) — that is how `L` says it also moves
 focus into the panel it reveals, and how the Overlays scope says the Details
@@ -845,7 +853,7 @@ exactly two fields at launch, in a struct designed to grow — add a field,
 tag it, and `LoadConfig`/`SaveConfig` round-trip it automatically:
 
 ```yaml
-theme: farol-dark
+theme: farol-dusk
 poll_interval_ms: 1000
 ```
 
@@ -1544,14 +1552,14 @@ active row vs `BackgroundElevated` for an unfocused panel's remembered row),
 which `chrome.ListRowBg` produces and which measures ~9.5:1 on farol-day —
 that is the fix that makes focus obvious, not the panel-surface step.
 
-**Text colors that sit on the elevated tier.** Three imported palettes ship a
-body `Text` too dim for a brightened elevated tier — `one-dark` (`#ABB2BF`),
-`solarized-dark` (`#93A1A1`), and `everforest-dark` (`#D3C6AA`) — and were the
-only themes failing `TextPrimary on elevated ≥ 4.5` once the ladder was
-widened. Their `Text` is lightened to `#C6CDD7`, `#BCC4CF`, and `#E4D9C0`
-respectively (chosen as the dimmest grey that clears 4.5 on elevated *and* on
-panel). This changes those three themes' body-text luminance slightly; every
-other theme's `Text` is untouched.
+**Text colors that sit on the elevated tier.** Two imported palettes ship a
+body `Text` too dim for a brightened elevated tier — `solarized-dark`
+(`#93A1A1`) and `everforest-dark` (`#D3C6AA`) — and were the only themes
+failing `TextPrimary on elevated ≥ 4.5` once the ladder was widened. Their
+`Text` is lightened to `#BCC4CF` and `#E4D9C0` respectively (chosen as the
+dimmest grey that clears 4.5 on elevated *and* on panel). This changes those
+two themes' body-text luminance slightly; every other theme's `Text` is
+untouched.
 
 **What changes:** the four status-color fields are domain colors, renamed to
 match this app's domain:
@@ -1563,19 +1571,22 @@ match this app's domain:
 | `StatusInProgress` | active |
 | `StatusOverdue` | *(reserved; not used in this app — the theme colour is held for a future dedicated project-management app, not farol)* |
 
-The registry holds 14 themes: four of this app's own — `farol-dark`,
-`farol-ember`, `farol-slate`, `farol-day` — plus ten imported community
-palettes (catppuccin-mocha, gruvbox-dark, tokyo-night, nord, dracula,
-solarized-dark, one-dark, everforest-dark, rose-pine, kanagawa-wave). The
-imported palettes carry their original accent, text/panel/modal bases and
-status hexes unchanged: a person who knows "Tokyo Night" should see it
-render the same way here, because it is the same theme, not a
-reinterpretation of one. **The fresh-install default is
-`"farol-dark"`** — `DefaultTheme` names it, and a config with no
-`theme:` preference activates it; every other registered theme (including
-`gruvbox-dark`) stays selectable through the `T` picker and as a saved
-`theme:` value. The default is the brand pair's dark member below, so a
-fresh install opens in the logo's own colors.
+The registry holds 14 themes: three of this app's own — `farol-dark`,
+`farol-dusk`, `farol-day` — plus eleven imported community palettes
+(catppuccin-mocha, catppuccin-latte, gruvbox-dark, gruvbox-light,
+tokyo-night, nord, dracula, solarized-dark, everforest-dark, rose-pine,
+monokai-pro). The imported palettes carry their original accent, text/
+panel/modal bases and status hexes unchanged: a person who knows "Tokyo
+Night" should see it render the same way here, because it is the same
+theme, not a reinterpretation of one — the one deliberate exception is
+`rose-pine`'s accent, which uses the palette's own **Rose** rather than
+**Iris** (Iris duplicated catppuccin-mocha/dracula's purple; Rose is
+otherwise unused in this theme's fields). **The fresh-install default is
+`"farol-dusk"`** (2026-08-18; `farol-dark` was the default before) —
+`DefaultTheme` names it, and a config with no `theme:` preference activates
+it; every other registered theme (including `gruvbox-dark` and `farol-dark`
+itself) stays selectable through the `T` picker and as a saved `theme:`
+value.
 
 **`farol-dark` and `farol-day` are the brand pair** (2026-08-10): both are
 built from the logo family's three colors — the Night Watch icon's navy
@@ -1586,9 +1597,20 @@ reversed — cream surfaces, navy ink, a darkened lamp-amber accent
 (`#A06A0E`, the darkest amber that still reads as the lamp against cream).
 Both keep the shared status/danger hexes (darkened for the light theme,
 per the washout rule above), and pending carries a navy tint in both,
-mirroring how `farol-ember`'s pending carries a warm one. They replaced the
+mirroring how `farol-dusk`'s pending carries a violet one. They replaced the
 palettes previously copied from stack-stitcher's `stitcher-dark` /
 `stitcher-day`.
+
+**`farol-dusk` is the brand's second dark variant** (2026-08-18), mirroring
+Cais's `cais-dusk`: a deeper, richer amber (`#E0954A`) than `farol-dark`'s on
+a twilight-violet panel (`#241B33`) — deliberately not navy, so the two dark
+themes read as distinct moods rather than one theme with a filter on it. It
+replaced `farol-ember` and `farol-slate`, both of which sat inside the same
+narrow amber band as `farol-dark` (an accent audit found five out of
+fourteen registered themes reading as amber/orange, with zero red, pink, or
+yellow anywhere in the registry — see the theme-variety pass, 2026-08-18).
+`farol-dusk` became `DefaultTheme` the same day, so a fresh install now
+opens in it rather than `farol-dark`.
 
 ## 12. Visual coherence: the UI contract
 

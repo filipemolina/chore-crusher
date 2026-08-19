@@ -14,7 +14,7 @@ The repo/tool/command rename is finished and all roadmap phases are in
 - Go module: `github.com/filipemolina/farol`
 - Config dir: `~/.config/farol`
 - Data dir / DB: `~/.local/share/farol/farol.db`
-- Default theme: `farol-dark` (brand pair; see `docs/DESIGN.md` §11)
+- Default theme: `farol-dusk` (brand pair; see `docs/DESIGN.md` §11)
 - Current tag: `v0.1.0`
 
 Phases 0–9 (scaffolding through polish/release) are complete. See
@@ -48,10 +48,15 @@ post-alpha backlog.
   `#F0B263` accent, cream `#F5EDE4` text; the light variant inverts them
   with a darkened lamp amber `#A06A0E` accent). `DefaultTheme` moved from
   `farol-ember` to `farol-dark`, so a fresh install opens in the brand
-  colors; farol-ember stays selectable through `T` and as a saved
-  `theme:` value. Demo media is pinned to farol-dark (see `demo/seed.sh`)
-  to match the fresh-install default. Tests:
-  `TestDefaultThemeIsFarolDark` (appstyles). See `docs/DESIGN.md` §11.
+  colors. (2026-08-18: `farol-ember` and `farol-slate` were later retired
+  for sitting inside the same amber band as `farol-dark`; `farol-dusk`
+  replaced them as the second dark variant, and `DefaultTheme` moved again
+  the same day — from `farol-dark` to `farol-dusk` — see `docs/DESIGN.md`
+  §11.) Demo media stays pinned to `farol-dark` on purpose (see
+  `demo/seed.sh`), independent of whichever theme is the current default,
+  so committed "dark theme" screenshots don't shift underneath a later
+  default change. Tests: `TestDefaultThemeIsFarolDusk` (appstyles). See
+  `docs/DESIGN.md` §11.
 
 - **Light-theme readability: no glyph ever draws in the terminal's default
   color.** On `crush-day`, pending and in-progress task titles rendered

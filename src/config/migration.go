@@ -11,9 +11,22 @@ import (
 
 // legacyThemeRE matches the four pre-rename palette names as they appear in
 // a saved config.yaml (theme: crush-ember, etc.). The migration rewrites
-// them to the farol-* names so a saved theme keeps working after the rename
-// instead of silently falling back to the default.
+// them to a theme that still exists in the registry, so a saved theme keeps
+// working after the rename instead of silently falling back to the default.
+// crush-ember and crush-slate both fold onto farol-dusk - farol-ember and
+// farol-slate were retired (docs/DESIGN.md §11) and farol-dusk is the
+// closest surviving relative: a second dark amber variant.
 var legacyThemeRE = regexp.MustCompile(`crush-(dark|ember|slate|day)`)
+
+// legacyThemeReplacement maps one crush-* match to its farol-* equivalent.
+func legacyThemeReplacement(match []byte) []byte {
+	switch string(match) {
+	case "crush-ember", "crush-slate":
+		return []byte("farol-dusk")
+	default:
+		return []byte("farol-" + string(match[len("crush-"):]))
+	}
+}
 
 // MigrateLegacyDirs is a one-shot, first-launch migration that runs after
 // the chore-crusher → farol rename. It moves a pre-rename
@@ -134,7 +147,7 @@ func rewriteConfigTheme(dir string) error {
 	if err != nil {
 		return err
 	}
-	updated := legacyThemeRE.ReplaceAll(data, []byte("farol-$1"))
+	updated := legacyThemeRE.ReplaceAllFunc(data, legacyThemeReplacement)
 	if string(updated) == string(data) {
 		return nil
 	}

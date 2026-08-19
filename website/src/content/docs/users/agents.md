@@ -160,6 +160,7 @@ Every trap below has caught someone. They are worth learning once.
 - **You expected a percentage at 100 to auto-complete.** `percentage` at 100 does not — it's an estimate, not a fact. Use `subtasks` mode (where the store can verify), or call `farol <id>` explicitly.
 - **You confused presence with assignment.** A presence claim (from `farol claim`, or the auto-claim on any write) lights the TUI spinner. It does *not* move a task to `in_progress` and it is *not* ownership. Use `farol assign` (or `farol next`) to actually own a task.
 - **You are calling `farol show <bad-id>`.** A single bad id is a hard failure (exit `1`); with multiple ids, a bad id returns a per-row `{id, error}` and the rest still succeed. That is deliberate — bulk callers do not want one typo to lose the batch.
+- **You wrote a short mention prefix.** `@<task-id>` in a title, notes body, or comment is the one place the id-prefix rule (see [The CLI](/users/cli/#4-id-prefixes-are-first-class)) does not apply — it needs the full 26-character ULID. Write `farol comment <id> "blocked on @$(farol tasks <list> --json | jq -r '.[0].id')"` rather than hand-typing a shortened id; a mention that doesn't resolve to an existing task is a domain error at write time, same as any other bad reference.
 
 ## A minimal wrapper, in shell
 

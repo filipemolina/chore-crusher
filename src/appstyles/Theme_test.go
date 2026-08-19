@@ -64,12 +64,12 @@ func TestDefaultThemeIsRegistered(t *testing.T) {
 	}
 }
 
-// The fresh-install default is farol-dark.
+// The fresh-install default is farol-dusk.
 // Pin the intended name, not merely that the constant happens to be a
 // registered theme, so a stray edit to DefaultTheme is caught.
-func TestDefaultThemeIsFarolDark(t *testing.T) {
-	if DefaultTheme != "farol-dark" {
-		t.Errorf("DefaultTheme = %q, want farol-dark", DefaultTheme)
+func TestDefaultThemeIsFarolDusk(t *testing.T) {
+	if DefaultTheme != "farol-dusk" {
+		t.Errorf("DefaultTheme = %q, want farol-dusk", DefaultTheme)
 	}
 }
 

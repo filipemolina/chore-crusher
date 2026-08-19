@@ -136,7 +136,7 @@ On first launch, Farol creates:
 - Config: `~/.config/farol/config.yaml` (theme, layout)
 
 The default list `Inbox` is created automatically; the app opens on the
-`farol-dark` theme (switchable with `T`).
+`farol-dusk` theme (switchable with `T`).
 
 ---
 

@@ -49,8 +49,8 @@ After a successful add, selection moves to the new task and the level resets to 
 
 `enter` on a selected task opens the Details modal — a centered overlay sized to most of the screen. It holds six zones, cycled with `tab`/`shift+tab`:
 
-- **Title** — an editable single-line field, saved through the same rename path the CLI uses.
-- **Notes** — a textarea that grows with its content, capped so comment cards stay visible. It opens on its first line, cursor parked at the start.
+- **Title** — an editable single-line field, saved through the same rename path the CLI uses. A `@<task-id>` mention is validated the same way it is in Notes, but the field always shows raw text — it does not render the resolved title inline the way Notes does.
+- **Notes** — a textarea that grows with its content, capped so comment cards stay visible. It opens on its first line, cursor parked at the start. Unfocused, a `@<task-id>` reference in the text renders as the mentioned task's title in the accent color (`[deleted task]` if the target is gone); focus the zone to edit and the raw `@<ULID>` text is what you see and type. A mention has to spell out the full 26-character ULID — not a prefix — so writing one by hand means copying an id out of `farol show --json` or a search result rather than typing it from memory.
 - **Progress** — the progress-mode selector (see below).
 - **Priority** — cycles `none` → `low` → `medium` → `high` with `←`/`→` (or `h`/`l`), wrapping.
 - **Comments** — the comment thread, rendered as selectable cards.
@@ -60,7 +60,7 @@ After a successful add, selection moves to the new task and the level resets to 
 
 ### Comments
 
-`c` opens an inline compose card at the foot of the thread; `enter` posts the comment, `esc` cancels. Comments are short status or handoff notes — one line is sufficient. `↑`/`↓` move the highlight, `y` copies the highlighted comment's id, and `d` deletes it through the same confirm modal every destructive action uses, quoting the comment's own text.
+`c` opens an inline compose card at the foot of the thread; `enter` posts the comment, `esc` cancels. Comments are short status or handoff notes — one line is sufficient. A `@<task-id>` mention is validated the same way it is in Notes, but a comment card shows raw text, not the resolved title. `↑`/`↓` move the highlight, `y` copies the highlighted comment's id, and `d` deletes it through the same confirm modal every destructive action uses, quoting the comment's own text.
 
 ### Attachments
 

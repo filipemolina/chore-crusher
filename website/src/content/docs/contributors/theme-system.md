@@ -73,17 +73,16 @@ The focused/unfocused panel step is the focus signal — a surface's box is exac
 
 ## The 14 themes
 
-The registry (`appstyles.Themes`) holds 14 themes: four of this app's own plus ten imported community palettes. The imported palettes carry their original accent, text/panel/modal bases, and status hexes unchanged — a person who knows "Tokyo Night" should see it render the same way here, because it is the same theme, not a reinterpretation of one.
+The registry (`appstyles.Themes`) holds 14 themes: three of this app's own plus eleven imported community palettes. The imported palettes carry their original accent, text/panel/modal bases, and status hexes unchanged — a person who knows "Tokyo Night" should see it render the same way here, because it is the same theme, not a reinterpretation of one. The one deliberate exception is `rose-pine`, whose accent uses the palette's own Rose rather than Iris (Iris duplicated `catppuccin-mocha`/`dracula`'s purple).
 
 | Theme | Kind |
 | --- | --- |
 | `farol-dark` | The brand pair's dark member: deep-navy surfaces, amber accent, cream body text — the Night Watch icon itself |
-| `farol-ember` | Dark, warm brown-black base, amber accent |
-| `farol-slate` | Dark, blue-black base with golden accents |
+| `farol-dusk` | The brand's second dark variant: a deeper amber on a twilight-violet panel, distinct from `farol-dark`'s navy |
 | `farol-day` | The brand pair's light member: cream surfaces, navy ink, darkened lamp-amber accent |
-| `catppuccin-mocha`, `gruvbox-dark`, `tokyo-night`, `nord`, `dracula`, `solarized-dark`, `one-dark`, `everforest-dark`, `rose-pine`, `kanagawa-wave` | Imported community palettes |
+| `catppuccin-mocha`, `catppuccin-latte`, `gruvbox-dark`, `gruvbox-light`, `tokyo-night`, `nord`, `dracula`, `solarized-dark`, `everforest-dark`, `rose-pine`, `monokai-pro` | Imported community palettes |
 
-**The fresh-install default is `"farol-dark"`** — `DefaultTheme` names it, and a config with no `theme:` preference activates it. Every other registered theme stays selectable through the `T` picker and as a saved `theme:` value.
+**The fresh-install default is `"farol-dusk"`** — `DefaultTheme` names it, and a config with no `theme:` preference activates it. Every other registered theme (including `farol-dark`) stays selectable through the `T` picker and as a saved `theme:` value.
 
 ## Adding a theme
 

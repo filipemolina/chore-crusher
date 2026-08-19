@@ -340,3 +340,112 @@ html[data-theme='light'] .terminal-frame .terminal-shot--dark { display: none; }
   max-width: 100%;
   height: auto;
 }
+
+/* Theme preview grid (users/themes.mdx): one mini terminal-frame per
+   registered theme, drawn from that theme's own derived colors via CSS
+   custom properties set per card — not the site's own light/dark mode,
+   which only controls the chrome around the grid. */
+.theme-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.theme-preview-card {
+  border-radius: 8px;
+  border: 1px solid var(--tp-border);
+  background: var(--tp-panel);
+  overflow: hidden;
+  font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', 'Fira Mono',
+    'Source Code Pro', Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+.theme-preview-card .tp-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--tp-elevated);
+  border-bottom: 1px solid var(--tp-border);
+}
+
+.theme-preview-card .tp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tp-accent);
+  flex-shrink: 0;
+}
+
+.theme-preview-card .tp-name {
+  font-size: 0.68rem;
+  color: var(--tp-text);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.theme-preview-card .tp-default {
+  margin-left: auto;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--tp-accent);
+  color: var(--tp-accent-ink);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.theme-preview-card .tp-body {
+  padding: 0.55rem 0.65rem 0.3rem;
+}
+
+.theme-preview-card .tp-title {
+  font-size: 0.78rem;
+  color: var(--tp-text);
+  margin-bottom: 0.2rem;
+}
+
+.theme-preview-card .tp-sub {
+  font-size: 0.62rem;
+  color: var(--tp-muted);
+  margin-bottom: 0.5rem;
+}
+
+.theme-preview-card .tp-row {
+  font-size: 0.68rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 4px;
+  background: var(--tp-modal);
+  color: var(--tp-text);
+  margin-bottom: 0.45rem;
+}
+
+.theme-preview-card .tp-row::before {
+  content: '▸ ';
+  color: var(--tp-accent);
+}
+
+.theme-preview-card .tp-hint {
+  font-size: 0.56rem;
+  color: var(--tp-dim);
+  margin-bottom: 0.5rem;
+}
+
+.theme-preview-card .tp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0 0.65rem 0.65rem;
+}
+
+.theme-preview-card .tp-pill {
+  font-size: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.12rem 0.35rem;
+  border-radius: 999px;
+  font-weight: 700;
+}

@@ -201,12 +201,12 @@ func srgbLinearize(v float64) float64 {
 	return math.Pow((v+0.055)/1.055, 2.4)
 }
 
-// DefaultTheme is the theme a fresh AppModel starts with. farol-dark is the
-// brand pair's dark member - the Night Watch icon's deep navy with the
-// lamp's amber and the wordmark's cream - so a fresh install opens in the
-// logo's own colors. farol-ember, gruvbox-dark, catppuccin-mocha and the
-// rest remain selectable through the theme picker (docs/DESIGN.md §11).
-const DefaultTheme = "farol-dark"
+// DefaultTheme is the theme a fresh AppModel starts with. farol-dusk is the
+// brand's second dark variant - a deeper amber than farol-dark's on a
+// twilight-violet panel - promoted to default 2026-08-18. farol-dark,
+// gruvbox-dark, catppuccin-mocha and the rest remain selectable through the
+// theme picker (docs/DESIGN.md §11).
+const DefaultTheme = "farol-dusk"
 
 // Themes is the registry the theme picker chooses from. Every entry is built
 // through newTheme rather than a bare struct literal, so a registered theme
@@ -218,7 +218,7 @@ var Themes = map[string]Theme{
 	// farol-dark is the Night Watch icon's palette: a deep-navy base with the
 	// lamp's amber as the accent and the wordmark's cream as body text. The
 	// icon's navy gradient (#22385C → #0E1B30) supplies the surface tier, and
-	// pending picks up a navy tint the way farol-ember's picks up a warm one.
+	// pending picks up a navy tint the way farol-dusk's picks up a violet one.
 	// The shared status/danger colors keep the task-state vocabulary consistent
 	// across themes.
 	"farol-dark": newTheme(themeParams{
@@ -236,37 +236,23 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#EB4268"),
 	}),
 
-	// farol-ember is a dark theme with a warm brown-black base and an
-	// amber accent. The same shared status/danger colors keep the task-state
-	// vocabulary consistent across themes.
-	"farol-ember": newTheme(themeParams{
-		Name:   "farol-ember",
+	// farol-dusk is the brand's second dark variant, mirroring cais-dusk: a
+	// deeper, richer amber than farol-dark's on a twilight-violet panel -
+	// deliberately not navy, so it reads as a distinct mood rather than
+	// farol-dark with a filter on it. The same shared danger/Complete/
+	// InProgress/Overdue colors keep the task-state vocabulary consistent;
+	// Pending picks up a violet tint the way farol-dark's picks up a navy one.
+	"farol-dusk": newTheme(themeParams{
+		Name:   "farol-dusk",
 		Dark:   true,
-		Accent: lipgloss.Color("#E8A44A"),
-		Text:   lipgloss.Color("#F5EDE4"),
-		Panel:  lipgloss.Color("#1E1612"),
-		Modal:  lipgloss.Color("#52413A"),
+		Accent: lipgloss.Color("#E0954A"),
+		Text:   lipgloss.Color("#EDE4D8"),
+		Panel:  lipgloss.Color("#241B33"),
+		Modal:  lipgloss.Color("#584968"),
 		Danger: lipgloss.Color("#D9534F"),
 
 		Complete:   lipgloss.Color("#67C58A"),
-		Pending:    lipgloss.Color("#8A8078"),
-		InProgress: lipgloss.Color("#E8C547"),
-		Overdue:    lipgloss.Color("#EB4268"),
-	}),
-
-	// farol-slate is a refined dark theme with golden accents on a blue-
-	// black base - understated elegance with a warm metallic shimmer.
-	"farol-slate": newTheme(themeParams{
-		Name:   "farol-slate",
-		Dark:   true,
-		Accent: lipgloss.Color("#cca43b"),
-		Text:   lipgloss.Color("#e5e5e5"),
-		Panel:  lipgloss.Color("#1D2634"),
-		Modal:  lipgloss.Color("#363636"),
-		Danger: lipgloss.Color("#EB4268"),
-
-		Complete:   lipgloss.Color("#67C58A"),
-		Pending:    lipgloss.Color("#858392"),
+		Pending:    lipgloss.Color("#948BA8"),
 		InProgress: lipgloss.Color("#E8C547"),
 		Overdue:    lipgloss.Color("#EB4268"),
 	}),
@@ -388,22 +374,6 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#DC322F"),
 	}),
 
-	// one-dark — One Dark (github.com/joshdick/onedark.vim)
-	"one-dark": newTheme(themeParams{
-		Name:   "one-dark",
-		Dark:   true,
-		Accent: lipgloss.Color("#61AFEF"),
-		Text:   lipgloss.Color("#C6CDD7"),
-		Panel:  lipgloss.Color("#21252B"),
-		Modal:  lipgloss.Color("#2C323C"),
-		Danger: lipgloss.Color("#E06C75"),
-
-		Complete:   lipgloss.Color("#98C379"),
-		Pending:    lipgloss.Color("#828997"),
-		InProgress: lipgloss.Color("#E5C07B"),
-		Overdue:    lipgloss.Color("#E06C75"),
-	}),
-
 	// everforest-dark — Everforest Dark (github.com/sainnhe/everforest)
 	"everforest-dark": newTheme(themeParams{
 		Name:   "everforest-dark",
@@ -420,11 +390,13 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#E67E80"),
 	}),
 
-	// rose-pine — Rosé Pine (rosepinetheme.com)
+	// rose-pine — Rosé Pine (rosepinetheme.com). Accent is Rose, not Iris -
+	// Iris duplicated catppuccin-mocha/dracula's purple, and Rose is unused
+	// elsewhere in this theme (Foam and Gold are already Complete/InProgress).
 	"rose-pine": newTheme(themeParams{
 		Name:   "rose-pine",
 		Dark:   true,
-		Accent: lipgloss.Color("#C4A7E7"),
+		Accent: lipgloss.Color("#EBBCBA"),
 		Text:   lipgloss.Color("#E0DEF4"),
 		Panel:  lipgloss.Color("#191724"),
 		Modal:  lipgloss.Color("#403D52"),
@@ -436,20 +408,58 @@ var Themes = map[string]Theme{
 		Overdue:    lipgloss.Color("#EB6F92"),
 	}),
 
-	// kanagawa-wave — Kanagawa Wave (github.com/rebelot/kanagawa.nvim)
-	"kanagawa-wave": newTheme(themeParams{
-		Name:   "kanagawa-wave",
+	// monokai-pro — Monokai Pro (monokai.pro). Danger uses classic Monokai's
+	// red-magenta (#F92672), distinct from Pro's coral-pink accent.
+	"monokai-pro": newTheme(themeParams{
+		Name:   "monokai-pro",
 		Dark:   true,
-		Accent: lipgloss.Color("#7E9CD8"),
-		Text:   lipgloss.Color("#DCD7BA"),
-		Panel:  lipgloss.Color("#16161D"),
-		Modal:  lipgloss.Color("#223249"),
-		Danger: lipgloss.Color("#E82424"),
+		Accent: lipgloss.Color("#FF6188"),
+		Text:   lipgloss.Color("#FCFCFA"),
+		Panel:  lipgloss.Color("#221F22"),
+		Modal:  lipgloss.Color("#2E272E"),
+		Danger: lipgloss.Color("#F92672"),
 
-		Complete:   lipgloss.Color("#98BB6C"),
-		Pending:    lipgloss.Color("#727169"),
-		InProgress: lipgloss.Color("#FF9E3B"),
-		Overdue:    lipgloss.Color("#E82424"),
+		Complete:   lipgloss.Color("#A9DC76"),
+		Pending:    lipgloss.Color("#7C797D"),
+		InProgress: lipgloss.Color("#FFD866"),
+		Overdue:    lipgloss.Color("#F92672"),
+	}),
+
+	// gruvbox-light — Gruvbox Light (github.com/morhetz/gruvbox). Accent is
+	// the neutral red, not the orange gruvbox-dark already owns.
+	"gruvbox-light": newTheme(themeParams{
+		Name:   "gruvbox-light",
+		Dark:   false,
+		Accent: lipgloss.Color("#CC241D"),
+		Text:   lipgloss.Color("#3C3836"),
+		Panel:  lipgloss.Color("#F0EBC8"),
+		Modal:  lipgloss.Color("#FFFDF0"),
+		Danger: lipgloss.Color("#9D0006"),
+
+		Complete:   lipgloss.Color("#79740E"),
+		Pending:    lipgloss.Color("#7C6F64"),
+		InProgress: lipgloss.Color("#B57614"),
+		Overdue:    lipgloss.Color("#9D0006"),
+	}),
+
+	// catppuccin-latte — Catppuccin Latte (github.com/catppuccin/catppuccin).
+	// Text and Accent are darkened from Catppuccin's own Text/Yellow swatches
+	// - those are tuned for contrast against Latte's Base, but TextMuted/
+	// TextDim lighten further still, and Panel here is a derived tier, not
+	// Base directly. The same move farol-day already makes with its accent.
+	"catppuccin-latte": newTheme(themeParams{
+		Name:   "catppuccin-latte",
+		Dark:   false,
+		Accent: lipgloss.Color("#9A6300"),
+		Text:   lipgloss.Color("#33364A"),
+		Panel:  lipgloss.Color("#E9EBF0"),
+		Modal:  lipgloss.Color("#F8F9FC"),
+		Danger: lipgloss.Color("#D20F39"),
+
+		Complete:   lipgloss.Color("#2B7A1C"),
+		Pending:    lipgloss.Color("#6B6F80"),
+		InProgress: lipgloss.Color("#B24C08"),
+		Overdue:    lipgloss.Color("#D20F39"),
 	}),
 }
 
