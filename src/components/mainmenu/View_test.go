@@ -74,3 +74,40 @@ func TestHeaderShedsViewModeBeforeWordmark(t *testing.T) {
 		t.Errorf("wordmark missing at width %d, the width the view mode first dropped at:\n%s", droppedAt, out)
 	}
 }
+
+// TestHeaderShowsArchivedListsWhilePageIsOpen proves the header replaces the
+// task tree's view-mode indicator with "Archived Lists" while the Archive
+// page is open — that mode describes a surface the page has replaced, so it
+// must not still be named in the header.
+func TestHeaderShowsArchivedListsWhilePageIsOpen(t *testing.T) {
+	m := New()
+	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
+	updated, _ = updated.(Model).Update(cmds.SetTaskTreeViewMsg{View: "pending"})
+	updated, _ = updated.(Model).Update(cmds.OpenArchivePageMsg{})
+
+	out := updated.(Model).View().Content
+	if !strings.Contains(out, "Archived Lists") {
+		t.Errorf("header does not show \"Archived Lists\" while the Archive page is open:\n%s", out)
+	}
+	if strings.Contains(out, "pending") {
+		t.Errorf("header still shows the stale task-tree view mode while the Archive page is open:\n%s", out)
+	}
+}
+
+// TestHeaderRestoresTreeViewAfterArchivePageCloses proves closing the Archive
+// page hands the mode slot back to the task tree's own view indicator.
+func TestHeaderRestoresTreeViewAfterArchivePageCloses(t *testing.T) {
+	m := New()
+	updated, _ := m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 80})
+	updated, _ = updated.(Model).Update(cmds.SetTaskTreeViewMsg{View: "pending"})
+	updated, _ = updated.(Model).Update(cmds.OpenArchivePageMsg{})
+	updated, _ = updated.(Model).Update(cmds.CloseArchivePageMsg{})
+
+	out := updated.(Model).View().Content
+	if strings.Contains(out, "Archived Lists") {
+		t.Errorf("header still shows \"Archived Lists\" after the Archive page closed:\n%s", out)
+	}
+	if !strings.Contains(out, "pending") {
+		t.Errorf("header did not restore the task-tree view mode after the Archive page closed:\n%s", out)
+	}
+}

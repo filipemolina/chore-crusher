@@ -39,8 +39,20 @@ func (m Model) View() tea.View {
 	// before the version does: the mode is the tree's own transient state,
 	// the version is the app's identity, and a narrow terminal gives up the
 	// less load-bearing one first.
+	//
+	// While the Archive page is open it takes that slot instead of the tree's
+	// view mode — Pending/Complete/All describes the task tree, which the
+	// Archive page has replaced, so showing it there would name a surface
+	// that is not on screen. Accented (not dimmed) so it reads as "you are
+	// somewhere else right now", the same weight the wordmark itself carries.
 	mode := ""
-	if m.treeView != "" {
+	switch {
+	case m.archiveOpen:
+		mode = lipgloss.NewStyle().
+			Foreground(appstyles.Active.Accent).
+			Background(appstyles.Active.BackgroundContent).
+			Render("Archived Lists . ")
+	case m.treeView != "":
 		mode = versionStyle.Render(m.treeView + " . ")
 	}
 

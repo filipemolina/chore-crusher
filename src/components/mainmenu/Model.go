@@ -15,6 +15,13 @@ type Model struct {
 	// the tree's own default, so the header agrees with the tree before any
 	// SetTaskTreeViewMsg has arrived.
 	treeView string
+	// archiveOpen tracks the Archive page (docs/DESIGN.md §5): while true the
+	// header shows "Archived Lists" where the tree's view mode normally sits,
+	// since that mode describes a surface the Archive page has replaced.
+	// mainmenu learns this from the same Open/CloseArchivePageMsg AppModel
+	// itself reacts to, via the ordinary component fan-out — there is no
+	// separate broadcast for it.
+	archiveOpen bool
 }
 
 // Init satisfies tea.Model.
@@ -33,6 +40,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.terminalWidth = msg.TerminalWidth
 	case cmds.SetTaskTreeViewMsg:
 		m.treeView = msg.View
+	case cmds.OpenArchivePageMsg:
+		m.archiveOpen = true
+	case cmds.CloseArchivePageMsg:
+		m.archiveOpen = false
 	}
 	return m, nil
 }
