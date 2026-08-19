@@ -36,6 +36,12 @@ func TestArchivePageRendersAtTerminalWidth(t *testing.T) {
 	if !strings.Contains(ansi.Strip(view), "Archived Lists") {
 		t.Errorf("Archive page missing its title: %q", ansi.Strip(view))
 	}
+	// The keybinding bar goes blank while the page owns the keyboard
+	// (mirroring Details), so the page must render its own "esc back" hint —
+	// otherwise there is nothing on screen telling the user how to leave.
+	if !strings.Contains(ansi.Strip(view), "back") {
+		t.Errorf("Archive page missing its own esc-back hint: %q", ansi.Strip(view))
+	}
 }
 
 func TestArchivePageEscEmitsCloseOnlyWhenFocused(t *testing.T) {

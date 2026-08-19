@@ -23,6 +23,7 @@ func TestGlobalBindingsAreFixed(t *testing.T) {
 		{"Theme", Global.Theme, "T"},
 		{"Filter", Global.Filter, "/"},
 		{"Picker", Global.Picker, "F"},
+		{"ArchivePage", Global.ArchivePage, "A"},
 	}
 
 	for _, tc := range cases {
@@ -59,7 +60,7 @@ func TestCatalogContainsEveryGlobalBinding(t *testing.T) {
 	for _, g := range []key.Binding{
 		Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
 		Global.Back, Global.ForceQuit, Global.Help, Global.Theme,
-		Global.Filter, Global.Picker,
+		Global.Filter, Global.Picker, Global.ArchivePage,
 	} {
 		if !containsBinding(bindings, g) {
 			t.Errorf("catalog is missing %q", g.Help().Key)
@@ -174,6 +175,53 @@ func TestActiveReturnsDetailsBindingsWhenDetailsVisible(t *testing.T) {
 		if containsBinding(bindings, banned) {
 			t.Errorf("Details context wrongly advertises %q", banned.Help().Key)
 		}
+	}
+}
+
+// TestActiveReturnsBackOnlyWhenArchivePageVisible proves the Archive page
+// owns the keyboard exactly like Details does (docs/DESIGN.md §5): only Esc
+// is live, and no task-tree, Lists, or normal global key acts.
+func TestActiveReturnsBackOnlyWhenArchivePageVisible(t *testing.T) {
+	ctx := Context{
+		Focused:            constants.COMPONENT_ARCHIVE_PAGE,
+		ArchivePageVisible: true,
+		HasActiveList:      true,
+		ListsPanelVisible:  false,
+	}
+	bindings := Active(ctx)
+
+	if len(bindings) != 1 || !containsBinding(bindings, Global.Back) {
+		t.Fatalf("Active for the Archive page = %v, want just Global.Back", bindings)
+	}
+
+	for _, banned := range []key.Binding{
+		Tree.Navigate, Tree.OpenDetails, Lists.Navigate,
+		Global.NextPanel, Global.Picker, Global.Theme, Global.ToggleListsPanel,
+		Global.ArchivePage,
+	} {
+		if containsBinding(bindings, banned) {
+			t.Errorf("Archive page context wrongly advertises %q", banned.Help().Key)
+		}
+	}
+}
+
+// TestPressableNowArchivePageOmitsGlobals proves the Archive page's
+// keyboard-ownership extends past Active into pressableNow (and therefore the
+// help overlay's dimming): only Back and the emergency ForceQuit are
+// pressable, matching Details' contract.
+func TestPressableNowArchivePageOmitsGlobals(t *testing.T) {
+	ctx := Context{
+		Focused:            constants.COMPONENT_ARCHIVE_PAGE,
+		ArchivePageVisible: true,
+		HasActiveList:      true,
+	}
+	live := pressableNow(ctx)
+
+	if !containsBinding(live, Global.Back) || !containsBinding(live, Global.ForceQuit) {
+		t.Fatalf("pressableNow for the Archive page = %v, want Back and ForceQuit", live)
+	}
+	if containsBinding(live, Global.ArchivePage) || containsBinding(live, Global.ToggleListsPanel) {
+		t.Errorf("pressableNow wrongly advertises a global while the Archive page owns the keyboard: %v", live)
 	}
 }
 

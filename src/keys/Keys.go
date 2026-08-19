@@ -50,6 +50,11 @@ type GlobalKeys struct {
 	Sort key.Binding
 	// About opens the about modal.
 	About key.Binding
+	// ArchivePage opens the Archived Lists page (capital A — lowercase a is
+	// already Global.About), matching the shifted-letter idiom
+	// ToggleListsPanel already establishes for a full-surface toggle
+	// (docs/DESIGN.md §5).
+	ArchivePage key.Binding
 }
 
 // TaskTreeKeys act on the task tree: navigation, expand/collapse, toggling
@@ -199,6 +204,7 @@ var Global = GlobalKeys{
 	CopyID:           key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "copy id")),
 	Sort:             key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
 	About:            key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
+	ArchivePage:      key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "archive")),
 }
 
 var Tree = TaskTreeKeys{
@@ -369,6 +375,10 @@ type Context struct {
 	// it is, Details owns the keyboard (docs/DESIGN.md §5): only its own
 	// bindings plus Esc are live, and no global or task-tree key acts.
 	DetailsPanelVisible bool
+	// ArchivePageVisible reports whether the Archived Lists page is open.
+	// While it is, the Archive page owns the keyboard the same way Details
+	// does (docs/DESIGN.md §5): only its own bindings plus Esc are live.
+	ArchivePageVisible bool
 	// TaskTreeEmpty reports whether the active list has no visible rows.
 	TaskTreeEmpty bool
 	// HasActiveList reports whether a list is selected at all.
@@ -404,6 +414,14 @@ func Active(ctx Context) []key.Binding {
 			Details.CommentNew, Details.CommentSubmit, Details.CopyCommentID,
 			Details.CommentDelete,
 		}
+	}
+
+	// The Archive page owns the keyboard while open, the same way Details
+	// does just above: only Esc is live — no task-tree, Lists, tab, search,
+	// theme, or panel-toggle key acts (docs/DESIGN.md §5). The page's own
+	// content keys (unarchive, delete) land here in a follow-up task.
+	if ctx.ArchivePageVisible {
+		return []key.Binding{Global.Back}
 	}
 
 	// While the inline create input is active, only create keys are live.
@@ -561,6 +579,7 @@ func Catalog(ctx Context) []Scope {
 			Title: "Global",
 			Entries: entries(
 				Global.NextPanel, Global.PrevPanel, Global.ToggleListsPanel,
+				Global.ArchivePage,
 				Global.Back, Global.Quit, Global.ForceQuit, Global.Help,
 				Global.Theme, Global.Filter, Global.Picker, Global.CopyID, Global.About,
 			),
@@ -612,9 +631,10 @@ func Catalog(ctx Context) []Scope {
 // contextual ones Active returns, plus the globals that are always live
 // whether or not the footer has room to advertise them.
 func pressableNow(ctx Context) []key.Binding {
-	// While Details owns the keyboard, only its own bindings (Active returns
-	// them plus Esc) and the emergency ForceQuit are live — no globals.
-	if ctx.DetailsPanelVisible {
+	// While Details or the Archive page owns the keyboard, only its own
+	// bindings (Active returns them plus Esc) and the emergency ForceQuit
+	// are live — no globals.
+	if ctx.DetailsPanelVisible || ctx.ArchivePageVisible {
 		return append(Active(ctx), Global.ForceQuit)
 	}
 
@@ -624,7 +644,7 @@ func pressableNow(ctx Context) []key.Binding {
 	// When a modal owns the keyboard, or the user is typing a create or
 	// filter input, only the always-available keys remain pressable.
 	if !ctx.HasModal && !ctx.Creating && !ctx.Filtering {
-		live = append(live, Global.Back, Global.Theme, Global.ToggleListsPanel, Global.Filter, Global.Picker, Global.CopyID)
+		live = append(live, Global.Back, Global.Theme, Global.ToggleListsPanel, Global.ArchivePage, Global.Filter, Global.Picker, Global.CopyID)
 	}
 
 	// shift+tab is tab's twin: live wherever tab is.

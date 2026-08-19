@@ -12,9 +12,11 @@ package archivepage
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/filipemolina/farol/src/appstyles"
 	"github.com/filipemolina/farol/src/cmds"
 	"github.com/filipemolina/farol/src/components/chrome"
 	"github.com/filipemolina/farol/src/constants"
+	"github.com/filipemolina/farol/src/keys"
 	"github.com/filipemolina/farol/src/store"
 )
 
@@ -68,17 +70,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the page filling the whole body — the terminal width, not
 // just a Tasks-sized column, since the Archive page replaces the
 // Tasks/Lists split entirely rather than sharing the row with it
-// (docs/DESIGN.md §5).
+// (docs/DESIGN.md §5). The keybinding bar goes blank while the page owns the
+// keyboard (mirroring Details), so the page renders its own "esc back" hint
+// the same way Details renders its own hint line inside its modal.
 func (m Model) View() tea.View {
 	width := m.body.TerminalWidth
 	height := m.body.Height
+	bg := chrome.PanelBg(m.focused)
 
-	inner := chrome.EmptyStateCard(
+	hint := chrome.RenderKeyHints([]chrome.KeyHint{chrome.HintFor(keys.Global.Back)}, appstyles.Active.TextDim)
+
+	content := chrome.EmptyStateCard(
 		"Archived lists\n\nComing soon.",
 		chrome.PanelBodyWidth(width),
-		chrome.PanelBodyHeight(height),
-		chrome.PanelBg(m.focused),
+		chrome.PanelBodyHeight(height)-1,
+		bg,
 	)
+	body := chrome.PanelBodyWithFooter(chrome.PanelBodyWidth(width), chrome.PanelBodyHeight(height), bg, content, hint)
 
-	return tea.NewView(chrome.PanelFrame("Archived Lists", m.focused, width, height, inner))
+	return tea.NewView(chrome.PanelFrame("Archived Lists", m.focused, width, height, body))
 }

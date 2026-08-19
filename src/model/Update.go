@@ -172,6 +172,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				finalCmds = append(finalCmds, cmds.OpenAboutModal())
 			}
 
+		case key.Matches(msg, keys.Global.ArchivePage):
+			if !keyboardOwned() {
+				finalCmds = append(finalCmds, cmds.OpenArchivePage())
+			}
+
 		// / enters a local filter: the task tree's fuzzy filter when the tree
 		// is focused, the lists panel's filter when the lists panel is.
 		// F opens the cross-list picker. Both are global keys — they work

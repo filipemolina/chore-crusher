@@ -58,6 +58,31 @@ func TestFooterIsBlankWhileDetailsIsOpen(t *testing.T) {
 	}
 }
 
+// TestFooterIsBlankWhileArchivePageIsOpen mirrors
+// TestFooterIsBlankWhileDetailsIsOpen: the Archive page owns the keyboard the
+// same way Details does, and renders its own "esc back" hint inline, so the
+// footer must say nothing while it is open.
+func TestFooterIsBlankWhileArchivePageIsOpen(t *testing.T) {
+	m := New()
+	m, _ = m.(Model).Update(cmds.SetBodyLayoutMsg{TerminalWidth: 120})
+	m, _ = m.(Model).Update(cmds.SetFooterContextMsg{
+		Focused:            constants.COMPONENT_ARCHIVE_PAGE,
+		ArchivePageVisible: true,
+		HasActiveList:      true,
+	})
+
+	out := m.(Model).View().Content
+	if got := strings.TrimSpace(ansi.Strip(out)); got != "" {
+		t.Errorf("footer must render no text while the Archive page is open, got %q", got)
+	}
+	if lipgloss.Height(out) != 1 {
+		t.Errorf("the blank footer must still occupy exactly one line, got %d", lipgloss.Height(out))
+	}
+	if got := lipgloss.Width(out); got != 120 {
+		t.Errorf("the blank footer must still paint its full width, got %d columns, want 120", got)
+	}
+}
+
 // TestFooterEmptyTreeAdvertisesNew verifies the empty task tree advertises
 // only n (new) as its context hint: the inline input is the empty state's
 // way in, and navigation/toggle keys have nothing to act on.

@@ -120,6 +120,7 @@ func (m AppModel) helpContext() keys.Context {
 		Focused:             m.focusedZone,
 		ListsPanelVisible:   m.listsPanelRendered(),
 		DetailsPanelVisible: m.detailsPanelVisible,
+		ArchivePageVisible:  m.archivePageVisible,
 		TaskTreeEmpty:       m.taskTreeEmpty(),
 		HasActiveList:       m.activeListID != "",
 		Creating:            creating,
@@ -151,7 +152,7 @@ func (m AppModel) createInputLive() bool {
 // current context.
 func (m AppModel) footerContextCmd() tea.Cmd {
 	ctx := m.helpContext()
-	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.DetailsPanelVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal, m.sortMode)
+	return cmds.SetFooterContext(ctx.Focused, ctx.ListsPanelVisible, ctx.DetailsPanelVisible, ctx.ArchivePageVisible, ctx.TaskTreeEmpty, ctx.HasActiveList, ctx.Creating, ctx.Filtering, ctx.HasModal, m.sortMode)
 }
 
 // listsPanelRendered reports whether the Lists panel actually occupies width

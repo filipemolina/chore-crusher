@@ -18,6 +18,22 @@ func openArchivePage(t *testing.T, width, height int) AppModel {
 	return m
 }
 
+// TestArchiveKeyOpensPage proves the A binding (keys.Global.ArchivePage) is
+// actually wired in AppModel.Update, not just the OpenArchivePageMsg plumbing.
+func TestArchiveKeyOpensPage(t *testing.T) {
+	m := seedOneList(t)
+	m = refresh(t, m, tea.WindowSizeMsg{Width: 80, Height: 40})
+
+	m = refresh(t, m, tea.KeyPressMsg{Text: "A"})
+
+	if !m.archivePageVisible {
+		t.Fatal("A did not open the Archive page")
+	}
+	if m.focusedZone != constants.COMPONENT_ARCHIVE_PAGE {
+		t.Fatalf("focusedZone = %d, want COMPONENT_ARCHIVE_PAGE", m.focusedZone)
+	}
+}
+
 func TestOpenArchivePageShowsAndFocuses(t *testing.T) {
 	m := openArchivePage(t, 120, 40)
 

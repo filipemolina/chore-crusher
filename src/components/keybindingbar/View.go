@@ -17,13 +17,19 @@ func (m Model) View() tea.View {
 		return tea.NewView("")
 	}
 
-	// While Details owns the keyboard the footer goes blank entirely. Details
-	// renders its own hint line inside the modal, next to the controls it
-	// describes; a second copy down here said the same things in different
-	// words ("esc close" vs "esc cancel") and listed a different subset, so
-	// the two contradicted each other. The bar still paints its full-width
-	// background so the layout height never moves.
-	if m.ctx.DetailsPanelVisible {
+	// While Details or the Archive page owns the keyboard the footer goes
+	// blank entirely. Details renders its own hint line inside the modal,
+	// next to the controls it describes; a second copy down here said the
+	// same things in different words ("esc close" vs "esc cancel") and
+	// listed a different subset, so the two contradicted each other. The
+	// Archive page gets the same treatment pre-emptively: GlobalsFor's
+	// ListsPanelVisible check reads AppModel's stored Lists preference, which
+	// keeps its stale value while the page is open (the page replaces the
+	// body outright rather than recomputing the layout), so a live tab/shift+tab
+	// hint here could describe a panel that is not actually reachable right
+	// now. The bar still paints its full-width background so the layout
+	// height never moves.
+	if m.ctx.DetailsPanelVisible || m.ctx.ArchivePageVisible {
 		return tea.NewView(appstyles.FillBackground(appstyles.Active.BackgroundContent,
 			barStyle(m.terminalWidth).Render("")))
 	}
