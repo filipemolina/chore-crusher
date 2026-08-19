@@ -82,10 +82,15 @@ Sleep 700ms
 Down
 Sleep 900ms
 
-# --- Complete a leaf and let the parents derive -------------------------------
-# The cursor is on "Build the beds". space completes it, and "Plan the garden"
-# recomputes its percentage from its children -- the single most specific thing
-# farol does, happening on screen rather than being asserted in copy.
+# --- Complete a leaf and let the parent derive --------------------------------
+# The cursor is on "Migrate the sessions table" (a direct child of "Ship auth
+# v2"). space completes it, and "Ship auth v2" recomputes its percentage from
+# its children -- the single most specific thing farol does, happening on
+# screen rather than being asserted in copy.
+#
+# (Updated 2026-08-19 for the current seed.sh, which replaced the old
+# gardening-themed seed with the "Ship auth v2" api seed - same three
+# Downs land on a different but still-plain leaf child.)
 Space
 Sleep 2000ms
 

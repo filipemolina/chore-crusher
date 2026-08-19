@@ -164,12 +164,19 @@ Screenshot demo/landing-agent.png
 # parent completes itself". Its shipped image is a flat two-task list with no
 # tree and no Complete section, which demonstrates the opposite.
 #
-# The cursor is on row 6. Four Ups reach row 2, "Order seed compost" -- the
-# only child of "Prep the beds", which is itself a child of "Plan the garden".
-# space completes it, so "Prep the beds" has every child complete and derives
-# completion, and "Plan the garden" derives a partial percentage from its
-# three children. The card's sentence becomes something visible in the frame
-# instead of a claim sitting next to a static 0%.
+# The cursor is on row 6 ("Rewrite the ingest worker"). Four Ups reach row 2,
+# "Add the state-param check" -- the only child of "Wire the OAuth callback",
+# which is itself a child of "Ship auth v2". space completes it, so "Wire the
+# OAuth callback" has every child complete and derives completion, and "Ship
+# auth v2" derives a partial percentage from its four children. The card's
+# sentence becomes something visible in the frame instead of a claim sitting
+# next to a static 0%.
+#
+# (Updated 2026-08-19 for the current seed.sh, which replaced the old
+# "Plan the garden" gardening-themed seed with the "Ship auth v2" api seed -
+# the row-index math above still lands in the same structural shape, a
+# grandchild completing and cascading derived progress up two levels, so
+# this needed a rename, not a redesign.)
 Up
 Up
 Up
