@@ -70,6 +70,21 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// While the Archive page is visible it owns every keypress except ctrl+c
+	// (returned above), the same way the Details side panel does just above —
+	// its own esc closes it, and no global key or tree navigation acts. Unlike
+	// Details it is a full-body page, not a modal, but the keyboard-ownership
+	// rule is identical, so it sits right after the Details check. Only
+	// keypresses are captured here; refresh, poll, and layout messages still
+	// fall through to the normal handlers and the component fan-out.
+	if m.archivePageVisible {
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			var archiveCmd tea.Cmd
+			m.components.ArchivePage, archiveCmd = m.components.ArchivePage.Update(msg)
+			return m, archiveCmd
+		}
+	}
+
 	// keyboardOwned reports whether a focused child component has claimed the
 	// keyboard for itself (add input with text, tree typing a /-filter, list
 	// typing a filter). While true, global keys that would open overlays or
@@ -507,6 +522,31 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			finalCmds = append(finalCmds, msg.Follow)
 		}
 
+	case cmds.OpenArchivePageMsg:
+		// The archive-page toggle key emits this (wired in a follow-up task).
+		// Entering follows the same shape as OpenDetailsMsg: take the keyboard,
+		// move focus onto the new surface, and refresh the footer for it.
+		m.archivePageVisible = true
+		m.focusedZone = constants.COMPONENT_ARCHIVE_PAGE
+		finalCmds = append(finalCmds,
+			cmds.SetFocus(constants.COMPONENT_ARCHIVE_PAGE),
+			m.footerContextCmd(),
+		)
+
+	case cmds.CloseArchivePageMsg:
+		// The Archive page asked to close (esc). Only AppModel changes
+		// visibility and focus, mirroring CloseDetailsSideMsg: hide the page,
+		// return focus to the task tree, then run any follow-up command.
+		m.archivePageVisible = false
+		m.focusedZone = constants.COMPONENT_TASK_TREE
+		finalCmds = append(finalCmds,
+			cmds.SetFocus(constants.COMPONENT_TASK_TREE),
+			m.footerContextCmd(),
+		)
+		if msg.Follow != nil {
+			finalCmds = append(finalCmds, msg.Follow)
+		}
+
 	case cmds.CloseModalMsg:
 		m.activeModal = nil
 		if msg.Follow != nil {
@@ -717,13 +757,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Forward the message to every component. TaskPanel forwards to the tree
 	// and input controls after deriving their shared Tasks-surface state.
-	var menuCmd, barCmd, listsCmd, tasksCmd, detailsCmd tea.Cmd
+	var menuCmd, barCmd, listsCmd, tasksCmd, detailsCmd, archiveCmd tea.Cmd
 	m.components.MainMenu, menuCmd = m.components.MainMenu.Update(msg)
 	m.components.KeybindingBar, barCmd = m.components.KeybindingBar.Update(msg)
 	m.components.ListsPanel, listsCmd = m.components.ListsPanel.Update(msg)
 	m.components.TaskPanel, tasksCmd = m.components.TaskPanel.Update(msg)
 	m.components.DetailsPanel, detailsCmd = m.components.DetailsPanel.Update(msg)
-	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, tasksCmd, detailsCmd)
+	m.components.ArchivePage, archiveCmd = m.components.ArchivePage.Update(msg)
+	finalCmds = append(finalCmds, menuCmd, barCmd, listsCmd, tasksCmd, detailsCmd, archiveCmd)
 
 	return m, tea.Batch(finalCmds...)
 }

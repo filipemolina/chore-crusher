@@ -8,6 +8,11 @@ const (
 	COMPONENT_TASK_TREE     = 1
 	COMPONENT_ADD_INPUT     = 2
 	COMPONENT_DETAILS_PANEL = 3
+	// COMPONENT_ARCHIVE_PAGE is the Archived Lists page (docs/DESIGN.md §5). Like
+	// Details it is never in the tab/shift+tab cycle: it is a full-body takeover
+	// entered and left by explicit open/close transitions, not a panel Tasks
+	// shares focus with.
+	COMPONENT_ARCHIVE_PAGE = 4
 )
 
 // FocusableComponents are the component ids tab / shift+tab cycle

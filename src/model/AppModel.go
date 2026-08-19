@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/filipemolina/farol/src/apptypes"
 	"github.com/filipemolina/farol/src/cmds"
+	"github.com/filipemolina/farol/src/components/archivepage"
 	"github.com/filipemolina/farol/src/components/detailspanel"
 	"github.com/filipemolina/farol/src/components/keybindingbar"
 	"github.com/filipemolina/farol/src/components/listspanel"
@@ -41,11 +42,18 @@ type AppModel struct {
 	// transitions, and starts hidden with an empty task id.
 	detailsPanelVisible bool
 	detailsTaskID       string
-	activeListID        string
-	lists               []apptypes.ListSummary
-	activeModal         tea.Model
-	lastError           string
-	sortMode            apptypes.SortMode
+	// archivePageVisible tracks the Archived Lists page, the exclusive
+	// full-body surface that replaces Tasks/Lists (docs/DESIGN.md §5).
+	// Unlike Details it is not a centered modal: while it is true, renderBody
+	// returns the archive page's own View instead of the Tasks/Lists split,
+	// and it owns the keyboard the same way Details does. It carries no task
+	// id — it has nothing analogous to detailsTaskID to track.
+	archivePageVisible bool
+	activeListID       string
+	lists              []apptypes.ListSummary
+	activeModal        tea.Model
+	lastError          string
+	sortMode           apptypes.SortMode
 
 	// animFrame is the current spinner frame (0..7), advanced by AnimTickMsg.
 	// animActive tracks whether any agent claim is live — the spinner only
@@ -65,6 +73,7 @@ type AppModel struct {
 		ListsPanel    tea.Model
 		TaskPanel     tea.Model
 		DetailsPanel  tea.Model
+		ArchivePage   tea.Model
 	}
 }
 
@@ -90,6 +99,7 @@ func GetInitialModel(s *store.Store, cfg config.Config) tea.Model {
 	m.components.ListsPanel = listspanel.New()
 	m.components.TaskPanel = taskspanel.New(s, "")
 	m.components.DetailsPanel = detailspanel.New(s)
+	m.components.ArchivePage = archivepage.New(s)
 	return m
 }
 

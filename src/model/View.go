@@ -149,6 +149,13 @@ func (m AppModel) statusView() string {
 // still leaves the header and footer as the frame boundary. The Details modal
 // is not a body surface — it is composited over this in View.
 func (m AppModel) renderBody() string {
+	// The Archive page is a full-body takeover, not a side surface sharing
+	// the row with Tasks/Lists (docs/DESIGN.md §5) — it replaces this whole
+	// method's usual output rather than composing alongside it.
+	if m.archivePageVisible {
+		return m.components.ArchivePage.View().Content
+	}
+
 	layout := m.bodyLayout
 	main := m.components.TaskPanel.View().Content
 
