@@ -24,7 +24,7 @@ Set TypingSpeed 45ms
 # Build the binary and seed the throwaway store in a dedicated temp dir.
 # Hide every frame of setup -- the GIF starts at the TUI on the seeded list.
 Hide
-Type "cd /home/filipe/Documents/projects/farol/.slim/worktrees/demo-presence && ./demo/seed-presence.sh && clear"
+Type "cd /home/filipe/Documents/projects/farol && ./demo/seed-presence.sh && clear"
 Enter
 Sleep 3s
 # Export the same throwaway XDG dirs inside the visible shell so the TUI reads
